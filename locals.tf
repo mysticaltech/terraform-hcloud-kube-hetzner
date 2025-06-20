@@ -259,6 +259,7 @@ locals {
         nodepool_name : nodepool_obj.name,
         server_type : nodepool_obj.server_type,
         longhorn_volume_size : coalesce(nodepool_obj.longhorn_volume_size, 0),
+        longhorn_mount_path : nodepool_obj.longhorn_mount_path,
         floating_ip : lookup(nodepool_obj, "floating_ip", false),
         floating_ip_rdns : lookup(nodepool_obj, "floating_ip_rdns", false),
         location : nodepool_obj.location,
@@ -288,6 +289,7 @@ locals {
           nodepool_name : nodepool_obj.name,
           server_type : nodepool_obj.server_type,
           longhorn_volume_size : coalesce(nodepool_obj.longhorn_volume_size, 0),
+          longhorn_mount_path : nodepool_obj.longhorn_mount_path
           floating_ip : lookup(nodepool_obj, "floating_ip", false),
           floating_ip_rdns : lookup(nodepool_obj, "floating_ip_rdns", false),
           location : nodepool_obj.location,
