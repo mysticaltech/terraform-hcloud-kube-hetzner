@@ -233,7 +233,9 @@ module "kube-hetzner" {
       # Something worth noting is that Volume storage is slower than node storage, which is achieved by not mentioning longhorn_volume_size or setting it to 0.
       # So for something like DBs, you definitely want node storage, for other things like backups, volume storage is fine, and cheaper.
       # longhorn_volume_size = 20
-
+      # Set any path inside /var/ folder to have ability use additional storage class along with default one which is by default must be set in helm values to 
+      # /var/longhorn
+      # longhorn_mount_path = "/var/lib/longhorn"
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
     },
