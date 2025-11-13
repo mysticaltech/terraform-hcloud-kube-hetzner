@@ -174,6 +174,6 @@ variable "ssh_bastion" {
 }
 
 variable "network_gw_ipv4" {
-  type    = string
-  default = "Default IPv4 gateway address for the node's primary network interface"
+  type        = string
+  description = "Default IPv4 gateway address for the node's primary network interface"
 }
