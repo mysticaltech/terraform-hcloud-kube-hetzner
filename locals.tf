@@ -1022,51 +1022,55 @@ else
 fi
 EOF
 
-cloudinit_write_files_common = <<EOT
+  cloudinit_write_files_common = <<EOT
 # Script to rename the private interface to eth1 and unify NetworkManager connection naming
 - path: /etc/cloud/rename_interface.sh
   content: |
     #!/bin/bash
     set -euo pipefail
+    sleep 8
 
-    sleep 11
+    myinit() {
+      # wait for a bit
+      sleep 3
 
-    # Somehow sometimes on private-ip only setups, the 
-    # interface may already be correctly names, and this
-    # block should be skipped.
-    if ! ip link show eth1 >/dev/null 2>&1; then
-      # Find the private network interface by name, falling back to original logic.
-      # The output of 'ip link show' is stored to avoid multiple calls.
-      # Use '|| true' to prevent grep from causing script failure when no matches found
-      IP_LINK_NO_FLANNEL=$(ip link show | grep -v 'flannel' || true)
+      # Somehow sometimes on private-ip only setups, the
+      # interface may already be correctly names, and this
+      # block should be skipped.
+      if ! ip link show eth1 >/dev/null 2>&1; then
+        # Find the private network interface by name, falling back to original logic.
+        # The output of 'ip link show' is stored to avoid multiple calls.
+        # Use '|| true' to prevent grep from causing script failure when no matches found
+        IP_LINK_NO_FLANNEL=$(ip link show | grep -v 'flannel' || true)
 
-      # Try to find an interface with a predictable name, e.g., enp1s0
-      # Anchor pattern to second field to avoid false matches
-      INTERFACE=$(awk '$2 ~ /^enp[0-9]+s[0-9]+:$/{sub(/:/,"",$2); print $2; exit}' <<< "$IP_LINK_NO_FLANNEL")
+        # Try to find an interface with a predictable name, e.g., enp1s0
+        # Anchor pattern to second field to avoid false matches
+        INTERFACE=$(awk '$2 ~ /^enp[0-9]+s[0-9]+:$/{sub(/:/,"",$2); print $2; exit}' <<< "$IP_LINK_NO_FLANNEL")
 
-      # If no predictable name is found, use original logic as fallback
-      if [ -z "$INTERFACE" ]; then
-        INTERFACE=$(awk '/^3:/{p=$2} /^2:/{s=$2} END{iface=p?p:s; sub(/:/,"",iface); print iface}' <<< "$IP_LINK_NO_FLANNEL")
+        # If no predictable name is found, use original logic as fallback
+        if [ -z "$INTERFACE" ]; then
+          INTERFACE=$(awk '/^3:/{p=$2} /^2:/{s=$2} END{iface=p?p:s; sub(/:/,"",iface); print iface}' <<< "$IP_LINK_NO_FLANNEL")
+        fi
+
+        # Ensure an interface was found
+        if [ -z "$INTERFACE" ]; then
+          echo "ERROR: Failed to detect network interface for renaming to eth1" >&2
+          echo "Available interfaces:" >&2
+          echo "$IP_LINK_NO_FLANNEL" >&2
+          return 1
+        fi
+
+        MAC=$(cat "/sys/class/net/$INTERFACE/address") || return 1
+
+        echo "SUBSYSTEM==\"net\", ACTION==\"add\", DRIVERS==\"?*\", ATTR{address}==\"$MAC\", NAME=\"eth1\"" > /etc/udev/rules.d/70-persistent-net.rules
+
+        ip link set "$INTERFACE" down
+        ip link set "$INTERFACE" name eth1
+        ip link set eth1 up
       fi
 
-      # Ensure an interface was found
-      if [ -z "$INTERFACE" ]; then
-        echo "ERROR: Failed to detect network interface for renaming to eth1" >&2
-        echo "Available interfaces:" >&2
-        echo "$IP_LINK_NO_FLANNEL" >&2
-        exit 1
-      fi
-
-      MAC=$(cat "/sys/class/net/$INTERFACE/address")
-
-      cat <<EOF > /etc/udev/rules.d/70-persistent-net.rules
-      SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ATTR{address}=="$MAC", NAME="eth1"
-    EOF
-
-      ip link set $INTERFACE down
-      ip link set $INTERFACE name eth1
-      ip link set eth1 up
-    fi
+      return 0
+    }
 
     myrepeat () {
         # Current time + 300 seconds (5 minutes)
@@ -1101,6 +1105,7 @@ cloudinit_write_files_common = <<EOT
         fi
     }
 
+    myrepeat myinit
     myrepeat myrename eth0
     myrepeat myrename eth1
 
