@@ -176,3 +176,8 @@ output "nat_router_ssh_port" {
   description = "The non-root user as which you can ssh into the router."
   value       = var.ssh_port
 }
+
+output "vswitch_subnet" {
+  description = "Attributes of the vSwitch subnet."
+  value       = try(hcloud_network_subnet.vswitch_subnet[0], null)
+}

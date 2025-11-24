@@ -1064,6 +1064,17 @@ The example shows three control plane nodepools, each with one node, in differen
     * `false`: The module uses a legacy method, likely applying raw Kubernetes YAML manifests (`kubectl apply -f ...`). This might be for compatibility with older module versions or specific needs.
 
 ```terraform
+  # To enable Hetzner CCM compatibility and connection with dedicated Robot servers, set the `robot_ccm_enabled` to "true", default is "false".
+  robot_ccm_enabled = true
+```
+
+* **`robot_ccm_enabled` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Enables the integration of Hetzner Robot dedicated servers via the Cloud Controller Manager (CCM). This is only activated if `robot_user` and `robot_password` are also provided.
+    * `true`: The HCCM is configured to allow connections to Robot Nodes.
+    * `false`: The HCCM won't handle connections to Robot Nodes
+
+```terraform
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
   # hetzner_csi_version = ""
 ```
@@ -1883,6 +1894,18 @@ Excellent! Let's continue our meticulous dissection.
   * **Reference:** Consult the Hubble documentation for available metric types and configuration syntax.
 
 ```terraform
+  # Set the Cilium LoadBalancer & NodePort XDP Acceleration. Default: "best-effort".
+  # The setting "native" enforces XDP Acceleration on ports and "disabled" disables the acceleration, "best-effort" enables the XDP Acceleration if the interface supports it.
+  # See [Cilium XDP documentation](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/#loadbalancer-nodeport-xdp-acceleration).
+  # For Robot nodes connected over vSwitch, the XDP acceleration may not work on the Robot node and the setting therefore recommended to be set to "best-effort" or "disabled".
+  # cilium_loadbalancer_acceleration_mode = "best-effort"
+```
+
+* **`cilium_loadbalancer_acceleration_mode` (String, Optional, relevant if `cni_plugin = "cilium"`):**
+  * **Default:** `"best-effort"`.
+  * **Purpose:** Specifies the Loadbalancer Acceleration mode for Cilium (loadBalancer.acceleration). 
+
+```terraform
   # You can choose the version of Calico that you want. By default, the latest is used.
   # More info on available versions can be found at https://github.com/projectcalico/calico/releases
   # Please note that if you are getting 403s from Github, it's also useful to set the version manually. However there is rarely a need for that!
@@ -2660,6 +2683,35 @@ variable "hcloud_token" {
     * If not, `var.hcloud_token` defaults to `""`, and the ternary operator then chooses `local.hcloud_token`.
   * This variable declaration is what allows `TF_VAR_hcloud_token` to populate `var.hcloud_token`.
 
+```terraform
+variable "robot_user" {
+  sensitive = true
+  default   = ""
+}
+```
+
+* **`variable "robot_user"` Block:**
+  * **Purpose:** Declares an input variable named `robot_user` for this root Terraform configuration. The value should be retrieved from the Hetzner Robot Webservice UI. This variable is required for connecting Robot Nodes to the cluster and is only used when `robot_ccm_enabled` is set to `true`.
+  * **`sensitive = true`:** Marks this input variable as sensitive. If you were to set it via a `terraform.tfvars` file or command line (`-var="hcloud_token=..."`), Terraform would handle it with more care regarding logging.
+  * **`default = ""`:** Provides a default value (empty string). This allows the logic `var.robot_user != "" ? var.robot_user : local.robot_user` to work correctly:
+    * If `TF_VAR_robot_user` is set in the environment, `var.robot_user` gets that value.
+    * If not, `var.robot_user` defaults to `""`, and the ternary operator then chooses `local.robot_user`.
+  * This variable declaration is what allows `TF_VAR_robot_user` to populate `var.robot_user`.
+
+```terraform
+variable "robot_password" {
+  sensitive = true
+  default   = ""
+}
+```
+
+* **`variable "robot_password"` Block:**
+  * **Purpose:** Declares an input variable named `robot_password` for this root Terraform configuration. The value should be retrieved from the Hetzner Robot Webservice UI. This variable is required for connecting Robot Nodes to the cluster and is only used when `robot_ccm_enabled` is set to `true`.
+  * **`sensitive = true`:** Marks this input variable as sensitive. If you were to set it via a `terraform.tfvars` file or command line (`-var="hcloud_token=..."`), Terraform would handle it with more care regarding logging.
+  * **`default = ""`:** Provides a default value (empty string). This allows the logic `var.robot_password != "" ? var.robot_password : local.robot_password` to work correctly:
+    * If `TF_VAR_robot_password` is set in the environment, `var.robot_password` gets that value.
+    * If not, `var.robot_password` defaults to `""`, and the ternary operator then chooses `local.robot_password`.
+  * This variable declaration is what allows `TF_VAR_robot_password` to populate `var.robot_password`.
 ---
 
 **Conclusion of the Deep Dive**
@@ -2842,6 +2894,23 @@ The following variables have been added to the `kube-hetzner` module since the i
   * **Purpose:** Pin to specific MicroOS snapshot versions
   * **Discovery:** `hcloud image list --selector 'microos-snapshot=yes'`
   * **Use Case:** Ensure consistency across deployments or rollback to known-good images
+
+**vSwitch Configuration**
+
+```terraform
+  # To connect the Hetzner Cloud network to Robot servers via vSwitch subnet, create the vSwitch and set its ID to the `vswitch_id` (number).
+  # Note that the VLAN ID is not the same as vSwitch ID. The vSwitch-subnet is assigned to 10.201.0.0/16 by default, can be changed via var.vswitch_subnet_index.
+  # The vSwitch subnet is not created when the value is null. Default: null
+  # vswitch_id = null
+```
+
+* **`vswitch_id` (number, Optional):**
+  * **Purpose:** Connects the Cloud network to a pre-existing Hetzner vSwitch by creating a vSwitch-type subnet. It also exposes Cloud network routes to the vSwitch.
+  * **Requirements:** vSwitch must exist
+  * **Use Case:** The connection is required if Hetzner Robot instances are connected to the Hetzner Cloud instances via private networking  
+
+* **`vswitch_subnet_index` (number, Optional):**
+  * **Purpose:** Defines the subnet range index to be used in the vSwitch subnet creation. Default: 201, which then converts to 10.201.0.0/16 by default.
 
 **Additional Helm Values Customization**
 

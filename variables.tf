@@ -11,6 +11,26 @@ variable "k3s_token" {
   default     = null
 }
 
+variable "robot_user" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "User for the Hetzner Robot webservice"
+}
+
+variable "robot_password" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Password for the Hetzner Robot webservice"
+}
+
+variable "robot_ccm_enabled" {
+  type        = bool
+  default     = false
+  description = "Enables the integration of Hetzner Robot dedicated servers via the Cloud Controller Manager (CCM). If true, `robot_user` and `robot_password` must also be provided, otherwise the integration will not be activated."
+}
+
 variable "microos_x86_snapshot_id" {
   description = "MicroOS x86 snapshot ID to be used. Per default empty, the most recent image created using createkh will be used"
   type        = string
@@ -148,6 +168,22 @@ variable "nat_router_subnet_index" {
   }
 }
 
+variable "vswitch_subnet_index" {
+  type        = number
+  default     = 201
+  description = "Subnet index (0-255) for vSwitch. Default 201 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
+
+  validation {
+    condition     = var.vswitch_subnet_index >= 0 && var.vswitch_subnet_index <= 255
+    error_message = "vSwitch subnet index must be between 0 and 255."
+  }
+}
+
+variable "vswitch_id" {
+  description = "Hetzner Cloud vSwitch ID. If defined, a subnet will be created in the IP-range defined by vswitch_subnet_index. The vSwitch must exist before this module is called."
+  type        = number
+  default     = null
+}
 
 variable "load_balancer_location" {
   description = "Default load balancer location."
@@ -773,6 +809,17 @@ variable "cilium_routing_mode" {
   validation {
     condition     = contains(["tunnel", "native"], var.cilium_routing_mode)
     error_message = "The cilium_routing_mode must be one of \"tunnel\" or \"native\"."
+  }
+}
+
+variable "cilium_loadbalancer_acceleration_mode" {
+  type        = string
+  default     = "best-effort"
+  description = "Set Cilium loadbalancer.acceleration-mode. Supported values are \"disabled\", \"native\" and \"best-effort\"."
+
+  validation {
+    condition     = contains(["disabled", "native", "best-effort"], var.cilium_loadbalancer_acceleration_mode)
+    error_message = "The cilium_loadbalancer_acceleration_mode must be one of \"disabled\", \"native\" or \"best-effort\"."
   }
 }
 

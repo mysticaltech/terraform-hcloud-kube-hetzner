@@ -1,10 +1,14 @@
 locals {
   # You have the choice of setting your Hetzner API token here or define the TF_VAR_hcloud_token env
-  # within your shell, such as: export TF_VAR_hcloud_token=xxxxxxxxxxx
+  # within your shell, such as: export TF_VAR_hcloud_token=xxxxxxxxxxx. Or you can use .tfvars-files.
   # If you choose to define it in the shell, this can be left as is.
 
   # Your Hetzner token can be found in your Project > Security > API Token (Read & Write is required).
   hcloud_token = "xxxxxxxxxxx"
+
+  # Credentials for the Hetzner Robot webservice
+  robot_user     = ""
+  robot_password = ""
 }
 
 module "kube-hetzner" {
@@ -12,6 +16,8 @@ module "kube-hetzner" {
     hcloud = hcloud
   }
   hcloud_token = var.hcloud_token != "" ? var.hcloud_token : local.hcloud_token
+  robot_user     = var.robot_user != "" ? var.robot_user : local.robot_user
+  robot_password = var.robot_password != "" ? var.robot_password : local.robot_password
 
   # Then fill or edit the below values. Only the first values starting with a * are obligatory; the rest can remain with their default values, or you
   # could adapt them to your needs.
@@ -523,6 +529,19 @@ module "kube-hetzner" {
   # By default, new installations use Helm to install Hetzner CCM. You can use the legacy deployment method (using `kubectl apply`) by setting `hetzner_ccm_use_helm = false`.
   hetzner_ccm_use_helm = true
 
+  # To enable Hetzner CCM compatibility with dedicated Robot servers, set the `robot_ccm_enabled` to "true", default is "false".
+  # Requirements for the CCM and Kubernetes Cluster to work with dedicated Robot servers:
+  # - Create Robot Webservice credentials and set them to the `robot_user` and `robot_password` TF-variables. They are passed on via secrets to HCCM env.
+  # - `hetzner_ccm_use_helm = true`
+  # - `robot_ccm_enabled = true`
+  # See more from https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
+  # robot_ccm_enabled = false
+
+  # To connect the Hetzner Cloud network to Robot servers via vSwitch subnet, create the vSwitch and set its ID to the `vswitch_id` (number).
+  # Note that the VLAN ID is not the same as vSwitch ID. The vSwitch-subnet is assigned to 10.201.0.0/16 by default, can be changed via var.vswitch_subnet_index.
+  # The vSwitch subnet is not created when the value is null. Default: null
+  # vswitch_id = null
+
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
   # hetzner_csi_version = ""
 
@@ -845,6 +864,12 @@ module "kube-hetzner" {
   # cilium_hubble_metrics_enabled = [
   #   "policy:sourceContext=app|workload-name|pod|reserved-identity;destinationContext=app|workload-name|pod|dns|reserved-identity;labelsContext=source_namespace,destination_namespace"
   # ]
+
+  # Set the Cilium LoadBalancer & NodePort XDP Acceleration. Default: "best-effort".
+  # The setting "native" enforces XDP Acceleration on ports and "disabled" disabled the acceleration, "best-effort" enables the XDP Acceleration if the interface supports it.
+  # See [Cilium XDP documentation](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/#loadbalancer-nodeport-xdp-acceleration).
+  # For Robot nodes connected over vSwitch, the XDP acceleration may not work on the Robot node and the setting therefore recommended to be set to "best-effort" or "disabled".
+  # cilium_loadbalancer_acceleration_mode = "best-effort"
 
   # You can choose the version of Calico that you want. By default, the latest is used.
   # More info on available versions can be found at https://github.com/projectcalico/calico/releases
@@ -1248,6 +1273,16 @@ output "kubeconfig" {
 }
 
 variable "hcloud_token" {
+  sensitive = true
+  default   = ""
+}
+
+variable "robot_user" {
+  sensitive = true
+  default   = ""
+}
+
+variable "robot_password" {
   sensitive = true
   default   = ""
 }
