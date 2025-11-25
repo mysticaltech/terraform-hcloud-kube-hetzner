@@ -97,6 +97,8 @@ resource "hcloud_load_balancer_service" "control_plane" {
 }
 
 locals {
+  control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
+
   control_plane_ips = {
     for k, v in module.control_planes : k => coalesce(
       v.ipv4_address,
@@ -108,11 +110,17 @@ locals {
   k3s-config = { for k, v in local.control_plane_nodes : k => merge(
     {
       node-name = module.control_planes[k].name
-      server = length(module.control_planes) == 1 ? null : "https://${
-        var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] :
-        module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ?
-        module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
-      module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443"
+      server = length(module.control_planes) == 1 ? null : coalesce(
+        var.control_plane_endpoint,
+        "https://${
+          var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] :
+          (
+            module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ?
+            module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
+            module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+          )
+        }:6443"
+      )
       token                    = local.k3s_token
       disable-cloud-controller = true
       disable-kube-proxy       = var.disable_kube_proxy
@@ -134,14 +142,18 @@ locals {
     },
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
     var.use_control_plane_lb ? {
-      tls-san = concat([
-        hcloud_load_balancer.control_plane.*.ipv4[0],
-        hcloud_load_balancer_network.control_plane.*.ip[0],
-        var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null
-      ], var.additional_tls_sans)
+      tls-san = concat(
+        compact([
+          hcloud_load_balancer.control_plane.*.ipv4[0],
+          hcloud_load_balancer_network.control_plane.*.ip[0],
+          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+          local.control_plane_endpoint_host,
+        ]),
+      var.additional_tls_sans)
       } : {
       tls-san = concat(
         compact([
+          local.control_plane_endpoint_host,
           module.control_planes[k].ipv4_address != "" ? module.control_planes[k].ipv4_address : null,
           module.control_planes[k].ipv6_address != "" ? module.control_planes[k].ipv6_address : null,
           try(one(module.control_planes[k].network).ip, null)
