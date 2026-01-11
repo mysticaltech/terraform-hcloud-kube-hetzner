@@ -35,7 +35,7 @@ ${cloudinit_runcmd_common}
 # Configure default routes based on public ip availability
 %{if private_network_only~}
 # Private-only setup: eth0 is the private interface
-- [ip, route, add, default, via, '${network_gw_ipv4}', dev, 'eth0', metric, '100']
+- [ip, route, add, default, via, '${network_gw_ipv4}', dev, 'enp7s0', metric, '100']
 %{else~}
 # Standard setup: eth0 is public, configure both IPv4 and IPv6
 - [ip, route, add, default, via, '172.31.1.1', dev, 'eth0', metric, '100']
