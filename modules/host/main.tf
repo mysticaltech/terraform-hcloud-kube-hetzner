@@ -153,6 +153,8 @@ resource "null_resource" "registries" {
 }
 
 resource "null_resource" "kubelet_config" {
+  count = var.k3s_kubelet_config != "" ? 1 : 0
+
   triggers = {
     kubelet_config = var.k3s_kubelet_config
   }

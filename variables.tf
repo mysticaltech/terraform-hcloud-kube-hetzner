@@ -1237,7 +1237,7 @@ variable "k3s_registries" {
 }
 
 variable "k3s_kubelet_config" {
-  description = "K3S kubelet-config.yaml contents. It used to configure the kubelet."
+  description = "K3S kubelet-config.yaml contents. Used to configure the kubelet."
   default     = ""
   type        = string
 }
