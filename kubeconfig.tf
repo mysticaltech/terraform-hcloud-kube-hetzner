@@ -25,7 +25,7 @@ resource "ssh_sensitive_resource" "kubeconfig" {
     "cat /etc/rancher/k3s/k3s.yaml"
   ]
 
-  depends_on = [null_resource.control_planes[0]]
+  depends_on = [terraform_data.control_planes[0]]
 }
 
 locals {

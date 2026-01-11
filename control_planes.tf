@@ -48,7 +48,7 @@ module "control_planes" {
     hcloud_network_subnet.control_plane,
     hcloud_placement_group.control_plane,
     hcloud_server.nat_router,
-    null_resource.nat_router_await_cloud_init,
+    terraform_data.nat_router_await_cloud_init,
   ]
 }
 
@@ -154,10 +154,10 @@ locals {
   ) }
 }
 
-resource "null_resource" "control_plane_config" {
+resource "terraform_data" "control_plane_config" {
   for_each = local.control_plane_nodes
 
-  triggers = {
+  triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
     config           = sha1(yamlencode(local.k3s-config[each.key]))
   }
@@ -187,16 +187,20 @@ resource "null_resource" "control_plane_config" {
   }
 
   depends_on = [
-    null_resource.first_control_plane,
+    terraform_data.first_control_plane,
     hcloud_network_subnet.control_plane
   ]
 }
+moved {
+  from = null_resource.control_plane_config
+  to   = terraform_data.control_plane_config
+}
 
 
-resource "null_resource" "authentication_config" {
+resource "terraform_data" "authentication_config" {
   for_each = local.control_plane_nodes
 
-  triggers = {
+  triggers_replace = {
     control_plane_id      = module.control_planes[each.key].id
     authentication_config = sha1(var.authentication_config)
   }
@@ -225,15 +229,19 @@ resource "null_resource" "authentication_config" {
   }
 
   depends_on = [
-    null_resource.first_control_plane,
+    terraform_data.first_control_plane,
     hcloud_network_subnet.control_plane
   ]
 }
+moved {
+  from = null_resource.authentication_config
+  to   = terraform_data.authentication_config
+}
 
-resource "null_resource" "control_planes" {
+resource "terraform_data" "control_planes" {
   for_each = local.control_plane_nodes
 
-  triggers = {
+  triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
   }
 
@@ -276,9 +284,13 @@ resource "null_resource" "control_planes" {
   }
 
   depends_on = [
-    null_resource.first_control_plane,
-    null_resource.control_plane_config,
-    null_resource.authentication_config,
+    terraform_data.first_control_plane,
+    terraform_data.control_plane_config,
+    terraform_data.authentication_config,
     hcloud_network_subnet.control_plane
   ]
+}
+moved {
+  from = null_resource.control_planes
+  to   = terraform_data.control_planes
 }

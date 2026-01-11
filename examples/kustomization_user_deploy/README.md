@@ -64,15 +64,15 @@ To check the existing kustomization, you can run the following command:
 ```
 $ terraform state list | grep kustom
   ...
-  module.kube-hetzner.null_resource.kustomization
-  module.kube-hetzner.null_resource.kustomization_user["demo-config-map.yaml.tpl"]
-  module.kube-hetzner.null_resource.kustomization_user["demo-pod.yaml.tpl"]
-  module.kube-hetzner.null_resource.kustomization_user["kustomization.yaml.tpl"]
+  module.kube-hetzner.terraform_data.kustomization
+  module.kube-hetzner.terraform_data.kustomization_user["demo-config-map.yaml.tpl"]
+  module.kube-hetzner.terraform_data.kustomization_user["demo-pod.yaml.tpl"]
+  module.kube-hetzner.terraform_data.kustomization_user["kustomization.yaml.tpl"]
   ...
 ```
 
 If you want to rerun just the kustomization part, you can use the following command:
 
 ```
-terraform apply -replace='module.kube-hetzner.null_resource.kustomization_user["kustomization.yaml.tpl"]' --auto-approve
+terraform apply -replace='module.kube-hetzner.terraform_data.kustomization_user["kustomization.yaml.tpl"]' --auto-approve
 ```
