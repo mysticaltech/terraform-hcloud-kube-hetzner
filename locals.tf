@@ -27,6 +27,17 @@ locals {
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
   dns_servers_ipv6 = [for ip in var.dns_servers : ip if provider::assert::ipv6(ip)]
 
+  # My IPv4 related variables.
+  is_ref_myipv4_used = (
+    contains(coalesce(var.firewall_kube_api_source, []), var.myipv4_ref) ||
+    contains(coalesce(var.firewall_ssh_source, []), var.myipv4_ref) ||
+    contains(flatten([
+      for rule in var.extra_firewall_rules : concat(coalesce(rule.source_ips, []), coalesce(rule.destination_ips, []))
+    ]), var.myipv4_ref)
+  )
+  my_public_ipv4_cidr = try("${data.external.my_ip[0].result.ipv4}/32", null)
+
+
   additional_k3s_environment = join("\n",
     [
       for var_name, var_value in var.additional_k3s_environment :
@@ -509,8 +520,15 @@ locals {
   # merge the two lists
   firewall_rules_merged = merge(local.firewall_rules, local.extra_firewall_rules)
 
-  # convert the merged list back to a list
-  firewall_rules_list = values(local.firewall_rules_merged)
+  # replace "myipv4" (var.myipv4_ref) with the actual value, merge to a list
+  firewall_rules_list = [for key, rule in local.firewall_rules_merged : {
+    description     = rule.description
+    direction       = rule.direction
+    protocol        = rule.protocol
+    port            = rule.port
+    source_ips      = compact([for ip in lookup(rule, "source_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+    destination_ips = compact([for ip in lookup(rule, "destination_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+  } if rule != null]
 
   labels = {
     "provisioner" = "terraform",

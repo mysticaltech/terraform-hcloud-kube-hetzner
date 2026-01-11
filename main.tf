@@ -78,5 +78,11 @@ resource "hcloud_firewall" "k3s" {
       source_ips      = lookup(rule.value, "source_ips", [])
     }
   }
-}
 
+  lifecycle {
+    precondition {
+      condition     = !local.is_ref_myipv4_used || local.my_public_ipv4_cidr != null
+      error_message = "Failed to retrieve public IPv4 address for 'myipv4' replacement. Please check your internet connection and ensure 'dig' is installed."
+    }
+  }
+}
