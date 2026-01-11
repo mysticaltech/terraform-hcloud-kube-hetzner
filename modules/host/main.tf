@@ -11,14 +11,6 @@ resource "random_string" "server" {
   }
 }
 
-resource "random_string" "identity_file" {
-  length  = 20
-  lower   = true
-  special = false
-  numeric = true
-  upper   = false
-}
-
 variable "network" {
   type = object({
     network_id = number
@@ -75,36 +67,19 @@ resource "hcloud_server" "server" {
     bastion_user        = var.ssh_bastion.bastion_user
     bastion_private_key = var.ssh_bastion.bastion_private_key
 
+    timeout = "10m"
   }
 
-  # Prepare ssh identity file
-  provisioner "local-exec" {
-    command = <<-EOT
-      install -b -m 600 /dev/null /tmp/${random_string.identity_file.id}
-      echo "${local.ssh_client_identity}" | sed 's/\r$//' > /tmp/${random_string.identity_file.id}
-    EOT
-  }
+  provisioner "remote-exec" {
+    inline = [
+      "echo 'Waiting for system to become fully ready...'",
 
-  # Wait for MicroOS to reboot and be ready.
-  provisioner "local-exec" {
-    command = <<-EOT
-      timeout 600 bash <<EOF
-          until ssh ${local.ssh_args} -i /tmp/${random_string.identity_file.id} ${local.ssh_proxy_jump} -o ConnectTimeout=2 -p ${var.ssh_port} root@${coalesce(self.ipv4_address, self.ipv6_address, try(one(self.network).ip, null))} true 2> /dev/null
-          do
-            echo "Waiting for MicroOS to become available..."
-            sleep 3
-          done
-      EOF
-    EOT
-  }
+      # Wait until the system is fully booted and in a running state.
+      "timeout 600 bash -c 'until systemctl is-system-running --quiet; do echo \"Waiting for system...\"; sleep 3; done'",
 
-  # Cleanup ssh identity file
-  provisioner "local-exec" {
-    command = <<-EOT
-      rm /tmp/${random_string.identity_file.id}
-    EOT
+      "echo 'System is fully ready!'"
+    ]
   }
-
 
   provisioner "remote-exec" {
     inline = var.automatically_upgrade_os ? [
