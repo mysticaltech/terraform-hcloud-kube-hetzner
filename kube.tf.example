@@ -144,9 +144,9 @@ module "kube-hetzner" {
       # disable_ipv6 = true
     },
     {
-      name        = "control-plane-fsn1",
+      name        = "control-plane-nbg1",
       server_type = "cx23",
-      location    = "fsn1",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
