@@ -13,6 +13,7 @@ resource "hcloud_load_balancer" "cluster" {
 
   lifecycle {
     ignore_changes = [
+      location,
       # Ignore changes to hcloud-ccm/service-uid label that is managed by the CCM.
       labels["hcloud-ccm/service-uid"],
     ]
