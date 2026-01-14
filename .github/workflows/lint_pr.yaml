@@ -46,4 +46,4 @@ jobs:
         uses: actions/checkout@v6
 
       - name: terraform fmt
-        uses: dflook/terraform-fmt-check@v2.2.2
+        uses: dflook/terraform-fmt-check@v2.2.3
