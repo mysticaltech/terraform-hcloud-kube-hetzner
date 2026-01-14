@@ -77,5 +77,83 @@ ${cloudinit_runcmd_common}
   ip -6 route replace default via fe80::1 dev "$PUB_IF" metric 100
 %{endif~}
 
+%{if swap_size != ""~}
+- |
+  btrfs subvolume create /var/lib/swap 2>/dev/null || true
+  chmod 700 /var/lib/swap
+  truncate -s 0 /var/lib/swap/swapfile
+  chattr +C /var/lib/swap/swapfile
+  fallocate -l ${swap_size} /var/lib/swap/swapfile
+  chmod 600 /var/lib/swap/swapfile
+  mkswap /var/lib/swap/swapfile
+  swapon /var/lib/swap/swapfile
+  if ! grep -q -F "/var/lib/swap/swapfile" /etc/fstab; then
+    echo "/var/lib/swap/swapfile none swap defaults 0 0" | tee -a /etc/fstab
+  fi
+  cat <<'  EOF' > /etc/systemd/system/swapon-late.service
+  [Unit]
+  Description=Activate all swap devices later
+  After=default.target
+
+  [Service]
+  Type=oneshot
+  ExecStart=/sbin/swapon -a
+
+  [Install]
+  WantedBy=default.target
+    EOF
+  systemctl daemon-reload
+  systemctl enable swapon-late.service
+%{endif~}
+
+%{if zram_size != ""~}
+- |
+  cat <<'  EOF' > /usr/local/bin/k3s-swapoff
+  #!/bin/bash
+
+  # Switching off swap
+  swapoff /dev/zram0
+
+  rmmod zram
+    EOF
+  chmod +x /usr/local/bin/k3s-swapoff
+
+  cat <<'  EOF' > /usr/local/bin/k3s-swapon
+  #!/bin/bash
+
+  # load the dependency module
+  modprobe zram
+
+  # initialize the device with zstd compression algorithm
+  echo zstd > /sys/block/zram0/comp_algorithm;
+  echo ZRAM_SIZE_PLACEHOLDER > /sys/block/zram0/disksize
+
+  # Creating the swap filesystem
+  mkswap /dev/zram0
+
+  # Switch the swaps on
+  swapon -p 100 /dev/zram0
+    EOF
+  sed -i 's/ZRAM_SIZE_PLACEHOLDER/${zram_size}/' /usr/local/bin/k3s-swapon
+  chmod +x /usr/local/bin/k3s-swapon
+
+  cat <<'  EOF' > /etc/systemd/system/zram.service
+  [Unit]
+  Description=Swap with zram
+  After=multi-user.target
+
+  [Service]
+  Type=oneshot
+  RemainAfterExit=true
+  ExecStart=/usr/local/bin/k3s-swapon
+  ExecStop=/usr/local/bin/k3s-swapoff
+
+  [Install]
+  WantedBy=multi-user.target
+    EOF
+  systemctl daemon-reload
+  systemctl enable --now zram.service
+%{endif~}
+
 # Start the install-k3s-agent service
 - ['/bin/bash', '/var/pre_install/install-k3s-agent.sh']
