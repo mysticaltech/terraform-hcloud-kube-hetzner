@@ -35,8 +35,21 @@ variable "packages_to_install" {
   default = []
 }
 
+# Choose which kernel to use: "default" for the rolling release kernel or "longterm" for LTS kernel
+variable "kernel_type" {
+  type    = string
+  default = "default"
+  validation {
+    condition     = contains(["longterm", "default"], var.kernel_type)
+    error_message = "The kernel_type must be either longterm or default."
+  }
+}
+
 locals {
-  needed_packages = join(" ", concat(["restorecond policycoreutils policycoreutils-python-utils setools-console audit bind-utils wireguard-tools fuse open-iscsi nfs-client xfsprogs cryptsetup lvm2 git cifs-utils bash-completion mtr tcpdump udica qemu-guest-agent"], var.packages_to_install))
+  # Only install kernel-longterm if selected; kernel-default is already in the base image
+  kernel_package_list = var.kernel_type == "longterm" ? ["kernel-longterm"] : []
+
+  needed_packages = join(" ", concat(local.kernel_package_list, ["restorecond", "policycoreutils", "policycoreutils-python-utils", "setools-console", "audit", "bind-utils", "wireguard-tools", "fuse", "open-iscsi", "nfs-client", "xfsprogs", "cryptsetup", "lvm2", "git", "cifs-utils", "bash-completion", "mtr", "tcpdump", "udica", "qemu-guest-agent"], var.packages_to_install))
 
   # Add local variables for inline shell commands
   download_image = "wget --timeout=5 --waitretry=5 --tries=5 --retry-connrefused --inet4-only "
@@ -48,6 +61,14 @@ locals {
     echo 'done. Rebooting...'
     sleep 1 && udevadm settle && reboot
   EOT
+
+  # Kernel switching commands: remove kernel-default and lock it when using longterm
+  # This ensures GRUB always boots the longterm kernel without complex configuration
+  kernel_switch_commands = var.kernel_type == "longterm" ? join("\n", [
+    "zypper rm -y kernel-default",
+    "zypper addlock kernel-default",
+    "grub2-mkconfig -o /boot/grub2/grub.cfg"
+  ]) : "true"
 
   install_packages = <<-EOT
     set -ex
@@ -61,6 +82,7 @@ locals {
     restorecon -Rv /etc/selinux/targeted/policy
     restorecon -Rv /var/lib
     setenforce 1
+    ${local.kernel_switch_commands}
     EOF
     sleep 1 && udevadm settle && reboot
   EOT
