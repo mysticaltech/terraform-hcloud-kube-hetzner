@@ -35,8 +35,21 @@ variable "packages_to_install" {
   default = []
 }
 
+# Path to a local file containing sysctl settings (one per line, e.g., "vm.swappiness = 10")
+# These will be installed to /etc/sysctl.d/99-custom.conf
+variable "sysctl_config_file" {
+  type    = string
+  default = ""
+}
+
 locals {
   needed_packages = join(" ", concat(["restorecond policycoreutils policycoreutils-python-utils setools-console audit bind-utils wireguard-tools fuse open-iscsi nfs-client xfsprogs cryptsetup lvm2 git cifs-utils bash-completion mtr tcpdump udica qemu-guest-agent"], var.packages_to_install))
+
+  # Read sysctl config if file path is provided, otherwise empty (base64 encoded for safe transfer)
+  sysctl_config_content = var.sysctl_config_file != "" ? base64encode(file(var.sysctl_config_file)) : ""
+
+  # Commands to write sysctl config if provided (decode base64)
+  sysctl_commands = local.sysctl_config_content != "" ? "echo '${local.sysctl_config_content}' | base64 -d > /etc/sysctl.d/99-custom.conf" : ""
 
   # Add local variables for inline shell commands
   download_image = "wget --timeout=5 --waitretry=5 --tries=5 --retry-connrefused --inet4-only "
@@ -61,6 +74,7 @@ locals {
     restorecon -Rv /etc/selinux/targeted/policy
     restorecon -Rv /var/lib
     setenforce 1
+    ${local.sysctl_commands}
     EOF
     sleep 1 && udevadm settle && reboot
   EOT
