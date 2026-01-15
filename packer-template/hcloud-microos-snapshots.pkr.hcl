@@ -35,6 +35,12 @@ variable "packages_to_install" {
   default = []
 }
 
+# Timezone to set on the snapshot (e.g., "Europe/Madrid", "UTC", "America/New_York")
+variable "timezone" {
+  type    = string
+  default = "UTC"
+}
+
 locals {
   needed_packages = join(" ", concat(["restorecond policycoreutils policycoreutils-python-utils setools-console audit bind-utils wireguard-tools fuse open-iscsi nfs-client xfsprogs cryptsetup lvm2 git cifs-utils bash-completion mtr tcpdump udica qemu-guest-agent"], var.packages_to_install))
 
@@ -71,6 +77,8 @@ locals {
     rm -rf /etc/ssh/ssh_host_*
     echo "Make sure to use NetworkManager"
     touch /etc/NetworkManager/NetworkManager.conf
+    echo "Setting timezone to '${var.timezone}'..."
+    timedatectl set-timezone '${var.timezone}'
     sleep 1 && udevadm settle
   EOT
 }
