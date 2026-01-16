@@ -71,7 +71,7 @@ ${cloudinit_runcmd_common}
 
 %{if swap_size != ""~}
 - |
-  btrfs subvolume create /var/lib/swap
+  btrfs subvolume create /var/lib/swap 2>/dev/null || true
   chmod 700 /var/lib/swap
   truncate -s 0 /var/lib/swap/swapfile
   chattr +C /var/lib/swap/swapfile
@@ -79,8 +79,10 @@ ${cloudinit_runcmd_common}
   chmod 600 /var/lib/swap/swapfile
   mkswap /var/lib/swap/swapfile
   swapon /var/lib/swap/swapfile
-  echo "/var/lib/swap/swapfile none swap defaults 0 0" | sudo tee -a /etc/fstab
-  cat << EOF >> /etc/systemd/system/swapon-late.service
+  if ! grep -q -F "/var/lib/swap/swapfile" /etc/fstab; then
+    echo "/var/lib/swap/swapfile none swap defaults 0 0" | tee -a /etc/fstab
+  fi
+  cat <<'  EOF' > /etc/systemd/system/swapon-late.service
   [Unit]
   Description=Activate all swap devices later
   After=default.target
@@ -91,7 +93,7 @@ ${cloudinit_runcmd_common}
 
   [Install]
   WantedBy=default.target
-  EOF
+    EOF
   systemctl daemon-reload
   systemctl enable swapon-late.service
 %{endif~}

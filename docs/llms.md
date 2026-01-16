@@ -721,6 +721,8 @@ The example shows three control plane nodepools, each with one node, in differen
   #      }
   #    ]
   #    # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
+  #    # swap_size = "2G"
+  #    # zram_size = "2G"
   #  }
   # ]
   #
@@ -748,6 +750,16 @@ The example shows three control plane nodepools, each with one node, in differen
       * Kubernetes taints to apply to nodes provisioned by the autoscaler in this pool.
       * **Format:** Each element in the list is a map with `key`, `value`, and `effect` (e.g., `NoSchedule`, `NoExecute`, `PreferNoSchedule`).
     * **`kubelet_args` (List of Strings, Optional):** Same purpose as in other nodepools, for passing custom arguments to kubelet on autoscaled nodes.
+    * **`swap_size` (String, Optional):**
+      * Examples: `"512M"`, `"2G"`, `"4G"`.
+      * Configures a swap file of the specified size on autoscaled nodes.
+      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled. Make sure you set `"feature-gates=NodeSwap=true"` in `k3s_global_kubelet_args` or `k3s_autoscaler_kubelet_args`.
+      * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
+    * **`zram_size` (String, Optional):**
+      * Examples: `"512M"`, `"1G"`.
+      * Configures zRAM (compressed RAM block device used for swap) on autoscaled nodes.
+      * Uses zstd compression algorithm for optimal performance.
+      * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
 * **`autoscaler_disable_ipv4` / `autoscaler_disable_ipv6` (Boolean, Optional):**
   * **Default:** `false`.
   * **Purpose:** If `true`, disables public IPv4/IPv6 on nodes created by the Cluster Autoscaler. Similar implications as for regular nodepools (private network only access if both are true).
