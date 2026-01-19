@@ -23,7 +23,9 @@ write_files:
       AllowTcpForwarding yes
       AllowAgentForwarding yes
       AuthorizedKeysFile .ssh/authorized_keys
-      # PermitRootLogin no
+%{ if enable_sudo ~}
+      PermitRootLogin no
+%{ endif ~}
     path: /etc/ssh/sshd_config.d/kube-hetzner.conf
   - path: /etc/fail2ban/jail.d/sshd.local
     content: |
