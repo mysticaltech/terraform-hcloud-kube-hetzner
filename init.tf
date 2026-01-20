@@ -78,15 +78,6 @@ locals {
     module.control_planes[keys(module.control_planes)[0]].ipv6_address,
     module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
   )
-
-  # Exclude control plane nodes from receiving LB traffic
-  # if scheduling is not allowed or it's not a single node cluster (see locals.tf)
-
-  lb_target_groups = (
-    local.allow_loadbalancer_target_on_control_plane ?
-    [local.labels_control_plane_node, local.labels_agent_node] :
-    [local.labels_agent_node]
-  )
 }
 
 resource "null_resource" "first_control_plane" {
