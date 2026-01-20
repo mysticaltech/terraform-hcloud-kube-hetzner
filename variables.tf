@@ -122,7 +122,7 @@ variable "cluster_dns_ipv4" {
 
 
 variable "nat_router" {
-  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled."
+  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled. Automatically forwards port 6443 to the control plane LB when control_plane_lb_enable_public_interface=false."
   nullable    = true
   default     = null
   type = object({
@@ -1129,7 +1129,7 @@ variable "control_plane_lb_type" {
 variable "control_plane_lb_enable_public_interface" {
   type        = bool
   default     = true
-  description = "Enable or disable public interface for the control plane load balancer . Defaults to true."
+  description = "Enable or disable public interface for the control plane load balancer. Defaults to true. When disabled with nat_router enabled, the NAT router automatically forwards port 6443 to the private control plane LB."
 }
 
 variable "dns_servers" {

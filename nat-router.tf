@@ -1,13 +1,5 @@
 locals {
   nat_router_ip = var.nat_router != null ? cidrhost(hcloud_network_subnet.nat_router[0].ip_range, 1) : ""
-  nat_router_data_center = var.nat_router != null ? {
-    "fsn1" : "fsn1-dc14",
-    "nbg1" : "nbg1-dc3",
-    "hel1" : "hel1-dc2",
-    "ash" : "ash-dc1",
-    "hil" : "hil-dc1",
-    "sin" : "sin-dc1",
-  }[var.nat_router.location] : null
 }
 
 data "cloudinit_config" "nat_router_config" {
@@ -31,6 +23,8 @@ data "cloudinit_config" "nat_router_config" {
         private_network_ipv4_range = data.hcloud_network.k3s.ip_range
         ssh_port                   = var.ssh_port
         ssh_max_auth_tries         = var.ssh_max_auth_tries
+        enable_cp_lb_port_forward  = var.use_control_plane_lb && !var.control_plane_lb_enable_public_interface
+        cp_lb_private_ip           = hcloud_load_balancer_network.control_plane.*.ip[0]
       }
     )
   }
@@ -49,7 +43,7 @@ resource "hcloud_primary_ip" "nat_router_primary_ipv4" {
   count         = var.nat_router != null ? 1 : 0
   type          = "ipv4"
   name          = "${var.cluster_name}-nat-router-ipv4"
-  datacenter    = local.nat_router_data_center
+  location      = var.nat_router.location
   auto_delete   = false
   assignee_type = "server"
 }
@@ -60,7 +54,7 @@ resource "hcloud_primary_ip" "nat_router_primary_ipv6" {
   count         = var.nat_router != null ? 1 : 0
   type          = "ipv6"
   name          = "${var.cluster_name}-nat-router-ipv6"
-  datacenter    = local.nat_router_data_center
+  location      = var.nat_router.location
   auto_delete   = false
   assignee_type = "server"
 }

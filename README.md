@@ -1043,18 +1043,19 @@ If you follow this values, in your kube.tf, please set:
 - Add `disable_ipv4 = true` and  `disable_ipv6 = true` in all machines in all nodepools (control planes + agents).
 - Add `autoscaler_disable_ipv4 = true` and `autoscaler_disable_ipv6 = true` to disable public ips on autoscaled nodes.
 
-This setup is compatible with a loadbalancer for your control planes, however you should consider to set
-`control_plane_lb_enable_public_interface = false` to keep ip private.
+This setup is compatible with a load balancer for your control planes. However, you should consider setting
+`control_plane_lb_enable_public_interface = false` to keep the IP private. Note that if you use this setting,
+you'll need a way to access the Kubernetes API (such as through a VPN, bastion, or NAT router with port forwarding).
 </details>
 <details>
 
 <summary>Use only private ips in your cluster (NAT Router)</summary>
 
-Setup a purely private cluster where public internet traffic is limited to the 
+Setup a purely private cluster where public internet traffic is limited to the
 following paths:
 - egress: entirely through the NAT router, using a single IP for all egress traffic.
 - ssh: entirely through the bastion host, at the moment the same as the NAT router.
-- control-plane (kubectl): through the control plane load balancer only.
+- control-plane (kubectl): through the control plane load balancer if it has a public interface, or through the NAT router (with automatic port forwarding to the private control plane LB) when `control_plane_lb_enable_public_interface = false`.
 - regular ingress: through the agents load balancer only.
 
 By seperating various roles, this decreases the attack surfaces a bit.
