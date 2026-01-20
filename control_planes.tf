@@ -140,11 +140,15 @@ locals {
     },
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
     var.use_control_plane_lb ? {
-      tls-san = concat([
-        hcloud_load_balancer.control_plane.*.ipv4[0],
-        hcloud_load_balancer_network.control_plane.*.ip[0],
-        var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null
-      ], var.additional_tls_sans)
+      tls-san = concat(
+        compact([
+          hcloud_load_balancer.control_plane.*.ipv4[0],
+          hcloud_load_balancer_network.control_plane.*.ip[0],
+          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+          !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
+        ]),
+        var.additional_tls_sans
+      )
       } : {
       tls-san = concat(
         compact([
