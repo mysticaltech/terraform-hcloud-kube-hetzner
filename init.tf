@@ -58,11 +58,12 @@ resource "hcloud_load_balancer_target" "cluster" {
     [for k, v in local.labels : "${k}=${v}"],
     [
       # Generic label merge from control plane and agent namespaces with "or",
-      # resulting in: role in (control_plane_node,agent_node)
-      for key in keys(merge(local.labels_control_plane_node, local.labels_agent_node)) :
+      # resulting in: role in (control_plane_node,agent_node) when scheduling on cp enabled or single node cluster
+      # or role in (agent_node) for other cases
+      for key in keys(merge(local.lb_target_groups...)) :
       "${key} in (${
         join(",", compact([
-          for labels in [local.labels_control_plane_node, local.labels_agent_node] :
+          for labels in local.lb_target_groups :
           try(labels[key], "")
         ]))
       })"
@@ -76,6 +77,15 @@ locals {
     module.control_planes[keys(module.control_planes)[0]].ipv4_address,
     module.control_planes[keys(module.control_planes)[0]].ipv6_address,
     module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+  )
+
+  # Exclude control plane nodes from receiving LB traffic
+  # if scheduling is not allowed or it's not a single node cluster (see locals.tf)
+
+  lb_target_groups = (
+    local.allow_loadbalancer_target_on_control_plane ?
+    [local.labels_control_plane_node, local.labels_agent_node] :
+    [local.labels_agent_node]
   )
 }
 
