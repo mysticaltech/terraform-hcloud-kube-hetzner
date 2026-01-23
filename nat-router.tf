@@ -1,13 +1,5 @@
 locals {
   nat_router_ip = var.nat_router != null ? cidrhost(hcloud_network_subnet.nat_router[0].ip_range, 1) : ""
-  nat_router_data_center = var.nat_router != null ? {
-    "fsn1" : "fsn1-dc14",
-    "nbg1" : "nbg1-dc3",
-    "hel1" : "hel1-dc2",
-    "ash" : "ash-dc1",
-    "hil" : "hil-dc1",
-    "sin" : "sin-dc1",
-  }[var.nat_router.location] : null
 }
 
 data "cloudinit_config" "nat_router_config" {
@@ -46,21 +38,24 @@ resource "hcloud_network_route" "nat_route_public_internet" {
 resource "hcloud_primary_ip" "nat_router_primary_ipv4" {
   # explicitly declare the ipv4 address, such that the address
   # is stable against possible replacements of the nat router
+  # NOTE: Use location instead of datacenter - datacenter is deprecated.
+  # Please upgrade to v1.58.0+ of the hcloud provider to avoid issues
+  # once the Hetzner Cloud API no longer accepts the datacenter attribute.
   count         = var.nat_router != null ? 1 : 0
   type          = "ipv4"
   name          = "${var.cluster_name}-nat-router-ipv4"
-  datacenter    = local.nat_router_data_center
+  location      = var.nat_router.location
   auto_delete   = false
   assignee_type = "server"
 }
 
 resource "hcloud_primary_ip" "nat_router_primary_ipv6" {
-  # explicitly declare the ipv4 address, such that the address
+  # explicitly declare the ipv6 address, such that the address
   # is stable against possible replacements of the nat router
   count         = var.nat_router != null ? 1 : 0
   type          = "ipv6"
   name          = "${var.cluster_name}-nat-router-ipv6"
-  datacenter    = local.nat_router_data_center
+  location      = var.nat_router.location
   auto_delete   = false
   assignee_type = "server"
 }
