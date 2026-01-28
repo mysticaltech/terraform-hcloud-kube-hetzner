@@ -30,6 +30,9 @@ locals {
       cloudinit_config                           = local.isUsingLegacyConfig ? base64encode(data.cloudinit_config.autoscaler_legacy_config[0].rendered) : ""
       ca_image                                   = var.cluster_autoscaler_image
       ca_version                                 = var.cluster_autoscaler_version
+      ca_replicas                                = var.cluster_autoscaler_replicas
+      ca_resource_limits                         = var.cluster_autoscaler_resource_limits
+      ca_resources                               = var.cluster_autoscaler_resource_values
       cluster_autoscaler_extra_args              = var.cluster_autoscaler_extra_args
       cluster_autoscaler_log_level               = var.cluster_autoscaler_log_level
       cluster_autoscaler_log_to_stderr           = var.cluster_autoscaler_log_to_stderr

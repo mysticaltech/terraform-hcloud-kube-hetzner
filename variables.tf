@@ -383,6 +383,47 @@ variable "cluster_autoscaler_server_creation_timeout" {
   description = "Timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it."
 }
 
+variable "cluster_autoscaler_replicas" {
+  type        = number
+  default     = 1
+  description = "Number of replicas for the cluster autoscaler deployment."
+
+  validation {
+    condition     = var.cluster_autoscaler_replicas >= 1
+    error_message = "Number of cluster autoscaler replicas must be at least 1."
+  }
+}
+
+variable "cluster_autoscaler_resource_limits" {
+  type        = bool
+  default     = true
+  description = "Should cluster autoscaler enable default resource requests and limits. Default values are requests: 100m & 300Mi and limits: 100m & 300Mi."
+}
+
+variable "cluster_autoscaler_resource_values" {
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "300Mi"
+    }
+    limits = {
+      cpu    = "100m"
+      memory = "300Mi"
+    }
+  }
+  description = "Requests and limits for Cluster Autoscaler."
+}
+
 variable "autoscaler_nodepools" {
   description = "Cluster autoscaler nodepools."
   type = list(object({

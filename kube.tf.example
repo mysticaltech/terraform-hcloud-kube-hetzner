@@ -455,6 +455,33 @@ module "kube-hetzner" {
   #   "--enforce-node-group-min-size=true",
   # ]
 
+  # Cluster Autoscaler Deployment Configuration
+  #
+  # Configure the number of replicas and resource limits/requests for the cluster autoscaler deployment.
+  #
+  # cluster_autoscaler_replicas: Number of replicas for the cluster autoscaler deployment (default: 1)
+  #   - Setting this to > 1 enables HA for the autoscaler itself (uses leader election)
+  #
+  # cluster_autoscaler_resource_limits: Enable or disable resource limits/requests (default: true)
+  #   - Set to false to remove resource constraints entirely
+  #
+  # cluster_autoscaler_resource_values: Customize CPU and memory resources (defaults: 100m CPU, 300Mi memory for both requests and limits)
+  #
+  # Example:
+  #
+  # cluster_autoscaler_replicas = 2
+  # cluster_autoscaler_resource_limits = true
+  # cluster_autoscaler_resource_values = {
+  #   requests = {
+  #     cpu    = "100m"
+  #     memory = "300Mi"
+  #   }
+  #   limits = {
+  #     cpu    = "200m"
+  #     memory = "500Mi"
+  #   }
+  # }
+
   # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
   # This does not protect deletion from Terraform itself.
   # enable_delete_protection = {
