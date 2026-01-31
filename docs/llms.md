@@ -2439,7 +2439,7 @@ persistence:
   /*   traefik_values = <<-EOT
 deployment:
   replicas: 1 # Override default replica count logic
-globalArguments: [] # Can add global static config args here too
+additionalArguments: [] # Can add global static config args here too
 service:
   enabled: true
   type: LoadBalancer # Ensure service is of type LoadBalancer

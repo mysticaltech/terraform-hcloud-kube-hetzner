@@ -1157,7 +1157,7 @@ defaultSettings:
   /*   traefik_values = <<EOT
 deployment:
   replicas: 1
-globalArguments: []
+additionalArguments: []
 service:
   enabled: true
   type: LoadBalancer
