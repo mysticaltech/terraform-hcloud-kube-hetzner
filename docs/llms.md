@@ -2453,11 +2453,12 @@ service:
 
 ports: # Configure Traefik entrypoints
   web:
-    redirections: # Redirect HTTP (web) to HTTPS (websecure)
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections: # Redirect HTTP (web) to HTTPS (websecure)
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
     proxyProtocol: # Configure PROXY protocol for web entrypoint
       trustedIPs:
