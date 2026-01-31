@@ -820,7 +820,6 @@ image:
   tag: ${var.traefik_image_tag}
 deployment:
   replicas: ${local.ingress_replica_count}
-additionalArguments: []
 service:
   enabled: true
   type: LoadBalancer
