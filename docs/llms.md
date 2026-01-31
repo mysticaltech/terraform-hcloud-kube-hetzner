@@ -2439,7 +2439,7 @@ persistence:
   /*   traefik_values = <<-EOT
 deployment:
   replicas: 1 # Override default replica count logic
-globalArguments: [] # Can add global static config args here too
+additionalArguments: [] # Can add global static config args here too
 service:
   enabled: true
   type: LoadBalancer # Ensure service is of type LoadBalancer
@@ -2453,11 +2453,12 @@ service:
 
 ports: # Configure Traefik entrypoints
   web:
-    redirections: # Redirect HTTP (web) to HTTPS (websecure)
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections: # Redirect HTTP (web) to HTTPS (websecure)
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
     proxyProtocol: # Configure PROXY protocol for web entrypoint
       trustedIPs:

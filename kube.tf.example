@@ -1157,7 +1157,7 @@ defaultSettings:
   /*   traefik_values = <<EOT
 deployment:
   replicas: 1
-globalArguments: []
+additionalArguments: []
 service:
   enabled: true
   type: LoadBalancer
@@ -1171,11 +1171,12 @@ service:
 
 ports:
   web:
-    redirections:
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
     proxyProtocol:
       trustedIPs:
