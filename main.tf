@@ -50,7 +50,7 @@ resource "hcloud_network_subnet" "agent" {
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
   network_zone = var.network_region
-  ip_range     = local.network_ipv4_subnets[count.index]
+  ip_range     = coalesce(var.agent_nodepools[count.index].subnet_ip_range, local.network_ipv4_subnets[count.index])
 }
 
 # Subnet for NAT router and other peripherals

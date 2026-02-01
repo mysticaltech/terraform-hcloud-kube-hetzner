@@ -14,7 +14,7 @@ In order to use NVMe and external disks with Longhorn, you may need to mount an 
 
 2.  Set the Helm values for Longhorn. The `defaultDataPath` is important as this path is automatically created by Longhorn and will be the default storage class pointing to your primary disks (e.g., NVMe).
     ```yaml
-    longhorn_values = <<EOT
+    longhorn_values = <<-EOT
     defaultSettings:
       nodeDrainPolicy: allow-if-replica-is-stopped
       defaultDataPath: /var/longhorn

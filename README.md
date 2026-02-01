@@ -417,7 +417,7 @@ locals {
 
 cluster_ipv4_cidr = local.cluster_ipv4_cidr
 
-cilium_values = <<EOT
+cilium_values = <<-EOT
 ipam:
   mode: kubernetes
 k8s:

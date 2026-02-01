@@ -1151,10 +1151,10 @@ Excellent! Let's continue our meticulous dissection.
   # Automatically "true" in the case of single node cluster (as it does not make sense to use the Hetzner LB in that situation).
   # It can work with any ingress controller that you choose to deploy.
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
-  # enable_klipper_metal_lb = "true"
+  # enable_klipper_metal_lb = true
 ```
 
-* **`enable_klipper_metal_lb` (Boolean, Optional, or String `"true"`/`"false"`):**
+* **`enable_klipper_metal_lb` (Boolean, Optional):**
   * **Default:** `false` (unless it's a single-node cluster, then it's automatically `true`).
   * **Purpose:** If `true`, deploys [Klipper LoadBalancer](https://github.com/k3s-io/klipper-lb) (which is k3s's embedded service load balancer, similar in concept to MetalLB for bare-metal clusters).
   * **Mechanism:** Klipper LB allows services of type `LoadBalancer` to get an IP address from a pool of the nodes' own IP addresses. For external access, this typically means one of the node's public IPs is used by the Ingress controller's service.
@@ -2326,7 +2326,7 @@ This section introduces the mechanism for providing detailed, custom Helm chart 
   # Please understand that the indentation is very important, inside the EOTs, as those are proper yaml helm values.
   # We advise you to use the default values, and only change them if you know what you are doing!
 
-  # You can inline the values here in heredoc-style (as the examples below with the <<EOT to EOT). Please note that the current indentation inside the EOT is important.
+  # You can inline the values here in heredoc-style (as the examples below with the <<-EOT to EOT). Please note that the indentation inside the EOT is important.
   # Or you can create a thepackage-values.yaml file with the content and use it here with the following syntax:
   # thepackage_values = file("thepackage-values.yaml")
 
@@ -2560,7 +2560,7 @@ controller:
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
   # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
-  /*   haproxy_values = <<EOT
+  /*   haproxy_values = <<-EOT
   EOT */
 ```
 
@@ -2859,37 +2859,37 @@ The following variables allow deep customization of various components through H
 
 ```terraform
   # Custom Cilium values
-  # cilium_values = <<EOT
+  # cilium_values = <<-EOT
   # ipam:
   #   mode: kubernetes
   # EOT
   
   # Custom cert-manager values
-  # cert_manager_values = <<EOT
+  # cert_manager_values = <<-EOT
   # crds:
   #   enabled: true
   # EOT
   
   # Custom Hetzner CCM values
-  # hetzner_ccm_values = <<EOT
+  # hetzner_ccm_values = <<-EOT
   # networking:
   #   enabled: true
   # EOT
   
   # Custom CSI driver SMB values
-  # csi_driver_smb_values = <<EOT
+  # csi_driver_smb_values = <<-EOT
   # controller:
   #   replicas: 2
   # EOT
   
   # Custom Longhorn values
-  # longhorn_values = <<EOT
+  # longhorn_values = <<-EOT
   # defaultSettings:
   #   defaultDataPath: /var/longhorn
   # EOT
   
   # Custom Rancher values
-  # rancher_values = <<EOT
+  # rancher_values = <<-EOT
   # hostname: rancher.example.com
   # replicas: 3
   # EOT
@@ -2910,13 +2910,13 @@ Each of these `*_values` variables:
   # haproxy_version = "1.41.0"
   
   # Custom Traefik values
-  # traefik_values = <<EOT
+  # traefik_values = <<-EOT
   # deployment:
   #   replicas: 3
   # EOT
   
   # Custom Nginx values
-  # nginx_values = <<EOT
+  # nginx_values = <<-EOT
   # controller:
   #   replicaCount: 3
   # EOT
@@ -2925,7 +2925,7 @@ Each of these `*_values` variables:
   # haproxy_additional_proxy_protocol_ips = ["10.0.0.0/8", "172.16.0.0/12"]
   # haproxy_requests_cpu = "250m"
   # haproxy_requests_memory = "256Mi"
-  # haproxy_values = <<EOT
+  # haproxy_values = <<-EOT
   # controller:
   #   replicaCount: 3
   # EOT

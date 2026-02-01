@@ -75,6 +75,7 @@ module "kube-hetzner" {
 
   # Using the default configuration you can only create a maximum of 42 agent-nodepools.
   # This is due to the creation of a subnet for each nodepool with CIDRs being in the shape of 10.[nodepool-index].0.0/16 which collides with k3s' cluster and service IP ranges (defaults below).
+  # To create additional ones (or if you want to use different ranges for other reasons), set the `subnet_ip_range` explicitly for a node pool.
   # Furthermore the maximum number of nodepools (controlplane and agent) is 50, due to a hard limit of 50 subnets per network, see https://docs.hetzner.com/cloud/networks/faq/.
   # So to be able to create a maximum of 50 nodepools in total, the values below have to be changed to something outside that range, e.g. `10.200.0.0/16` and `10.201.0.0/16` for cluster and service respectively.
 
@@ -193,6 +194,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
+      # subnet_ip_range = "10.0.0.0/16"  # Optional: override default subnet range
       # swap_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
@@ -210,6 +212,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
+      subnet_ip_range = "10.100.0.0/16"
 
       # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
       # placement_group = "default"
@@ -348,11 +351,11 @@ module "kube-hetzner" {
   # easier, as all public traffic passes through a single strongly secured node. It does
   # however also introduce a single point of failure, so if you need high-availability on your
   # egress, you should consider other configurations.
-  # 
+  #
   # Hetzner removed the DHCP Router option from private networks on 2025-08-11, so the module
   # now ensures each node attached to the private network persists a default route via the
   # virtual gateway. No manual `ip route add` is required after reboots or DHCP renewals.
-  # 
+  #
   #
   # nat_router = {
   #   server_type = "cax21"

@@ -270,6 +270,7 @@ variable "agent_nodepools" {
     selinux                    = optional(bool, true)
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
+    subnet_ip_range            = optional(string, null)
     count                      = optional(number, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
