@@ -26,6 +26,12 @@ locals {
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
 
+  # Bit size of the "network_ipv4_cidr".
+  network_size = 32 - split("/", var.network_ipv4_cidr)[1]
+
+  # Bit size of each subnet
+  subnet_size = local.network_size - log(var.subnet_amount, 2)
+
   # Separate out IPv4 and IPv6 DNS hosts.
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
   dns_servers_ipv6 = [for ip in var.dns_servers : ip if provider::assert::ipv6(ip)]
@@ -344,9 +350,9 @@ locals {
     bastion_private_key = null
   }
 
-  # Create 256 /24 subnets from the base network CIDR.
-  # Control planes allocate from the end (255, 254, 253...) and agents from the start (0, 1, 2...)
-  network_ipv4_subnets = [for index in range(256) : cidrsubnet(var.network_ipv4_cidr, 8, index)]
+  # Create subnets from the base network CIDR.
+  # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
+  network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_amount, 2), index)]
 
   # By convention the DNS service (usually core-dns) is assigned the 10th IP address in the service CIDR block
   cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : cidrhost(var.service_ipv4_cidr, 10)

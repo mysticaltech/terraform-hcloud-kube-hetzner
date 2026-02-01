@@ -102,6 +102,25 @@ variable "network_ipv4_cidr" {
   default     = "10.0.0.0/8"
 }
 
+variable "subnet_amount" {
+  description = "The amount of subnets into which the network will be split. Must be a power of 2."
+  type        = number
+  default     = 256
+  validation {
+    condition     = floor(log(var.subnet_amount, 2)) == log(var.subnet_amount, 2)
+    error_message = "Subnet amount must be a power of 2."
+  }
+  validation {
+    # Host bits = 32 - prefix, must have enough bits to create subnet_amount subnets
+    condition     = pow(2, 32 - tonumber(split("/", var.network_ipv4_cidr)[1])) >= var.subnet_amount
+    error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_amount or use a larger network."
+  }
+  validation {
+    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : 1)
+    error_message = "Subnet amount must be large enough so that a subnet for each agent pool, each control plane pool and (if enabled) the nat router can be created in the network."
+  }
+}
+
 variable "cluster_ipv4_cidr" {
   description = "Internal Pod CIDR, used for the controller and currently for calico/cilium."
   type        = string
@@ -136,11 +155,11 @@ variable "nat_router" {
 variable "nat_router_subnet_index" {
   type        = number
   default     = 200
-  description = "Subnet index (0-255) for NAT router. Default 200 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
+  description = "Subnet index for NAT router. Default 200 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
 
   validation {
-    condition     = var.nat_router_subnet_index >= 0 && var.nat_router_subnet_index <= 255
-    error_message = "NAT router subnet index must be between 0 and 255."
+    condition     = var.nat_router_subnet_index >= 0 && var.nat_router_subnet_index < var.subnet_amount
+    error_message = "NAT router subnet index must be between 0 and subnet_amount."
   }
 }
 
