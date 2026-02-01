@@ -57,12 +57,12 @@ resource "hcloud_load_balancer_target" "cluster" {
   label_selector = join(",", concat(
     [for k, v in local.labels : "${k}=${v}"],
     [
-      # Generic label merge from control plane and agent namespaces with "or",
-      # resulting in: role in (control_plane_node,agent_node)
-      for key in keys(merge(local.labels_control_plane_node, local.labels_agent_node)) :
+      # Build label selector from lb_target_groups (respects allow_loadbalancer_target_on_control_plane)
+      # Results in either: role in (control_plane_node,agent_node) or role in (agent_node)
+      for key in keys(merge(local.lb_target_groups...)) :
       "${key} in (${
         join(",", compact([
-          for labels in [local.labels_control_plane_node, local.labels_agent_node] :
+          for labels in local.lb_target_groups :
           try(labels[key], "")
         ]))
       })"

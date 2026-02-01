@@ -753,7 +753,7 @@ locals {
 
   # to get the corresponding etcd_version for a k3s version you need to
   # - start k3s or have it running
-  # - run `curl -L --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2379/version`
+  # - run `curl -L --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2382/version`
   # for details see https://gist.github.com/superseb/0c06164eef5a097c66e810fe91a9d408
   etcd_version = "v3.5.9"
 
