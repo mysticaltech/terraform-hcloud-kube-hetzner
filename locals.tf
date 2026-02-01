@@ -392,6 +392,13 @@ locals {
   # Determine if loadbalancer target should be allowed on control plane nodes, which will be always true for single node clusters or if scheduling is allowed on control plane nodes
   allow_loadbalancer_target_on_control_plane = local.is_single_node_cluster ? true : var.allow_scheduling_on_control_plane
 
+  # Build list of label maps to include in LB target selector based on allow_loadbalancer_target_on_control_plane
+  lb_target_groups = (
+    local.allow_loadbalancer_target_on_control_plane ?
+    [local.labels_control_plane_node, local.labels_agent_node] :
+    [local.labels_agent_node]
+  )
+
   # Default k3s node labels
   default_agent_labels = concat(
     var.exclude_agents_from_external_load_balancers ? ["node.kubernetes.io/exclude-from-external-load-balancers=true"] : [],
