@@ -21,4 +21,3 @@ spec:
             %{~ for key, value in options ~}
             - --${key}=${value}
             %{~ endfor ~}
-

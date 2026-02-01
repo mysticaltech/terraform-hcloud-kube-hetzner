@@ -210,4 +210,3 @@ delete_ssh_keys
 if (( DELETE_SNAPSHOTS == 1 )); then
   delete_snapshots
 fi
-

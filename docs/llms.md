@@ -198,7 +198,7 @@ module "kube-hetzner" {
   * **Default (in module, not shown here):** Likely "eu-central".
   * **Purpose:** Specifies the broad geographical region for your Hetzner Cloud private network. All servers and load balancers within the same private network must reside in locations that belong to this network region.
   * **Hetzner Regions:**
-    * `eu-central`: Encompasses European locations like Falkenstein (`fsn1`), Nuremberg (`nbg1`), Helsinki (`hel1`).
+    * `eu-central`: Encompasses European locations like Falkenstein (`fsn1` - currently unavailable due to high demand), Nuremberg (`nbg1`), Helsinki (`hel1`).
     * `us-east`: Encompasses Ashburn, VA (`ash`).
     * `us-west`: Encompasses Hillsboro, OR (`hil`). (Check if supported by module if you intend to use it)
   * **Constraint:** The `location` specified in your `control_plane_nodepools` and `agent_nodepools` *must* be compatible with this `network_region`. You cannot have a server in `fsn1` (Europe) in a network defined for `us-east`.
@@ -302,7 +302,7 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
   # For instance, one is ok (non-HA), two is not ok, and three is ok (becomes HA). It does not matter if they are in the same nodepool or not! So they can be in different locations and of various types.
 
   # Of course, you can choose any number of nodepools you want, with the location you want. The only constraint on the location is that you need to stay in the same network region, Europe, or the US.
-  # For the server type, the minimum instance supported is cx22. The cax11 provides even better value for money if your applications are compatible with arm64; see https://www.hetzner.com/cloud.
+  # For the server type, the minimum instance supported is cx23. If you want to use arm64 use cax11; see https://www.hetzner.com/cloud.
 
   # IMPORTANT: Before you create your cluster, you can do anything you want with the nodepools, but you need at least one of each, control plane and agent.
   # Once the cluster is up and running, you can change nodepool count and even set it to 0 (in the case of the first control-plane nodepool, the minimum is 1).
@@ -325,9 +325,9 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
 
   control_plane_nodepools = [
     {
-      name        = "control-plane-fsn1",
-      server_type = "cx22",
-      location    = "fsn1",
+      name        = "control-plane-nbg1",
+      server_type = "cx23",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
@@ -381,8 +381,10 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
       * Constraints: Lowercase, no special characters except dashes (`-`).
       * Used for naming resources in Hetzner and for Kubernetes node labels/names.
     * **`server_type` (String, Obligatory):**
-      * Hetzner server type (e.g., `cx22`, `cpx21` for x86; `cax11`, `cax21` for ARM).
-      * Minimum for control plane: `cx22` is often cited. More demanding setups (e.g., with Cilium CNI, Rancher) might require more RAM (e.g., `cx31`/`cpx31` or `cax21`/`cax31`).
+      * Hetzner server type:
+        * x86: e.g. `cx23` (2 vCPU, 4GB RAM, 40GB SSD), `cx33` (4 vCPU, 8GB RAM, 80GB SSD), `cx43` (8 vCPU, 16GB RAM, 160GB SSD).
+        * ARM: e.g. `cax11` (2 vCPU, 4GB RAM, 40GB SSD), `cax21` (4 vCPU, 8GB RAM, 80GB SSD).
+      * Minimum for control plane: `cx23` is often cited. More demanding setups (e.g., with Cilium CNI, Rancher) might require more RAM (e.g., `cx33`/`cx43` or `cax21`/`cax31`).
     * **`location` (String, Obligatory):**
       * Hetzner location (e.g., `fsn1`, `nbg1`, `hel1`, `ash`).
       * Must be within the `network_region` defined earlier.
@@ -401,7 +403,7 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
     * **`swap_size` (String, Optional):**
       * Examples: `"512M"`, `"2G"`, `"4G"`.
       * Configures a swap file of the specified size on the nodes.
-      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled and kubelet is configured correctly. The comment `Make sure you set "feature-gates=NodeSwap=true,CloudDualStackNodeIPs=true" if want to use swap_size` (seen later under `k3s_global_kubelet_args`) is relevant here. Use with caution and understanding of its implications on performance and scheduling.
+      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled and kubelet is configured correctly. The comment `Make sure you set "feature-gates=NodeSwap=true" if want to use swap_size` (seen later under `k3s_global_kubelet_args`) is relevant here. Use with caution and understanding of its implications on performance and scheduling.
     * **`zram_size` (String, Optional):**
       * Examples: `"512M"`, `"1G"`.
       * Configures zRAM (compressed RAM block device, often used for swap) on the nodes.
@@ -434,8 +436,8 @@ The example shows three control plane nodepools, each with one node, in differen
   agent_nodepools = [
     {
       name        = "agent-small",
-      server_type = "cx22",
-      location    = "fsn1",
+      server_type = "cx23",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
@@ -447,7 +449,7 @@ The example shows three control plane nodepools, each with one node, in differen
     },
     {
       name        = "agent-large",
-      server_type = "cx32",
+      server_type = "cx33",
       location    = "nbg1",
       labels      = [],
       taints      = [],
@@ -457,8 +459,8 @@ The example shows three control plane nodepools, each with one node, in differen
     },
     {
       name        = "storage",
-      server_type = "cx32",
-      location    = "fsn1",
+      server_type = "cx33",
+      location    = "nbg1",
       labels      = [
         "node.kubernetes.io/server-usage=storage" # Example label
       ],
@@ -475,8 +477,8 @@ The example shows three control plane nodepools, each with one node, in differen
     # used with Cilium's Egress Gateway feature
     {
       name        = "egress",
-      server_type = "cx22",
-      location    = "fsn1",
+      server_type = "cx23",
+      location    = "nbg1",
       labels = [
         "node.kubernetes.io/role=egress"
       ],
@@ -492,7 +494,7 @@ The example shows three control plane nodepools, each with one node, in differen
     {
       name        = "agent-arm-small",
       server_type = "cax11", # ARM server type
-      location    = "fsn1",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
@@ -503,12 +505,12 @@ The example shows three control plane nodepools, each with one node, in differen
     {
       name        = "agent-arm-medium",
       server_type = "cax21", # Default server_type for this pool
-      location    = "fsn1",  # Default location
+      location    = "nbg1",  # Default location
       labels      = [],
       taints      = [],
       nodes = { # Overrides 'count' and allows per-node customization
         "1" : { # Node identified as "1" within this pool
-          location = "nbg1" # Override location for this specific node
+          location = "fsn1" # Override location for this specific node
           labels = [
             "testing-labels=a1",
           ]
@@ -553,9 +555,9 @@ The example shows three control plane nodepools, each with one node, in differen
         * Each value in the `nodes` map is another map specifying the attributes to override for that particular node.
       * **Example Breakdown (`agent-arm-medium`):**
         * Default `server_type`: `cax21`
-        * Default `location`: `fsn1`
-        * Node `"1"`: Overrides `location` to `nbg1` and adds specific `labels`. It will use the default `cax21` server type.
-        * Node `"20"`: Uses default `location` (`fsn1`) and `server_type` (`cax21`) but has its own specific `labels`.
+        * Default `location`: `nbg1`
+        * Node `"1"`: Overrides `location` to `fsn1` and adds specific `labels`. It will use the default `cax21` server type.
+        * Node `"20"`: Uses default `location` (`nbg1`) and `server_type` (`cax21`) but has its own specific `labels`.
       * **Benefit:** Useful when you need slight variations for a few nodes within a larger, mostly homogeneous pool, without creating many separate small nodepool definitions.
 
 ---
@@ -618,7 +620,7 @@ The example shows three control plane nodepools, each with one node, in differen
 ```terraform
   # * LB location and type, the latter will depend on how much load you want it to handle, see https://www.hetzner.com/cloud/load-balancer
   load_balancer_type     = "lb11"
-  load_balancer_location = "fsn1"
+  load_balancer_location = "nbg1"
 
   # Disable IPv6 for the load balancer, the default is false.
   # load_balancer_disable_ipv6 = true
@@ -704,8 +706,8 @@ The example shows three control plane nodepools, each with one node, in differen
   # autoscaler_nodepools = [
   #  {
   #    name        = "autoscaled-small"
-  #    server_type = "cx32"
-  #    location    = "fsn1"
+  #    server_type = "cx33"
+  #    location    = "nbg1"
   #    min_nodes   = 0
   #    max_nodes   = 5
   #    labels      = { # Note: This is a map, not a list of strings like other labels
@@ -719,6 +721,8 @@ The example shows three control plane nodepools, each with one node, in differen
   #      }
   #    ]
   #    # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
+  #    # swap_size = "2G"
+  #    # zram_size = "2G"
   #  }
   # ]
   #
@@ -735,7 +739,7 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Labels/Taints Versioning (⚠️):** The ability to set `labels` and `taints` directly in the `autoscaler_nodepools` definition depends on using a sufficiently new version of the Cluster Autoscaler image.
   * **Nodepool Attributes (per map within `autoscaler_nodepools`):**
     * **`name` (String, Obligatory):** A unique name for this autoscaled nodepool.
-    * **`server_type` (String, Obligatory):** The Hetzner server type for nodes created in this pool (e.g., `cx32`, `cax21`). Must adhere to the single-architecture constraint mentioned above.
+    * **`server_type` (String, Obligatory):** The Hetzner server type for nodes created in this pool (e.g., `cx33`, `cax21`). Must adhere to the single-architecture constraint mentioned above.
     * **`location` (String, Obligatory):** Hetzner location for nodes in this pool.
     * **`min_nodes` (Number, Obligatory):** The minimum number of nodes this pool can scale down to. Can be `0`.
     * **`max_nodes` (Number, Obligatory):** The maximum number of nodes this pool can scale up to.
@@ -746,6 +750,16 @@ The example shows three control plane nodepools, each with one node, in differen
       * Kubernetes taints to apply to nodes provisioned by the autoscaler in this pool.
       * **Format:** Each element in the list is a map with `key`, `value`, and `effect` (e.g., `NoSchedule`, `NoExecute`, `PreferNoSchedule`).
     * **`kubelet_args` (List of Strings, Optional):** Same purpose as in other nodepools, for passing custom arguments to kubelet on autoscaled nodes.
+    * **`swap_size` (String, Optional):**
+      * Examples: `"512M"`, `"2G"`, `"4G"`.
+      * Configures a swap file of the specified size on autoscaled nodes.
+      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled. Make sure you set `"feature-gates=NodeSwap=true"` in `k3s_global_kubelet_args` or `k3s_autoscaler_kubelet_args`.
+      * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
+    * **`zram_size` (String, Optional):**
+      * Examples: `"512M"`, `"1G"`.
+      * Configures zRAM (compressed RAM block device used for swap) on autoscaled nodes.
+      * Uses zstd compression algorithm for optimal performance.
+      * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
 * **`autoscaler_disable_ipv4` / `autoscaler_disable_ipv6` (Boolean, Optional):**
   * **Default:** `false`.
   * **Purpose:** If `true`, disables public IPv4/IPv6 on nodes created by the Cluster Autoscaler. Similar implications as for regular nodepools (private network only access if both are true).
@@ -1160,10 +1174,10 @@ Excellent! Let's continue our meticulous dissection.
   # Automatically "true" in the case of single node cluster (as it does not make sense to use the Hetzner LB in that situation).
   # It can work with any ingress controller that you choose to deploy.
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
-  # enable_klipper_metal_lb = "true"
+  # enable_klipper_metal_lb = true
 ```
 
-* **`enable_klipper_metal_lb` (Boolean, Optional, or String `"true"`/`"false"`):**
+* **`enable_klipper_metal_lb` (Boolean, Optional):**
   * **Default:** `false` (unless it's a single-node cluster, then it's automatically `true`).
   * **Purpose:** If `true`, deploys [Klipper LoadBalancer](https://github.com/k3s-io/klipper-lb) (which is k3s's embedded service load balancer, similar in concept to MetalLB for bare-metal clusters).
   * **Mechanism:** Klipper LB allows services of type `LoadBalancer` to get an IP address from a pool of the nodes' own IP addresses. For external access, this typically means one of the node's public IPs is used by the Ingress controller's service.
@@ -1509,8 +1523,8 @@ Excellent! Let's continue our meticulous dissection.
 * **`use_cluster_name_in_node_name` (Boolean, Optional):**
   * **Default:** `true`.
   * **Purpose:** Controls the naming convention for the Hetzner server instances (and thus Kubernetes node names).
-    * `true`: Node names will be prefixed with the `cluster_name`, e.g., `k3s-cp-fsn1-1`, `mycluster-agent-small-1`.
-    * `false`: Node names will likely just use the nodepool name and an index, e.g., `cp-fsn1-1`, `agent-small-1`.
+    * `true`: Node names will be prefixed with the `cluster_name`, e.g., `k3s-cp-nbg1-1`, `mycluster-agent-small-1`.
+    * `false`: Node names will likely just use the nodepool name and an index, e.g., `cp-nbg1-1`, `agent-small-1`.
   * **Benefit of `true`:** Helps differentiate nodes if you manage multiple clusters within the same Hetzner project.
 
 ---
@@ -1657,7 +1671,8 @@ Excellent! Let's continue our meticulous dissection.
 
 ```terraform
   # The vars below here passes it to the k3s config.yaml. This way it persist across reboots
-  # Make sure you set "feature-gates=NodeSwap=true,CloudDualStackNodeIPs=true" if want to use swap_size
+  # Make sure you set "feature-gates=NodeSwap=true" if want to use swap_size
+  # Note: CloudDualStackNodeIPs was removed in K8s 1.32 (always enabled now)
   # see https://github.com/k3s-io/k3s/issues/8811#issuecomment-1856974516
   # k3s_global_kubelet_args = ["kube-reserved=cpu=100m,ephemeral-storage=1Gi", "system-reserved=cpu=memory=200Mi", "image-gc-high-threshold=50", "image-gc-low-threshold=40"]
   # k3s_control_plane_kubelet_args = []
@@ -1674,7 +1689,7 @@ Excellent! Let's continue our meticulous dissection.
       * `"system-reserved=cpu=memory=200Mi"`
       * `"image-gc-high-threshold=50"`: Kubelet will start garbage collecting unused container images when disk usage for images exceeds 50%.
       * `"image-gc-low-threshold=40"`: Kubelet will stop garbage collecting images once disk usage drops below 40%.
-      * `"feature-gates=NodeSwap=true,CloudDualStackNodeIPs=true"`: As per the comment, this is crucial if you intend to use the `swap_size` attribute on nodepools. `NodeSwap` enables kubelet's experimental swap support. `CloudDualStackNodeIPs` might be relevant for IPv4/IPv6 dual-stack configurations.
+      * `"feature-gates=NodeSwap=true"`: As per the comment, this is crucial if you intend to use the `swap_size` attribute on nodepools. `NodeSwap` enables kubelet's experimental swap support. Note: `CloudDualStackNodeIPs` was removed in K8s 1.32 (always enabled now).
   * **`k3s_control_plane_kubelet_args` (List of Strings, Optional):**
     * Kubelet arguments specific to control plane nodes. These would be merged with or override `k3s_global_kubelet_args`.
   * **`k3s_agent_kubelet_args` (List of Strings, Optional):**
@@ -1816,7 +1831,7 @@ Excellent! Let's continue our meticulous dissection.
     * `"calico"`: A popular CNI known for its robust network policy enforcement and scalability. Can operate in IP-in-IP, VXLAN, or BGP modes (BGP mode is more for on-prem/bare-metal).
     * `"cilium"`: A powerful CNI based on eBPF. Offers advanced networking features (e.g., efficient load balancing, fine-grained network policies, Hubble observability, service mesh capabilities, transparent encryption, egress gateway).
   * **k3s Integration:** k3s can be started with CNI disabled (`--flannel-backend=none` or similar flags) allowing an external CNI like Calico or Cilium to be installed. This module handles that process.
-  * **Cilium RAM Warning (⚠️):** Cilium, especially with all features enabled, can be more resource-intensive than Flannel. The comment warns that control plane nodes might need more than 2GB of RAM (e.g., `cx22` might be tight, consider `cx31`/`cpx21` or higher) for Cilium pods to run reliably.
+  * **Cilium RAM Warning (⚠️):** Cilium, especially with all features enabled, can be more resource-intensive than Flannel. The comment warns that control plane nodes might need more than 2GB of RAM (e.g., `cx23` might be tight, consider `cx33`/`cx43` or higher) for Cilium pods to run reliably.
   * **Cilium Customization:** The module allows extensive Cilium configuration via the `cilium_values` block (discussed later).
 
 ```terraform
@@ -2054,6 +2069,7 @@ Locked and loaded! Let's continue the detailed exploration.
     * `true`: The control plane LB gets a public IP, making the Kube API accessible from the internet (subject to Kubernetes authN/authZ).
     * `false`: The control plane LB only gets a private IP within the Hetzner network. The Kube API would only be accessible from within that private network (e.g., via VPN, bastion, or other servers in the same network).
   * **Use Case for `false`:** Enhanced security by not exposing the Kube API directly to the public internet, even via an LB.
+  * **Integration with NAT Router:** When both `control_plane_lb_enable_public_interface = false` and `nat_router` are configured, the NAT router automatically forwards port 6443 to the control plane LB's private IP. This allows external kubectl access via the NAT router's public IP while keeping the control plane LB private. The generated kubeconfig will automatically use the NAT router's public IP as the server address.
 
 ```terraform
   # Let's say you are not using the control plane LB solution above, and still want to have one hostname point to all your control-plane nodes.
@@ -2078,11 +2094,12 @@ Locked and loaded! Let's continue the detailed exploration.
 
 * **`kubeconfig_server_address` (String, Optional):**
   * **Purpose:** Allows you to explicitly set the server address (hostname or IP) that will be written into the `server:` field of the generated kubeconfig file.
-  * **Default Behavior:** Without this, the kubeconfig might point to:
+  * **Default Behavior:** Without this, the kubeconfig will automatically point to:
+    * The public IP of the control plane LB (if `use_control_plane_lb = true` and `control_plane_lb_enable_public_interface = true`).
+    * The public IP of the NAT router (if `use_control_plane_lb = true`, `control_plane_lb_enable_public_interface = false`, and `nat_router` is configured).
+    * The private IP of the control plane LB (if `use_control_plane_lb = true`, `control_plane_lb_enable_public_interface = false`, and no `nat_router`).
     * The IP of the first control plane node (if no CP LB).
-    * The IP of the control plane LB (if `use_control_plane_lb = true`).
-    * The IP of the main application LB (if `enable_klipper_metal_lb = false` and no CP LB, though this is less common for API access).
-  * **Use Case:** If you've set up DNS Round Robin for your control plane nodes (as described for `additional_tls_sans`) and want your kubeconfig to use that hostname (e.g., `cp.cluster.my.org`) instead of a direct IP.
+  * **Use Case:** If you've set up DNS Round Robin for your control plane nodes (as described for `additional_tls_sans`) and want your kubeconfig to use that hostname (e.g., `cp.cluster.my.org`) instead of a direct IP, or if you have a custom ingress setup.
   * **Requirement:** If you use a hostname here, ensure it resolves correctly and is included in the API server's TLS certificate SANs (via `additional_tls_sans` or default k3s behavior).
 
 ```terraform
@@ -2138,7 +2155,7 @@ Locked and loaded! Let's continue the detailed exploration.
   # As for the number of replicas, by default it is set to the number of control plane nodes.
   # You can customized all of the above by adding a rancher_values variable see at the end of this file in the advanced section.
   # After the cluster is deployed, you can always use HelmChartConfig definition to tweak the configuration.
-  # IMPORTANT: Rancher's install is quite memory intensive, you will require at least 4GB if RAM, meaning cx21 server type (for your control plane).
+  # IMPORTANT: Rancher's install is quite memory intensive, you will require at least 4GB if RAM, meaning cx23 server type (for your control plane).
   # ALSO, in order for Rancher to successfully deploy, you have to set the "rancher_hostname".
   # enable_rancher = true
 ```
@@ -2153,7 +2170,7 @@ Locked and loaded! Let's continue the detailed exploration.
     * **SSL Configuration:** Rancher offers options for SSL: Rancher-generated self-signed certs (default), Let's Encrypt, or bringing your own certs. The comment suggests the default self-signed cert is easiest if you put a proxy like Cloudflare (with its own valid cert) in front of Rancher.
     * **Replicas:** Rancher deployment replicas default to the number of control plane nodes for HA.
     * **Customization:** Advanced customization via `rancher_values` block (later).
-    * **Resource Requirements (IMPORTANT):** Rancher is resource-intensive. Control plane nodes need significant RAM (at least 4GB, e.g., Hetzner `cx31`/`cpx21` or higher). Insufficient resources will lead to installation failures or instability.
+    * **Resource Requirements (IMPORTANT):** Rancher is resource-intensive. Control plane nodes need significant RAM (at least 4GB, e.g., Hetzner `cx23`/`cx33` or higher). Insufficient resources will lead to installation failures or instability.
     * **`rancher_hostname` (REQUIRED):** You *must* set `rancher_hostname` if `enable_rancher = true`.
 
 ```terraform
@@ -2344,7 +2361,7 @@ This section introduces the mechanism for providing detailed, custom Helm chart 
   # Please understand that the indentation is very important, inside the EOTs, as those are proper yaml helm values.
   # We advise you to use the default values, and only change them if you know what you are doing!
 
-  # You can inline the values here in heredoc-style (as the examples below with the <<EOT to EOT). Please note that the current indentation inside the EOT is important.
+  # You can inline the values here in heredoc-style (as the examples below with the <<-EOT to EOT). Please note that the indentation inside the EOT is important.
   # Or you can create a thepackage-values.yaml file with the content and use it here with the following syntax:
   # thepackage_values = file("thepackage-values.yaml")
 
@@ -2459,7 +2476,7 @@ persistence:
   /*   traefik_values = <<-EOT
 deployment:
   replicas: 1 # Override default replica count logic
-globalArguments: [] # Can add global static config args here too
+additionalArguments: [] # Can add global static config args here too
 service:
   enabled: true
   type: LoadBalancer # Ensure service is of type LoadBalancer
@@ -2473,11 +2490,12 @@ service:
 
 ports: # Configure Traefik entrypoints
   web:
-    redirections: # Redirect HTTP (web) to HTTPS (websecure)
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections: # Redirect HTTP (web) to HTTPS (websecure)
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
     proxyProtocol: # Configure PROXY protocol for web entrypoint
       trustedIPs:
@@ -2577,7 +2595,7 @@ controller:
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
   # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
-  /*   haproxy_values = <<EOT
+  /*   haproxy_values = <<-EOT
   EOT */
 ```
 
@@ -2743,22 +2761,26 @@ The following variables have been added to the `kube-hetzner` module since the i
   # The NAT router will also function as a bastion. This makes securing the cluster easier, as all public traffic passes through a single strongly secured node.
   # It does however also introduce a single point of failure, so if you need high-availability on your egress, you should consider other configurations.
   # nat_router = {
-  #   server_type = "cx31"
-  #   location = "fsn1"
+  #   server_type = "cx33"
+  #   location = "nbg1"
   # }
 ```
 
 * **`nat_router` (Object, Optional):**
   * **Purpose:** Creates a dedicated NAT router server that acts as the single egress point for all cluster traffic. When enabled, all control plane and agent nodes are provisioned without public IPs.
   * **Requirements:** Must set `use_control_plane_lb = true` when using NAT router, as kubectl needs a public endpoint to reach the cluster.
-  * **Benefits:** 
+  * **Benefits:**
     * Enhanced security by limiting public exposure to a single hardened node
     * Acts as a bastion host for SSH access to internal nodes
     * Simplifies firewall rules and security auditing
+    * Automatically forwards Kubernetes API traffic (port 6443) when `control_plane_lb_enable_public_interface = false`
   * **Trade-offs:** Introduces a single point of failure for egress traffic
   * **Configuration:**
     * `server_type`: The Hetzner server type for the NAT router
     * `location`: The location where the NAT router should be deployed
+    * `labels`: (Optional) Additional labels for the NAT router
+    * `enable_sudo`: (Optional, default: false) Enable sudo access for the nat-router user
+  * **Port Forwarding:** When the control plane LB has no public interface (`control_plane_lb_enable_public_interface = false`), the NAT router automatically configures iptables rules to forward incoming traffic on port 6443 to the control plane LB's private IP. This allows external kubectl access while keeping the control plane LB completely private.
 
 **k3s Binary Configuration**
 
@@ -2918,37 +2940,37 @@ The following variables allow deep customization of various components through H
 
 ```terraform
   # Custom Cilium values
-  # cilium_values = <<EOT
+  # cilium_values = <<-EOT
   # ipam:
   #   mode: kubernetes
   # EOT
   
   # Custom cert-manager values
-  # cert_manager_values = <<EOT
+  # cert_manager_values = <<-EOT
   # crds:
   #   enabled: true
   # EOT
   
   # Custom Hetzner CCM values
-  # hetzner_ccm_values = <<EOT
+  # hetzner_ccm_values = <<-EOT
   # networking:
   #   enabled: true
   # EOT
   
   # Custom CSI driver SMB values
-  # csi_driver_smb_values = <<EOT
+  # csi_driver_smb_values = <<-EOT
   # controller:
   #   replicas: 2
   # EOT
   
   # Custom Longhorn values
-  # longhorn_values = <<EOT
+  # longhorn_values = <<-EOT
   # defaultSettings:
   #   defaultDataPath: /var/longhorn
   # EOT
   
   # Custom Rancher values
-  # rancher_values = <<EOT
+  # rancher_values = <<-EOT
   # hostname: rancher.example.com
   # replicas: 3
   # EOT
@@ -2969,13 +2991,13 @@ Each of these `*_values` variables:
   # haproxy_version = "1.41.0"
   
   # Custom Traefik values
-  # traefik_values = <<EOT
+  # traefik_values = <<-EOT
   # deployment:
   #   replicas: 3
   # EOT
   
   # Custom Nginx values
-  # nginx_values = <<EOT
+  # nginx_values = <<-EOT
   # controller:
   #   replicaCount: 3
   # EOT
@@ -2984,7 +3006,7 @@ Each of these `*_values` variables:
   # haproxy_additional_proxy_protocol_ips = ["10.0.0.0/8", "172.16.0.0/12"]
   # haproxy_requests_cpu = "250m"
   # haproxy_requests_memory = "256Mi"
-  # haproxy_values = <<EOT
+  # haproxy_values = <<-EOT
   # controller:
   #   replicaCount: 3
   # EOT
