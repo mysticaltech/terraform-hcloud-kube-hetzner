@@ -34,17 +34,44 @@ ${cloudinit_runcmd_common}
 
 # Configure default routes based on public ip availability
 %{if private_network_only~}
-# Private-only setup: eth0 is the private interface
-- [ip, route, add, default, via, '${network_gw_ipv4}', dev, 'eth0', metric, '100']
+# Private-only setup: detect the private interface dynamically
+- |
+  route_dev() {
+    awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+  }
+  PRIV_IF=$(ip -4 route get '${network_gw_ipv4}' 2>/dev/null | route_dev)
+  if [ -z "$PRIV_IF" ]; then
+    PRIV_IF=$(ip -4 route show scope link 2>/dev/null | route_dev)
+  fi
+  if [ -n "$PRIV_IF" ]; then
+    ip route replace default via '${network_gw_ipv4}' dev "$PRIV_IF" metric 100
+  else
+    echo "WARN: could not determine private interface for default route" >&2
+  fi
 %{else~}
-# Standard setup: eth0 is public, configure both IPv4 and IPv6
-- [ip, route, add, default, via, '172.31.1.1', dev, 'eth0', metric, '100']
-- [ip, -6, route, add, default, via, 'fe80::1', dev, 'eth0', metric, '100']
+# Standard setup: detect public interface dynamically (ARM uses enp7s0, x86 uses eth0)
+- |
+  route_dev() {
+    awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+  }
+  PUB_IF=$(ip -4 route get 172.31.1.1 2>/dev/null | route_dev)
+  # Verify we didn't accidentally pick the private interface (can happen if network_ipv4_cidr overlaps 172.31.0.0/16)
+  PRIV_IF=$(ip -4 route get '${network_gw_ipv4}' 2>/dev/null | route_dev)
+  if [ -n "$PRIV_IF" ] && [ "$PUB_IF" = "$PRIV_IF" ]; then
+    echo "WARN: detected interface $PUB_IF matches private interface, clearing to trigger fallback" >&2
+    PUB_IF=""
+  fi
+  if [ -z "$PUB_IF" ]; then
+    echo "WARN: could not detect public interface, falling back to eth0" >&2
+    PUB_IF="eth0"
+  fi
+  ip route replace default via 172.31.1.1 dev "$PUB_IF" metric 100
+  ip -6 route replace default via fe80::1 dev "$PUB_IF" metric 100
 %{endif~}
 
 %{if swap_size != ""~}
 - |
-  btrfs subvolume create /var/lib/swap
+  btrfs subvolume create /var/lib/swap 2>/dev/null || true
   chmod 700 /var/lib/swap
   truncate -s 0 /var/lib/swap/swapfile
   chattr +C /var/lib/swap/swapfile
@@ -52,8 +79,10 @@ ${cloudinit_runcmd_common}
   chmod 600 /var/lib/swap/swapfile
   mkswap /var/lib/swap/swapfile
   swapon /var/lib/swap/swapfile
-  echo "/var/lib/swap/swapfile none swap defaults 0 0" | sudo tee -a /etc/fstab
-  cat << EOF >> /etc/systemd/system/swapon-late.service
+  if ! grep -q -F "/var/lib/swap/swapfile" /etc/fstab; then
+    echo "/var/lib/swap/swapfile none swap defaults 0 0" | tee -a /etc/fstab
+  fi
+  cat <<'  EOF' > /etc/systemd/system/swapon-late.service
   [Unit]
   Description=Activate all swap devices later
   After=default.target
@@ -64,7 +93,7 @@ ${cloudinit_runcmd_common}
 
   [Install]
   WantedBy=default.target
-  EOF
+    EOF
   systemctl daemon-reload
   systemctl enable swapon-late.service
 %{endif~}

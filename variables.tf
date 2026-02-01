@@ -11,6 +11,26 @@ variable "k3s_token" {
   default     = null
 }
 
+variable "robot_user" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "User for the Hetzner Robot webservice"
+}
+
+variable "robot_password" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Password for the Hetzner Robot webservice"
+}
+
+variable "robot_ccm_enabled" {
+  type        = bool
+  default     = false
+  description = "Enables the integration of Hetzner Robot dedicated servers via the Cloud Controller Manager (CCM). If true, `robot_user` and `robot_password` must also be provided, otherwise the integration will not be activated."
+}
+
 variable "microos_x86_snapshot_id" {
   description = "MicroOS x86 snapshot ID to be used. Per default empty, the most recent image created using createkh will be used"
   type        = string
@@ -102,6 +122,25 @@ variable "network_ipv4_cidr" {
   default     = "10.0.0.0/8"
 }
 
+variable "subnet_amount" {
+  description = "The amount of subnets into which the network will be split. Must be a power of 2."
+  type        = number
+  default     = 256
+  validation {
+    condition     = floor(log(var.subnet_amount, 2)) == log(var.subnet_amount, 2)
+    error_message = "Subnet amount must be a power of 2."
+  }
+  validation {
+    # Host bits = 32 - prefix, must have enough bits to create subnet_amount subnets
+    condition     = pow(2, 32 - tonumber(split("/", var.network_ipv4_cidr)[1])) >= var.subnet_amount
+    error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_amount or use a larger network."
+  }
+  validation {
+    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : 1)
+    error_message = "Subnet amount must be large enough so that a subnet for each agent pool, each control plane pool and (if enabled) the nat router can be created in the network."
+  }
+}
+
 variable "cluster_ipv4_cidr" {
   description = "Internal Pod CIDR, used for the controller and currently for calico/cilium."
   type        = string
@@ -122,7 +161,7 @@ variable "cluster_dns_ipv4" {
 
 
 variable "nat_router" {
-  description = "Do you want to pipe all egress through a single nat router which is to be constructed?"
+  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled. Automatically forwards port 6443 to the control plane LB when control_plane_lb_enable_public_interface=false."
   nullable    = true
   default     = null
   type = object({
@@ -131,28 +170,40 @@ variable "nat_router" {
     labels      = optional(map(string), {})
     enable_sudo = optional(bool, false)
   })
-  validation {
-    condition     = (var.nat_router != null && var.use_control_plane_lb) || (var.nat_router == null)
-    error_message = "If you enable the use of a NAT router, you must set use_control_plane_lb=true."
-  }
 }
 
 variable "nat_router_subnet_index" {
   type        = number
   default     = 200
-  description = "Subnet index (0-255) for NAT router. Default 200 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
+  description = "Subnet index for NAT router. Default 200 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
 
   validation {
-    condition     = var.nat_router_subnet_index >= 0 && var.nat_router_subnet_index <= 255
-    error_message = "NAT router subnet index must be between 0 and 255."
+    condition     = var.nat_router_subnet_index >= 0 && var.nat_router_subnet_index < var.subnet_amount
+    error_message = "NAT router subnet index must be between 0 and subnet_amount."
   }
 }
 
+variable "vswitch_subnet_index" {
+  type        = number
+  default     = 201
+  description = "Subnet index (0-255) for vSwitch. Default 201 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
+
+  validation {
+    condition     = var.vswitch_subnet_index >= 0 && var.vswitch_subnet_index <= 255
+    error_message = "vSwitch subnet index must be between 0 and 255."
+  }
+}
+
+variable "vswitch_id" {
+  description = "Hetzner Cloud vSwitch ID. If defined, a subnet will be created in the IP-range defined by vswitch_subnet_index. The vSwitch must exist before this module is called."
+  type        = number
+  default     = null
+}
 
 variable "load_balancer_location" {
   description = "Default load balancer location."
   type        = string
-  default     = "fsn1"
+  default     = "nbg1"
 }
 
 variable "load_balancer_type" {
@@ -195,6 +246,12 @@ variable "load_balancer_health_check_retries" {
   description = "Specifies the number of times a health check is retried before a target is marked as unhealthy."
   type        = number
   default     = 3
+}
+
+variable "exclude_agents_from_external_load_balancers" {
+  description = "Add node.kubernetes.io/exclude-from-external-load-balancers=true label to agent nodes. Enable this if you use both the Terraform-managed ingress LB and CCM-managed LoadBalancer services, and want to prevent double-registration of agents to the CCM LBs. Note: This excludes agents from ALL CCM-managed LoadBalancer services, not just ingress."
+  type        = bool
+  default     = false
 }
 
 variable "control_plane_nodepools" {
@@ -242,12 +299,14 @@ variable "agent_nodepools" {
     labels                     = list(string)
     taints                     = list(string)
     longhorn_volume_size       = optional(number)
+    longhorn_mount_path        = optional(string, "/var/longhorn")
     swap_size                  = optional(string, "")
     zram_size                  = optional(string, "")
     kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
     selinux                    = optional(bool, true)
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
+    subnet_ip_range            = optional(string, null)
     count                      = optional(number, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
@@ -261,6 +320,7 @@ variable "agent_nodepools" {
       labels                     = optional(list(string))
       taints                     = optional(list(string))
       longhorn_volume_size       = optional(number)
+      longhorn_mount_path        = optional(string, null)
       swap_size                  = optional(string, "")
       zram_size                  = optional(string, "")
       kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
@@ -303,6 +363,28 @@ variable "agent_nodepools" {
     error_message = "Hetzner does not support networks with more than 100 servers."
   }
 
+  validation {
+    condition = alltrue(flatten([
+      for np in var.agent_nodepools : concat(
+        [
+          can(regex("^/var/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", np.longhorn_mount_path)) &&
+          !contains(split("/", np.longhorn_mount_path), "..") &&
+          !contains(split("/", np.longhorn_mount_path), ".")
+        ],
+        [
+          for node in values(coalesce(np.nodes, {})) : (
+            node.longhorn_mount_path == null || (
+              can(regex("^/var/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", node.longhorn_mount_path)) &&
+              !contains(split("/", node.longhorn_mount_path), "..") &&
+              !contains(split("/", node.longhorn_mount_path), ".")
+            )
+          )
+        ]
+      )
+    ]))
+    error_message = "Each longhorn_mount_path must be a valid, absolute path within a subdirectory of '/var/', not contain '.' or '..' components, and not end with a slash. This applies to both nodepool-level and node-level settings."
+  }
+
 }
 
 variable "cluster_autoscaler_image" {
@@ -313,7 +395,7 @@ variable "cluster_autoscaler_image" {
 
 variable "cluster_autoscaler_version" {
   type        = string
-  default     = "v1.32.0"
+  default     = "v1.33.3"
   description = "Version of Kubernetes Cluster Autoscaler for Hetzner Cloud. Should be aligned with Kubernetes version. Available versions for the official image can be found at https://explore.ggcr.dev/?repo=registry.k8s.io%2Fautoscaling%2Fcluster-autoscaler."
 }
 
@@ -357,6 +439,47 @@ variable "cluster_autoscaler_server_creation_timeout" {
   description = "Timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it."
 }
 
+variable "cluster_autoscaler_replicas" {
+  type        = number
+  default     = 1
+  description = "Number of replicas for the cluster autoscaler deployment. Multiple replicas use leader election for HA."
+
+  validation {
+    condition     = var.cluster_autoscaler_replicas >= 1 && floor(var.cluster_autoscaler_replicas) == var.cluster_autoscaler_replicas
+    error_message = "Number of cluster autoscaler replicas must be a positive integer."
+  }
+}
+
+variable "cluster_autoscaler_resource_limits" {
+  type        = bool
+  default     = true
+  description = "Should cluster autoscaler enable default resource requests and limits. Default values are requests: 100m & 300Mi and limits: 100m & 300Mi."
+}
+
+variable "cluster_autoscaler_resource_values" {
+  type = object({
+    requests = object({
+      cpu    = string
+      memory = string
+    })
+    limits = object({
+      cpu    = string
+      memory = string
+    })
+  })
+  default = {
+    requests = {
+      cpu    = "100m"
+      memory = "300Mi"
+    }
+    limits = {
+      cpu    = "100m"
+      memory = "300Mi"
+    }
+  }
+  description = "Requests and limits for Cluster Autoscaler."
+}
+
 variable "autoscaler_nodepools" {
   description = "Cluster autoscaler nodepools."
   type = list(object({
@@ -372,6 +495,8 @@ variable "autoscaler_nodepools" {
       value  = string
       effect = string
     })), [])
+    swap_size = optional(string, "")
+    zram_size = optional(string, "")
   }))
   default = []
 }
@@ -571,6 +696,17 @@ variable "traefik_values" {
   description = "Additional helm values file to pass to Traefik as 'valuesContent' at the HelmChart."
 }
 
+variable "traefik_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or traefik_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.traefik_merge_values == "" || can(yamldecode(var.traefik_merge_values))
+    error_message = "traefik_merge_values must be valid YAML format or empty string."
+  }
+}
+
 variable "nginx_version" {
   type        = string
   default     = ""
@@ -581,6 +717,17 @@ variable "nginx_values" {
   type        = string
   default     = ""
   description = "Additional helm values file to pass to nginx as 'valuesContent' at the HelmChart."
+}
+
+variable "nginx_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or nginx_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.nginx_merge_values == "" || can(yamldecode(var.nginx_merge_values))
+    error_message = "nginx_merge_values must be valid YAML format or empty string."
+  }
 }
 
 variable "haproxy_requests_cpu" {
@@ -613,6 +760,17 @@ variable "haproxy_values" {
   description = "Helm values file to pass to haproxy as 'valuesContent' at the HelmChart, overriding the default."
 }
 
+variable "haproxy_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or haproxy_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.haproxy_merge_values == "" || can(yamldecode(var.haproxy_merge_values))
+    error_message = "haproxy_merge_values must be valid YAML format or empty string."
+  }
+}
+
 variable "allow_scheduling_on_control_plane" {
   type        = bool
   default     = false
@@ -627,11 +785,11 @@ variable "enable_metrics_server" {
 
 variable "initial_k3s_channel" {
   type        = string
-  default     = "v1.31" # Please update kube.tf.example too when changing this variable
+  default     = "v1.33" # Please update kube.tf.example too when changing this variable
   description = "Allows you to specify an initial k3s channel. See https://update.k3s.io/v1-release/channels for available channels."
 
   validation {
-    condition     = contains(["stable", "latest", "testing", "v1.16", "v1.17", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34"], var.initial_k3s_channel)
+    condition     = contains(["stable", "latest", "testing", "v1.16", "v1.17", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35"], var.initial_k3s_channel)
     error_message = "The initial k3s channel must be one of stable, latest or testing, or any of the minor kube versions like v1.26."
   }
 }
@@ -776,10 +934,32 @@ variable "cilium_routing_mode" {
   }
 }
 
+variable "cilium_loadbalancer_acceleration_mode" {
+  type        = string
+  default     = "best-effort"
+  description = "Set Cilium loadbalancer.acceleration-mode. Supported values are \"disabled\", \"native\" and \"best-effort\"."
+
+  validation {
+    condition     = contains(["disabled", "native", "best-effort"], var.cilium_loadbalancer_acceleration_mode)
+    error_message = "The cilium_loadbalancer_acceleration_mode must be one of \"disabled\", \"native\" or \"best-effort\"."
+  }
+}
+
 variable "cilium_values" {
   type        = string
   default     = ""
   description = "Additional helm values file to pass to Cilium as 'valuesContent' at the HelmChart."
+}
+
+variable "cilium_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or cilium_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.cilium_merge_values == "" || can(yamldecode(var.cilium_merge_values))
+    error_message = "cilium_merge_values must be valid YAML format or empty string."
+  }
 }
 
 variable "cilium_version" {
@@ -858,6 +1038,17 @@ variable "longhorn_values" {
   description = "Additional helm values file to pass to longhorn as 'valuesContent' at the HelmChart."
 }
 
+variable "longhorn_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or longhorn_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.longhorn_merge_values == "" || can(yamldecode(var.longhorn_merge_values))
+    error_message = "longhorn_merge_values must be valid YAML format or empty string."
+  }
+}
+
 variable "disable_hetzner_csi" {
   type        = bool
   default     = false
@@ -910,6 +1101,17 @@ variable "cert_manager_values" {
   type        = string
   default     = ""
   description = "Additional helm values file to pass to Cert-Manager as 'valuesContent' at the HelmChart. Defaults are set in locals.tf. For cert-manager versions prior to v1.15.0, you need to set 'installCRDs: true'."
+}
+
+variable "cert_manager_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or cert_manager_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.cert_manager_merge_values == "" || can(yamldecode(var.cert_manager_merge_values))
+    error_message = "cert_manager_merge_values must be valid YAML format or empty string."
+  }
 }
 
 variable "enable_rancher" {
@@ -994,6 +1196,17 @@ variable "rancher_values" {
   description = "Additional helm values file to pass to Rancher as 'valuesContent' at the HelmChart."
 }
 
+variable "rancher_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or rancher_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.rancher_merge_values == "" || can(yamldecode(var.rancher_merge_values))
+    error_message = "rancher_merge_values must be valid YAML format or empty string."
+  }
+}
+
 variable "kured_version" {
   type        = string
   default     = null
@@ -1014,7 +1227,7 @@ variable "block_icmp_ping_in" {
 variable "use_control_plane_lb" {
   type        = bool
   default     = false
-  description = "When this is enabled, rather than the first node, all external traffic will be routed via a control-plane loadbalancer, allowing for high availability."
+  description = "Creates a dedicated load balancer for the Kubernetes API (port 6443). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic."
 }
 
 variable "control_plane_lb_type" {
@@ -1026,7 +1239,7 @@ variable "control_plane_lb_type" {
 variable "control_plane_lb_enable_public_interface" {
   type        = bool
   default     = true
-  description = "Enable or disable public interface for the control plane load balancer . Defaults to true."
+  description = "Enable or disable public interface for the control plane load balancer. Defaults to true. When disabled with nat_router enabled, the NAT router automatically forwards port 6443 to the private control plane LB."
 }
 
 variable "dns_servers" {
@@ -1117,6 +1330,17 @@ variable "enable_wireguard" {
   description = "Use wireguard-native as the backend for CNI."
 }
 
+variable "flannel_backend" {
+  type        = string
+  default     = null
+  description = "Override the flannel backend used by k3s. When set, this takes precedence over enable_wireguard. Valid values: vxlan, host-gw, wireguard-native. See https://docs.k3s.io/networking/basic-network-options for details. Use wireguard-native for Robot nodes with vSwitch to avoid MTU issues."
+
+  validation {
+    condition     = var.flannel_backend == null || contains(["vxlan", "host-gw", "wireguard-native"], var.flannel_backend)
+    error_message = "The flannel_backend must be one of: vxlan, host-gw, wireguard-native."
+  }
+}
+
 variable "control_planes_custom_config" {
   type        = any
   default     = {}
@@ -1133,6 +1357,42 @@ variable "k3s_registries" {
   description = "K3S registries.yml contents. It used to access private docker registries."
   default     = " "
   type        = string
+}
+
+variable "k3s_kubelet_config" {
+  description = "K3S kubelet-config.yaml contents. Used to configure the kubelet."
+  default     = ""
+  type        = string
+}
+
+variable "k3s_audit_policy_config" {
+  description = "K3S audit-policy.yaml contents. Used to configure Kubernetes audit logging."
+  default     = ""
+  type        = string
+}
+
+variable "k3s_audit_log_path" {
+  description = "Path where audit logs will be stored on control plane nodes"
+  default     = "/var/log/k3s-audit/audit.log"
+  type        = string
+}
+
+variable "k3s_audit_log_maxage" {
+  description = "Maximum number of days to retain audit log files"
+  default     = 30
+  type        = number
+}
+
+variable "k3s_audit_log_maxbackup" {
+  description = "Maximum number of audit log files to retain"
+  default     = 10
+  type        = number
+}
+
+variable "k3s_audit_log_maxsize" {
+  description = "Maximum size in megabytes of the audit log file before rotation"
+  default     = 100
+  type        = number
 }
 
 variable "additional_tls_sans" {
@@ -1236,12 +1496,33 @@ variable "keep_disk_cp" {
 
 variable "sys_upgrade_controller_version" {
   type        = string
-  default     = "v0.14.2"
-  description = "Version of the System Upgrade Controller for automated upgrades of k3s. See https://github.com/rancher/system-upgrade-controller/releases for the available versions."
+  default     = "v0.18.0"
+  description = "Version of the System Upgrade Controller for automated upgrades of k3s. v0.15.0+ supports the 'window' parameter for scheduling upgrades. See https://github.com/rancher/system-upgrade-controller/releases for available versions."
 }
 
 variable "hetzner_ccm_values" {
   type        = string
   default     = ""
   description = "Additional helm values file to pass to Hetzner Controller Manager as 'valuesContent' at the HelmChart."
+}
+
+variable "hetzner_ccm_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or hetzner_ccm_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.hetzner_ccm_merge_values == "" || can(yamldecode(var.hetzner_ccm_merge_values))
+    error_message = "hetzner_ccm_merge_values must be valid YAML format or empty string."
+  }
+}
+
+variable "control_plane_endpoint" {
+  type        = string
+  description = "Optional external control plane endpoint URL (e.g. https://myapi.domain.com:6443). Used as the k3s 'server' value for agents and secondary control planes."
+  default     = null
+  validation {
+    condition     = var.control_plane_endpoint == null || can(regex("^https?://(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?|(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|\\[[0-9a-fA-F:]+\\])(?::[0-9]{1,5})?(?:/.*)?$", var.control_plane_endpoint))
+    error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443)."
+  }
 }

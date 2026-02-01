@@ -6,16 +6,63 @@ on:
     tags:
       - '*'
   workflow_dispatch:
-      tags:
-        - '*'
+
 jobs:
   Release:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: ncipollo/release-action@v1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for contributor extraction
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "tag=${PREV_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Generate contributors list
+        id: contributors
+        env:
+          PREV_TAG: ${{ steps.prev_tag.outputs.tag }}
+        run: |
+          if [ -n "${PREV_TAG}" ]; then
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          # Get unique contributors from commits and co-authors
+          CONTRIBUTORS=$(git log ${RANGE} --format='%an' | sort -u | while read name; do
+            echo "* ${name}"
+          done)
+
+          # Also extract Co-authored-by names
+          COAUTHORS=$(git log ${RANGE} --format='%b' | grep -i "co-authored-by" | sed 's/.*: //' | sed 's/ <.*//' | sort -u | while read name; do
+            [ -n "$name" ] && echo "* ${name}"
+          done)
+
+          # Combine and dedupe
+          ALL_CONTRIBUTORS=$(echo -e "${CONTRIBUTORS}\n${COAUTHORS}" | grep -v "^$" | sort -u)
+
+          # Write to file for multi-line output
+          {
+            echo "## 👥 Contributors"
+            echo ""
+            echo "Thanks to all contributors who made this release possible:"
+            echo ""
+            echo "${ALL_CONTRIBUTORS}"
+          } > contributors.md
+
+          echo "Generated contributors list:"
+          cat contributors.md
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
         with:
           generateReleaseNotes: true
           name: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          bodyFile: contributors.md
+          appendBody: true

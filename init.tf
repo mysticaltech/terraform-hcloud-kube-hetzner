@@ -13,6 +13,7 @@ resource "hcloud_load_balancer" "cluster" {
 
   lifecycle {
     ignore_changes = [
+      location,
       # Ignore changes to hcloud-ccm/service-uid label that is managed by the CCM.
       labels["hcloud-ccm/service-uid"],
     ]
@@ -23,13 +24,14 @@ resource "hcloud_load_balancer_network" "cluster" {
   count = local.has_external_load_balancer ? 0 : 1
 
   load_balancer_id = hcloud_load_balancer.cluster.*.id[0]
+  # Use -2 to get the last usable IP in the subnet
   ip = cidrhost(
     (
       length(hcloud_network_subnet.agent) > 0
       ? hcloud_network_subnet.agent.*.ip_range[0]
       : hcloud_network_subnet.control_plane.*.ip_range[0]
     )
-  , 254)
+  , -2)
   subnet_id = (
     length(hcloud_network_subnet.agent) > 0
     ? hcloud_network_subnet.agent.*.id[0]
@@ -55,12 +57,12 @@ resource "hcloud_load_balancer_target" "cluster" {
   label_selector = join(",", concat(
     [for k, v in local.labels : "${k}=${v}"],
     [
-      # Generic label merge from control plane and agent namespaces with "or",
-      # resulting in: role in (control_plane_node,agent_node)
-      for key in keys(merge(local.labels_control_plane_node, local.labels_agent_node)) :
+      # Build label selector from lb_target_groups (respects allow_loadbalancer_target_on_control_plane)
+      # Results in either: role in (control_plane_node,agent_node) or role in (agent_node)
+      for key in keys(merge(local.lb_target_groups...)) :
       "${key} in (${
         join(",", compact([
-          for labels in [local.labels_control_plane_node, local.labels_agent_node] :
+          for labels in local.lb_target_groups :
           try(labels[key], "")
         ]))
       })"
@@ -117,7 +119,15 @@ resource "terraform_data" "first_control_plane" {
         },
         lookup(local.cni_k3s_settings, var.cni_plugin, {}),
         var.use_control_plane_lb ? {
-          tls-san = concat([hcloud_load_balancer.control_plane.*.ipv4[0], hcloud_load_balancer_network.control_plane.*.ip[0]], var.additional_tls_sans)
+          tls-san = concat(
+            compact([
+              hcloud_load_balancer.control_plane.*.ipv4[0],
+              hcloud_load_balancer_network.control_plane.*.ip[0],
+              var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+              !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
+            ]),
+            var.additional_tls_sans
+          )
           } : {
           tls-san = concat([local.first_control_plane_ip], var.additional_tls_sans)
         },
@@ -177,6 +187,76 @@ resource "random_password" "rancher_bootstrap" {
   count   = length(var.rancher_bootstrap_password) == 0 ? 1 : 0
   length  = 48
   special = false
+}
+
+resource "terraform_data" "kube_system_secrets" {
+  triggers_replace = {
+    secrets_sha = sha256(yamlencode(local.kube_system_secrets))
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.first_control_plane_ip
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "file" {
+    content = templatefile(
+      "${path.module}/templates/kube_system_secrets.yaml.tpl",
+      {
+        kube_system_secrets = local.kube_system_secrets,
+    })
+    destination = "/var/post_install/kube_system_secrets.yaml"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      <<-EOT
+      set -ex
+      # Retry logic to handle temporary network connectivity issues during upgrades
+      MAX_ATTEMPTS=30
+      RETRY_INTERVAL=10
+      for attempt in $(seq 1 $MAX_ATTEMPTS); do
+        echo "Attempt $attempt: Checking kubectl connectivity..."
+        if [ "$(kubectl get --raw='/readyz' 2>/dev/null)" = "ok" ]; then
+          echo "kubectl connectivity established, deploying secrets..."
+
+          kubectl apply -f /var/post_install/kube_system_secrets.yaml
+
+          echo "Secrets deployed successfully"
+          break
+        else
+          echo "kubectl not ready yet, waiting $RETRY_INTERVAL seconds..."
+          sleep $RETRY_INTERVAL
+        fi
+        
+        if [ $attempt -eq $MAX_ATTEMPTS ]; then
+          echo "Failed to establish kubectl connectivity after $MAX_ATTEMPTS attempts"
+          exit 1
+        fi
+      done
+
+      rm /var/post_install/kube_system_secrets.yaml
+
+      EOT
+    ]
+  }
+
+  depends_on = [
+    hcloud_load_balancer.cluster,
+    terraform_data.control_planes,
+  ]
+}
+moved {
+  from = null_resource.kube_system_secrets
+  to   = terraform_data.kube_system_secrets
 }
 
 # This is where all the setup of Kubernetes components happen
@@ -419,35 +499,6 @@ resource "terraform_data" "kustomization" {
     destination = "/var/post_install/kured.yaml"
   }
 
-  # Deploy secrets, logging is automatically disabled due to sensitive variables
-  provisioner "remote-exec" {
-    inline = [
-      <<-EOT
-      set -ex
-      # Retry logic to handle temporary network connectivity issues during upgrades
-      MAX_ATTEMPTS=30
-      RETRY_INTERVAL=10
-      for attempt in $(seq 1 $MAX_ATTEMPTS); do
-        echo "Attempt $attempt: Checking kubectl connectivity..."
-        if [ "$(kubectl get --raw='/readyz' 2>/dev/null)" = "ok" ]; then
-          echo "kubectl connectivity established, deploying secrets..."
-          kubectl -n kube-system create secret generic hcloud --from-literal=token=${var.hcloud_token} --from-literal=network=${data.hcloud_network.k3s.name} --dry-run=client -o yaml | kubectl apply -f -
-          kubectl -n kube-system create secret generic hcloud-csi --from-literal=token=${var.hcloud_token} --dry-run=client -o yaml | kubectl apply -f -
-          echo "Secrets deployed successfully"
-          break
-        else
-          echo "kubectl not ready yet, waiting $RETRY_INTERVAL seconds..."
-          sleep $RETRY_INTERVAL
-        fi
-        if [ $attempt -eq $MAX_ATTEMPTS ]; then
-          echo "Failed to establish kubectl connectivity after $MAX_ATTEMPTS attempts"
-          exit 1
-        fi
-      done
-      EOT
-    ]
-  }
-
   # Deploy our post-installation kustomization
   provisioner "remote-exec" {
     inline = concat([
@@ -489,7 +540,11 @@ resource "terraform_data" "kustomization" {
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "kubectl -n system-upgrade wait --for=condition=available --timeout=900s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
-        "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml"
+        "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml",
+        # Wait for system namespace deployments to become available
+        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
+        # Wait for helm install jobs to complete (only in namespaces that have jobs)
+        "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns get job -o name 2>/dev/null | grep -q . && kubectl -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
       ],
       local.has_external_load_balancer ? [] : [
         <<-EOT
@@ -507,7 +562,8 @@ resource "terraform_data" "kustomization" {
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
     random_password.rancher_bootstrap,
-    hcloud_volume.longhorn_volume
+    hcloud_volume.longhorn_volume,
+    terraform_data.kube_system_secrets
   ]
 }
 moved {

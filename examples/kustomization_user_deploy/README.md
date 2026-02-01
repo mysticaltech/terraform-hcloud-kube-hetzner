@@ -34,7 +34,7 @@ kind: ConfigMap
 metadata:
   name: demo-config
   data:
-    someConfigKey: ${sealed_secrets_crt}
+    someConfigKey: ${my_config_key}
 ```
 
 For a full demo see the [simple-resources](simple-resources/) example.
