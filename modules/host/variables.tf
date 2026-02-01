@@ -119,6 +119,16 @@ variable "k3s_kubelet_config_update_script" {
   type    = string
 }
 
+variable "k3s_audit_policy_config" {
+  description = "K3S audit-policy.yaml contents"
+  type        = string
+}
+
+variable "k3s_audit_policy_update_script" {
+  description = "Script to update audit policy configuration"
+  type        = string
+}
+
 variable "cloudinit_write_files_common" {
   default = ""
   type    = string

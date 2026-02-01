@@ -35,6 +35,12 @@ variable "packages_to_install" {
   default = []
 }
 
+# Timezone to set on the snapshot (e.g., "Europe/Madrid", "UTC", "America/New_York")
+variable "timezone" {
+  type    = string
+  default = "UTC"
+}
+
 # Path to a local file containing sysctl settings (one per line, e.g., "vm.swappiness = 10")
 # These will be installed to /etc/sysctl.d/99-custom.conf
 variable "sysctl_config_file" {
@@ -85,6 +91,8 @@ locals {
     rm -rf /etc/ssh/ssh_host_*
     echo "Make sure to use NetworkManager"
     touch /etc/NetworkManager/NetworkManager.conf
+    echo "Setting timezone to '${var.timezone}'..."
+    timedatectl set-timezone '${var.timezone}'
     sleep 1 && udevadm settle
   EOT
 }

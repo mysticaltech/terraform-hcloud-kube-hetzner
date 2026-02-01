@@ -75,6 +75,7 @@ module "kube-hetzner" {
 
   # Using the default configuration you can only create a maximum of 42 agent-nodepools.
   # This is due to the creation of a subnet for each nodepool with CIDRs being in the shape of 10.[nodepool-index].0.0/16 which collides with k3s' cluster and service IP ranges (defaults below).
+  # To create additional ones (or if you want to use different ranges for other reasons), set the `subnet_ip_range` explicitly for a node pool.
   # Furthermore the maximum number of nodepools (controlplane and agent) is 50, due to a hard limit of 50 subnets per network, see https://docs.hetzner.com/cloud/networks/faq/.
   # So to be able to create a maximum of 50 nodepools in total, the values below have to be changed to something outside that range, e.g. `10.200.0.0/16` and `10.201.0.0/16` for cluster and service respectively.
 
@@ -193,6 +194,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
+      # subnet_ip_range = "10.0.0.0/16"  # Optional: override default subnet range
       # swap_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
@@ -210,6 +212,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
+      subnet_ip_range = "10.100.0.0/16"
 
       # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
       # placement_group = "default"
@@ -313,6 +316,12 @@ module "kube-hetzner" {
   # Just note, that if Cilium with cilium_values, the responsibility of enabling of disabling Wireguard falls on you.
   # enable_wireguard = true
 
+  # Override the flannel backend directly (takes precedence over enable_wireguard).
+  # Valid values: vxlan (default), host-gw, wireguard-native
+  # Use wireguard-native for Robot nodes with vSwitch to avoid MTU auto-calculation issues.
+  # See https://docs.k3s.io/networking/basic-network-options for details.
+  # flannel_backend = "wireguard-native"
+
   # * LB location and type, the latter will depend on how much load you want it to handle, see https://www.hetzner.com/cloud/load-balancer
   load_balancer_type     = "lb11"
   load_balancer_location = "nbg1"
@@ -342,11 +351,11 @@ module "kube-hetzner" {
   # easier, as all public traffic passes through a single strongly secured node. It does
   # however also introduce a single point of failure, so if you need high-availability on your
   # egress, you should consider other configurations.
-  # 
+  #
   # Hetzner removed the DHCP Router option from private networks on 2025-08-11, so the module
   # now ensures each node attached to the private network persists a default route via the
   # virtual gateway. No manual `ip route add` is required after reboots or DHCP renewals.
-  # 
+  #
   #
   # nat_router = {
   #   server_type = "cax21"
@@ -429,7 +438,7 @@ module "kube-hetzner" {
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
-  # cluster_autoscaler_version = "v1.30.3"
+  # cluster_autoscaler_version = "v1.33.3"
   # cluster_autoscaler_log_level = 4
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
@@ -454,6 +463,33 @@ module "kube-hetzner" {
   #   "--ignore-daemonsets-utilization=true",
   #   "--enforce-node-group-min-size=true",
   # ]
+
+  # Cluster Autoscaler Deployment Configuration
+  #
+  # Configure the number of replicas and resource limits/requests for the cluster autoscaler deployment.
+  #
+  # cluster_autoscaler_replicas: Number of replicas for the cluster autoscaler deployment (default: 1)
+  #   - Setting this to > 1 enables HA for the autoscaler itself (uses leader election)
+  #
+  # cluster_autoscaler_resource_limits: Enable or disable resource limits/requests (default: true)
+  #   - Set to false to remove resource constraints entirely
+  #
+  # cluster_autoscaler_resource_values: Customize CPU and memory resources (defaults: 100m CPU, 300Mi memory for both requests and limits)
+  #
+  # Example:
+  #
+  # cluster_autoscaler_replicas = 2
+  # cluster_autoscaler_resource_limits = true
+  # cluster_autoscaler_resource_values = {
+  #   requests = {
+  #     cpu    = "100m"
+  #     memory = "300Mi"
+  #   }
+  #   limits = {
+  #     cpu    = "200m"
+  #     memory = "500Mi"
+  #   }
+  # }
 
   # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
   # This does not protect deletion from Terraform itself.
@@ -550,7 +586,10 @@ module "kube-hetzner" {
   # Automatically "true" in the case of single node cluster (as it does not make sense to use the Hetzner LB in that situation).
   # It can work with any ingress controller that you choose to deploy.
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
-  # enable_klipper_metal_lb = "true"
+  # enable_klipper_metal_lb = true
+
+  # When using an external load balancer, you can specify a stable control plane endpoint URL.
+  # control_plane_endpoint = "https://my-external-lb:6443"
 
   # If you want to configure additional arguments for traefik, enter them here as a list and in the form of traefik CLI arguments; see https://doc.traefik.io/traefik/reference/static-configuration/cli/
   # They are the options that go into the additionalArguments section of the Traefik helm values file.
@@ -676,18 +715,19 @@ module "kube-hetzner" {
 
   # Allows you to specify the k3s version. If defined, supersedes initial_k3s_channel.
   # See https://github.com/k3s-io/k3s/releases for the available versions.
-  # install_k3s_version = "v1.30.2+k3s2"
+  # install_k3s_version = "v1.33.7+k3s1"
 
   # Allows you to specify either stable, latest, testing or supported minor versions.
   # see https://rancher.com/docs/k3s/latest/en/upgrades/basic/ and https://update.k3s.io/v1-release/channels
   # ⚠️ If you are going to use Rancher addons for instance, it's always a good idea to fix the kube version to one minor version below the latest stable,
-  #     e.g. v1.29 instead of the stable v1.30.
-  # The default is "v1.30".
+  #     e.g. v1.32 instead of the stable v1.33.
+  # The default is "v1.33".
   # initial_k3s_channel = "stable"
 
-  # Allows to specify the version of the System Upgrade Controller for automated upgrades of k3s
+  # Allows to specify the version of the System Upgrade Controller for automated upgrades of k3s.
+  # v0.15.0+ supports the 'window' parameter for scheduling upgrade times.
   # See https://github.com/rancher/system-upgrade-controller/releases for the available versions.
-  # sys_upgrade_controller_version = "v0.14.2"
+  # sys_upgrade_controller_version = "v0.18.0"
 
   # The cluster name, by default "k3s"
   # cluster_name = ""
@@ -792,6 +832,41 @@ module "kube-hetzner" {
   #   imageGCHighThresholdPercent: 50
   #   imageMaximumGCAge: 24h
   # EOT
+
+  # Enable Kubernetes audit logging on control plane nodes
+  # This will create an audit policy file and configure k3s to use it
+  # Audit logs will be written to /var/log/k3s-audit/audit.log by default
+  #
+  # k3s_audit_policy_config = <<-EOT
+  #   apiVersion: audit.k8s.io/v1
+  #   kind: Policy
+  #   rules:
+  #     # Log pod changes at RequestResponse level
+  #     - level: RequestResponse
+  #       omitStages:
+  #         - RequestReceived
+  #       resources:
+  #         - group: ""
+  #           resources: ["pods", "services"]
+  #       namespaces: ["default", "kube-system"]
+  #     # Log all other resources at Metadata level
+  #     - level: Metadata
+  #       omitStages:
+  #         - RequestReceived
+  #     # Don't log requests to certain non-resource URL paths
+  #     - level: None
+  #       nonResourceURLs:
+  #         - /api*
+  #         - /version
+  #         - /healthz
+  #         - /readyz
+  # EOT
+  #
+  # # Audit log configuration
+  # k3s_audit_log_path = "/var/log/k3s-audit/audit.log"  # Path to audit log file
+  # k3s_audit_log_maxage = 30     # Days to retain audit logs
+  # k3s_audit_log_maxbackup = 10  # Number of audit log files to keep
+  # k3s_audit_log_maxsize = 100   # Max size in MB before rotation
 
   # If you want to allow all outbound traffic you can set this to "false". Default is "true".
   # restrict_outbound_traffic = false
@@ -1012,7 +1087,7 @@ module "kube-hetzner" {
   # Please understand that the indentation is very important, inside the EOTs, as those are proper yaml helm values.
   # We advise you to use the default values, and only change them if you know what you are doing!
 
-  # You can inline the values here in heredoc-style (as the examples below with the <<EOT to EOT). Please note that the current indentation inside the EOT is important.
+  # You can inline the values here in heredoc-style (as the examples below with the <<-EOT to EOT). Please note that the indentation inside the EOT is important.
   # Or you can create a thepackage-values.yaml file with the content and use it here with the following syntax:
   # thepackage_values = file("thepackage-values.yaml")
   # _values fully replaces the chart values used by the module. _merge_values keeps the defaults (or *_values if set) and overlays your YAML on top.
@@ -1021,7 +1096,7 @@ module "kube-hetzner" {
   # Be careful when maintaining your own cilium_values, as the choice of available settings depends on the Cilium version used. See also the cilium_version setting to fix a specific version.
   # If you want to merge extra values into defaults (or cilium_values), use cilium_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   cilium_values = <<EOT
+  /*   cilium_values = <<-EOT
 
 ipam:
   mode: kubernetes
@@ -1042,7 +1117,7 @@ encryption:
 MTU: 1450
   EOT */
 
-  /*   cilium_merge_values = <<EOT
+  /*   cilium_merge_values = <<-EOT
 encryption:
   enabled: true
   type: wireguard
@@ -1055,7 +1130,7 @@ encryption:
   # If you want to merge extra values into defaults (or cert_manager_values), use cert_manager_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
   # For cert-manager versions < v1.15.0, you need to set installCRDs: true instead of crds.enabled and crds.keep.
-  /*   cert_manager_values = <<EOT
+  /*   cert_manager_values = <<-EOT
 crds:
   enabled: true
   keep: true
@@ -1066,7 +1141,7 @@ cainjector:
   replicaCount: 3
   EOT */
 
-  /*   cert_manager_merge_values = <<EOT
+  /*   cert_manager_merge_values = <<-EOT
 webhook:
   replicaCount: 2
   EOT */
@@ -1076,7 +1151,7 @@ webhook:
   # If you want to merge extra values into defaults (or hetzner_ccm_values), use hetzner_ccm_merge_values.
   # For advanced use cases like adding Hetzner Robot servers, see: https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   hetzner_ccm_values = <<EOT
+  /*   hetzner_ccm_values = <<-EOT
 networking:
   enabled: true
 args:
@@ -1095,7 +1170,7 @@ env:
     value: "true"
   EOT */
 
-  /*   hetzner_ccm_merge_values = <<EOT
+  /*   hetzner_ccm_merge_values = <<-EOT
 env:
   HCLOUD_LOAD_BALANCERS_LOCATION:
     value: "nbg1"
@@ -1103,7 +1178,7 @@ env:
 
   # csi-driver-smb, all csi-driver-smb helm values can be found at https://github.com/kubernetes-csi/csi-driver-smb/blob/master/charts/latest/csi-driver-smb/values.yaml
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   csi_driver_smb_values = <<EOT
+  /*   csi_driver_smb_values = <<-EOT
 controller:
   name: csi-smb-controller
   replicas: 1
@@ -1133,7 +1208,7 @@ controller:
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
   # If you want to merge extra values into defaults (or longhorn_values), use longhorn_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   longhorn_values = <<EOT
+  /*   longhorn_values = <<-EOT
 defaultSettings:
   defaultDataPath: /var/longhorn
 persistence:
@@ -1142,7 +1217,7 @@ persistence:
   defaultClass: true
   EOT */
 
-  /*   longhorn_merge_values = <<EOT
+  /*   longhorn_merge_values = <<-EOT
 defaultSettings:
   defaultReplicaCount: 2
   EOT */
@@ -1154,10 +1229,10 @@ defaultSettings:
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
   # If you want to merge extra values into defaults (or traefik_values), use traefik_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   traefik_values = <<EOT
+  /*   traefik_values = <<-EOT
 deployment:
   replicas: 1
-globalArguments: []
+additionalArguments: []
 service:
   enabled: true
   type: LoadBalancer
@@ -1171,11 +1246,12 @@ service:
 
 ports:
   web:
-    redirections:
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
     proxyProtocol:
       trustedIPs:
@@ -1196,7 +1272,7 @@ ports:
         - 10.0.0.0/8
   EOT */
 
-  /*   traefik_merge_values = <<EOT
+  /*   traefik_merge_values = <<-EOT
 service:
   annotations:
     "load-balancer.hetzner.cloud/location": "fsn1"
@@ -1210,7 +1286,7 @@ service:
   # You can also have a look at https://kubernetes.github.io/ingress-nginx/, to understand how it works, and all the options at your disposal.
   # If you want to merge extra values into defaults (or nginx_values), use nginx_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   nginx_values = <<EOT
+  /*   nginx_values = <<-EOT
 controller:
   watchIngressWithoutClass: "true"
   kind: "DaemonSet"
@@ -1228,7 +1304,7 @@ controller:
       "load-balancer.hetzner.cloud/uses-proxyprotocol": "true"
   EOT */
 
-  /*   nginx_merge_values = <<EOT
+  /*   nginx_merge_values = <<-EOT
 controller:
   kind: "Deployment"
   EOT */
@@ -1271,10 +1347,10 @@ controller:
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
   # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
   # If you want to merge extra values into defaults (or haproxy_values), use haproxy_merge_values.
-  /*   haproxy_values = <<EOT
+  /*   haproxy_values = <<-EOT
   EOT */
 
-  /*   haproxy_merge_values = <<EOT
+  /*   haproxy_merge_values = <<-EOT
 controller:
   replicaCount: 2
   EOT */
@@ -1282,7 +1358,7 @@ controller:
   # Rancher, all Rancher helm values can be found at https://rancher.com/docs/rancher/v2.5/en/installation/install-rancher-on-k8s/chart-options/
   # If you want to merge extra values into defaults (or rancher_values), use rancher_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   rancher_values = <<EOT
+  /*   rancher_values = <<-EOT
 ingress:
   tls:
     source: "rancher"
@@ -1291,7 +1367,7 @@ replicas: 1
 bootstrapPassword: "supermario"
   EOT */
 
-  /*   rancher_merge_values = <<EOT
+  /*   rancher_merge_values = <<-EOT
 replicas: 3
   EOT */
 

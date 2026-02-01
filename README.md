@@ -417,7 +417,7 @@ locals {
 
 cluster_ipv4_cidr = local.cluster_ipv4_cidr
 
-cilium_values = <<EOT
+cilium_values = <<-EOT
 ipam:
   mode: kubernetes
 k8s:
@@ -753,7 +753,7 @@ locals {
 
   # to get the corresponding etcd_version for a k3s version you need to
   # - start k3s or have it running
-  # - run `curl -L --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2379/version`
+  # - run `curl -L --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2382/version`
   # for details see https://gist.github.com/superseb/0c06164eef5a097c66e810fe91a9d408
   etcd_version = "v3.5.9"
 
@@ -1043,18 +1043,19 @@ If you follow this values, in your kube.tf, please set:
 - Add `disable_ipv4 = true` and  `disable_ipv6 = true` in all machines in all nodepools (control planes + agents).
 - Add `autoscaler_disable_ipv4 = true` and `autoscaler_disable_ipv6 = true` to disable public ips on autoscaled nodes.
 
-This setup is compatible with a loadbalancer for your control planes, however you should consider to set
-`control_plane_lb_enable_public_interface = false` to keep ip private.
+This setup is compatible with a load balancer for your control planes. However, you should consider setting
+`control_plane_lb_enable_public_interface = false` to keep the IP private. Note that if you use this setting,
+you'll need a way to access the Kubernetes API (such as through a VPN, bastion, or NAT router with port forwarding).
 </details>
 <details>
 
 <summary>Use only private ips in your cluster (NAT Router)</summary>
 
-Setup a purely private cluster where public internet traffic is limited to the 
+Setup a purely private cluster where public internet traffic is limited to the
 following paths:
 - egress: entirely through the NAT router, using a single IP for all egress traffic.
 - ssh: entirely through the bastion host, at the moment the same as the NAT router.
-- control-plane (kubectl): through the control plane load balancer only.
+- control-plane (kubectl): through the control plane load balancer if it has a public interface, or through the NAT router (with automatic port forwarding to the private control plane LB) when `control_plane_lb_enable_public_interface = false`.
 - regular ingress: through the agents load balancer only.
 
 By seperating various roles, this decreases the attack surfaces a bit.

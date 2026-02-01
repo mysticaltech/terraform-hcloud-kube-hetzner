@@ -125,7 +125,7 @@ metadata:
   labels:
     app: cluster-autoscaler
 spec:
-  replicas: 1
+  replicas: ${ca_replicas}
   selector:
     matchLabels:
       app: cluster-autoscaler
@@ -155,13 +155,15 @@ spec:
       containers:
         - image: ${ca_image}:${ca_version}
           name: cluster-autoscaler
+          %{~ if ca_resource_limits ~}
           resources:
             limits:
-              cpu: 100m
-              memory: 300Mi
+              cpu: ${ca_resources.limits.cpu}
+              memory: ${ca_resources.limits.memory}
             requests:
-              cpu: 100m
-              memory: 300Mi
+              cpu: ${ca_resources.requests.cpu}
+              memory: ${ca_resources.requests.memory}
+          %{~ endif ~}
           ports:
             - containerPort: 8085
           command:

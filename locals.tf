@@ -10,9 +10,12 @@ locals {
   # if given as a variable, we want to use the given token. This is needed to restore the cluster
   k3s_token = var.k3s_token == null ? random_password.k3s_token.result : var.k3s_token
 
+  # k3s endpoint used for agent registration, respects control_plane_endpoint override
+  k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
+
   ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : data.github_release.hetzner_ccm[0].release_tag
   csi_version    = length(data.github_release.hetzner_csi) == 0 ? var.hetzner_csi_version : data.github_release.hetzner_csi[0].release_tag
-  kured_version  = var.kured_version != null ? var.kured_version : data.github_release.kured[0].release_tag
+  kured_version  = length(data.github_release.kured) == 0 ? var.kured_version : data.github_release.kured[0].release_tag
   calico_version = length(data.github_release.calico) == 0 ? var.calico_version : data.github_release.calico[0].release_tag
 
   # Determine kured YAML suffix based on version (>= 1.20.0 uses -combined.yaml, < 1.20.0 uses -dockerhub.yaml)
@@ -22,6 +25,12 @@ locals {
 
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
+
+  # Bit size of the "network_ipv4_cidr".
+  network_size = 32 - split("/", var.network_ipv4_cidr)[1]
+
+  # Bit size of each subnet
+  subnet_size = local.network_size - log(var.subnet_amount, 2)
 
   # Separate out IPv4 and IPv6 DNS hosts.
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
@@ -341,9 +350,9 @@ locals {
     bastion_private_key = null
   }
 
-  # Create 256 /24 subnets from the base network CIDR.
-  # Control planes allocate from the end (255, 254, 253...) and agents from the start (0, 1, 2...)
-  network_ipv4_subnets = [for index in range(256) : cidrsubnet(var.network_ipv4_cidr, 8, index)]
+  # Create subnets from the base network CIDR.
+  # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
+  network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_amount, 2), index)]
 
   # By convention the DNS service (usually core-dns) is assigned the 10th IP address in the service CIDR block
   cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : cidrhost(var.service_ipv4_cidr, 10)
@@ -391,6 +400,13 @@ locals {
   allow_scheduling_on_control_plane = local.is_single_node_cluster ? true : var.allow_scheduling_on_control_plane
   # Determine if loadbalancer target should be allowed on control plane nodes, which will be always true for single node clusters or if scheduling is allowed on control plane nodes
   allow_loadbalancer_target_on_control_plane = local.is_single_node_cluster ? true : var.allow_scheduling_on_control_plane
+
+  # Build list of label maps to include in LB target selector based on allow_loadbalancer_target_on_control_plane
+  lb_target_groups = (
+    local.allow_loadbalancer_target_on_control_plane ?
+    [local.labels_control_plane_node, local.labels_agent_node] :
+    [local.labels_agent_node]
+  )
 
   # Default k3s node labels
   default_agent_labels = concat(
@@ -548,7 +564,7 @@ locals {
   cni_k3s_settings = {
     "flannel" = {
       disable-network-policy = var.disable_network_policy
-      flannel-backend        = var.enable_wireguard ? "wireguard-native" : "vxlan"
+      flannel-backend        = var.flannel_backend != null ? var.flannel_backend : (var.enable_wireguard ? "wireguard-native" : "vxlan")
     }
     "calico" = {
       disable-network-policy = true
@@ -570,7 +586,16 @@ locals {
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
   flannel_iface               = "eth1"
 
-  kube_apiserver_arg = var.authentication_config != "" ? ["authentication-config=/etc/rancher/k3s/authentication_config.yaml"] : []
+  kube_apiserver_arg = concat(
+    var.authentication_config != "" ? ["authentication-config=/etc/rancher/k3s/authentication_config.yaml"] : [],
+    var.k3s_audit_policy_config != "" ? [
+      "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml",
+      "audit-log-path=${var.k3s_audit_log_path}",
+      "audit-log-maxage=${var.k3s_audit_log_maxage}",
+      "audit-log-maxbackup=${var.k3s_audit_log_maxbackup}",
+      "audit-log-maxsize=${var.k3s_audit_log_maxsize}"
+    ] : []
+  )
 
   cilium_values_default = <<EOT
 # Enable Kubernetes host-scope IPAM mode (required for K3s + Hetzner CCM)
@@ -820,7 +845,6 @@ image:
   tag: ${var.traefik_image_tag}
 deployment:
   replicas: ${local.ingress_replica_count}
-globalArguments: []
 service:
   enabled: true
   type: LoadBalancer
@@ -846,11 +870,12 @@ ports:
 %{if var.traefik_redirect_to_https || !local.using_klipper_lb~}
   web:
 %{if var.traefik_redirect_to_https~}
-    redirections:
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 %{endif~}
 %{if !local.using_klipper_lb~}
     proxyProtocol:
@@ -1073,6 +1098,41 @@ else
   fi
   echo "k3s service or k3s-agent service (re)started successfully"
 fi
+EOF
+
+k3s_audit_policy_update_script = <<EOF
+DATE=`date +%Y-%m-%d_%H-%M-%S`
+if [ -z "${var.k3s_audit_policy_config}" ] || [ "${var.k3s_audit_policy_config}" = " " ]; then
+  echo "No audit policy config provided, skipping audit policy setup"
+  if [ -f "/etc/rancher/k3s/audit-policy.yaml" ]; then
+    echo "Removing existing audit policy file"
+    mv /etc/rancher/k3s/audit-policy.yaml /tmp/audit-policy_removed_$DATE.yaml
+    echo "Restart of k3s service required after audit policy removal"
+    systemctl restart k3s || echo "Warning: Failed to restart k3s after audit policy removal"
+  fi
+else
+  if cmp -s /tmp/audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml; then
+    echo "No update required to the audit-policy.yaml file"
+  else
+    if [ -f "/etc/rancher/k3s/audit-policy.yaml" ]; then
+      echo "Backing up /etc/rancher/k3s/audit-policy.yaml to /tmp/audit-policy_$DATE.yaml"
+      cp /etc/rancher/k3s/audit-policy.yaml /tmp/audit-policy_$DATE.yaml
+    fi
+    echo "Updated audit-policy.yaml detected, restart of k3s service required"
+    cp /tmp/audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml
+    if systemctl is-active --quiet k3s; then
+      systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/audit-policy.yaml from backup" && cp /tmp/audit-policy_$DATE.yaml /etc/rancher/k3s/audit-policy.yaml && systemctl restart k3s)
+    else
+      echo "k3s service is not active, skipping restart"
+    fi
+    echo "k3s service restarted successfully with new audit policy"
+  fi
+fi
+
+# Ensure audit log directory exists with proper permissions
+mkdir -p $(dirname ${var.k3s_audit_log_path})
+chmod 750 $(dirname ${var.k3s_audit_log_path})
+chown root:root $(dirname ${var.k3s_audit_log_path})
 EOF
 
 k3s_authentication_config_update_script = <<EOF
@@ -1352,6 +1412,11 @@ cloudinit_runcmd_common = <<EOT
 
 # Cleanup some logs
 - [truncate, '-s', '0', '/var/log/audit/audit.log']
+
+# Create audit log directory for k3s
+- [mkdir, '-p', '${dirname(var.k3s_audit_log_path)}']
+- [chmod, '750', '${dirname(var.k3s_audit_log_path)}']
+- [chown, 'root:root', '${dirname(var.k3s_audit_log_path)}']
 
 # Add logic to truly disable SELinux if disable_selinux = true.
 # We'll do it by appending to cloudinit_runcmd_common.

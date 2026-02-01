@@ -30,6 +30,9 @@ locals {
       cloudinit_config                           = local.isUsingLegacyConfig ? base64encode(data.cloudinit_config.autoscaler_legacy_config[0].rendered) : ""
       ca_image                                   = var.cluster_autoscaler_image
       ca_version                                 = var.cluster_autoscaler_version
+      ca_replicas                                = var.cluster_autoscaler_replicas
+      ca_resource_limits                         = var.cluster_autoscaler_resource_limits
+      ca_resources                               = var.cluster_autoscaler_resource_values
       cluster_autoscaler_extra_args              = var.cluster_autoscaler_extra_args
       cluster_autoscaler_log_level               = var.cluster_autoscaler_log_level
       cluster_autoscaler_log_to_stderr           = var.cluster_autoscaler_log_to_stderr
@@ -113,7 +116,7 @@ data "cloudinit_config" "autoscaler_config" {
         sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         k3s_config = yamlencode(merge(
           {
-            server = "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443"
+            server = local.k3s_endpoint
             token  = local.k3s_token
             # Kubelet arg precedence (last wins): local.kubelet_arg > nodepool.kubelet_args > k3s_global_kubelet_args > k3s_autoscaler_kubelet_args
             kubelet-arg   = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].kubelet_args, var.k3s_global_kubelet_args, var.k3s_autoscaler_kubelet_args)
@@ -154,7 +157,7 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         k3s_config = yamlencode(merge(
           {
-            server        = "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443"
+            server        = local.k3s_endpoint
             token         = local.k3s_token
             kubelet-arg   = local.kubelet_arg
             flannel-iface = local.flannel_iface

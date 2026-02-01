@@ -57,12 +57,12 @@ resource "hcloud_load_balancer_target" "cluster" {
   label_selector = join(",", concat(
     [for k, v in local.labels : "${k}=${v}"],
     [
-      # Generic label merge from control plane and agent namespaces with "or",
-      # resulting in: role in (control_plane_node,agent_node)
-      for key in keys(merge(local.labels_control_plane_node, local.labels_agent_node)) :
+      # Build label selector from lb_target_groups (respects allow_loadbalancer_target_on_control_plane)
+      # Results in either: role in (control_plane_node,agent_node) or role in (agent_node)
+      for key in keys(merge(local.lb_target_groups...)) :
       "${key} in (${
         join(",", compact([
-          for labels in [local.labels_control_plane_node, local.labels_agent_node] :
+          for labels in local.lb_target_groups :
           try(labels[key], "")
         ]))
       })"
@@ -119,7 +119,15 @@ resource "null_resource" "first_control_plane" {
         },
         lookup(local.cni_k3s_settings, var.cni_plugin, {}),
         var.use_control_plane_lb ? {
-          tls-san = concat([hcloud_load_balancer.control_plane.*.ipv4[0], hcloud_load_balancer_network.control_plane.*.ip[0]], var.additional_tls_sans)
+          tls-san = concat(
+            compact([
+              hcloud_load_balancer.control_plane.*.ipv4[0],
+              hcloud_load_balancer_network.control_plane.*.ip[0],
+              var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+              !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
+            ]),
+            var.additional_tls_sans
+          )
           } : {
           tls-san = concat([local.first_control_plane_ip], var.additional_tls_sans)
         },

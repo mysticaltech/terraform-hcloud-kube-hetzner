@@ -26,6 +26,8 @@ module "control_planes" {
   k3s_registries_update_script     = local.k3s_registries_update_script
   k3s_kubelet_config               = var.k3s_kubelet_config
   k3s_kubelet_config_update_script = local.k3s_kubelet_config_update_script
+  k3s_audit_policy_config          = var.k3s_audit_policy_config
+  k3s_audit_policy_update_script   = local.k3s_audit_policy_update_script
   cloudinit_write_files_common     = local.cloudinit_write_files_common
   cloudinit_runcmd_common          = local.cloudinit_runcmd_common
   swap_size                        = each.value.swap_size
@@ -38,7 +40,7 @@ module "control_planes" {
 
   # We leave some room so 100 eventual Hetzner LBs that can be created perfectly safely
   # It leaves the subnet with 254 x 254 - 100 = 64416 IPs to use, so probably enough.
-  private_ipv4 = cidrhost(hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + 101)
+  private_ipv4 = cidrhost(hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
 
   labels = merge(local.labels, local.labels_control_plane_node)
 
@@ -74,8 +76,7 @@ resource "hcloud_load_balancer_network" "control_plane" {
   load_balancer_id        = hcloud_load_balancer.control_plane.*.id[0]
   subnet_id               = hcloud_network_subnet.control_plane.*.id[0]
   enable_public_interface = var.control_plane_lb_enable_public_interface
-  # Use -2 to get the last usable IP in the subnet
-  ip = cidrhost(hcloud_network_subnet.control_plane.*.ip_range[0], -2)
+  ip                      = cidrhost(hcloud_network_subnet.control_plane.*.ip_range[0], -2)
 
   # Keep existing LB IPs stable on upgrade.
   lifecycle {
@@ -103,6 +104,8 @@ resource "hcloud_load_balancer_service" "control_plane" {
 }
 
 locals {
+  control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
+
   control_plane_ips = {
     for k, v in module.control_planes : k => coalesce(
       v.ipv4_address,
@@ -114,11 +117,17 @@ locals {
   k3s-config = { for k, v in local.control_plane_nodes : k => merge(
     {
       node-name = module.control_planes[k].name
-      server = length(module.control_planes) == 1 ? null : "https://${
-        var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] :
-        module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ?
-        module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
-      module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443"
+      server = length(module.control_planes) == 1 ? null : coalesce(
+        var.control_plane_endpoint,
+        "https://${
+          var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] :
+          (
+            module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ?
+            module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
+            module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+          )
+        }:6443"
+      )
       token                    = local.k3s_token
       disable-cloud-controller = true
       disable-kube-proxy       = var.disable_kube_proxy
@@ -140,14 +149,20 @@ locals {
     },
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
     var.use_control_plane_lb ? {
-      tls-san = concat([
-        hcloud_load_balancer.control_plane.*.ipv4[0],
-        hcloud_load_balancer_network.control_plane.*.ip[0],
-        var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null
-      ], var.additional_tls_sans)
+      tls-san = concat(
+        compact([
+          hcloud_load_balancer.control_plane.*.ipv4[0],
+          hcloud_load_balancer_network.control_plane.*.ip[0],
+          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+          local.control_plane_endpoint_host,
+          !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
+        ]),
+        var.additional_tls_sans
+      )
       } : {
       tls-san = concat(
         compact([
+          local.control_plane_endpoint_host,
           module.control_planes[k].ipv4_address != "" ? module.control_planes[k].ipv4_address : null,
           module.control_planes[k].ipv6_address != "" ? module.control_planes[k].ipv6_address : null,
           try(one(module.control_planes[k].network).ip, null)
@@ -198,6 +213,36 @@ resource "null_resource" "control_plane_config" {
   ]
 }
 
+resource "null_resource" "audit_policy" {
+  for_each = local.control_plane_nodes
+
+  triggers = {
+    control_plane_id = module.control_planes[each.key].id
+    audit_policy     = sha1(var.k3s_audit_policy_config)
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.control_plane_ips[each.key]
+    port           = var.ssh_port
+  }
+
+  provisioner "file" {
+    content     = var.k3s_audit_policy_config
+    destination = "/tmp/audit-policy.yaml"
+  }
+
+  provisioner "remote-exec" {
+    inline = [local.k3s_audit_policy_update_script]
+  }
+
+  depends_on = [
+    null_resource.first_control_plane,
+    hcloud_network_subnet.control_plane
+  ]
+}
 
 resource "null_resource" "authentication_config" {
   for_each = local.control_plane_nodes

@@ -1151,10 +1151,10 @@ Excellent! Let's continue our meticulous dissection.
   # Automatically "true" in the case of single node cluster (as it does not make sense to use the Hetzner LB in that situation).
   # It can work with any ingress controller that you choose to deploy.
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
-  # enable_klipper_metal_lb = "true"
+  # enable_klipper_metal_lb = true
 ```
 
-* **`enable_klipper_metal_lb` (Boolean, Optional, or String `"true"`/`"false"`):**
+* **`enable_klipper_metal_lb` (Boolean, Optional):**
   * **Default:** `false` (unless it's a single-node cluster, then it's automatically `true`).
   * **Purpose:** If `true`, deploys [Klipper LoadBalancer](https://github.com/k3s-io/klipper-lb) (which is k3s's embedded service load balancer, similar in concept to MetalLB for bare-metal clusters).
   * **Mechanism:** Klipper LB allows services of type `LoadBalancer` to get an IP address from a pool of the nodes' own IP addresses. For external access, this typically means one of the node's public IPs is used by the Ingress controller's service.
@@ -2034,6 +2034,7 @@ Locked and loaded! Let's continue the detailed exploration.
     * `true`: The control plane LB gets a public IP, making the Kube API accessible from the internet (subject to Kubernetes authN/authZ).
     * `false`: The control plane LB only gets a private IP within the Hetzner network. The Kube API would only be accessible from within that private network (e.g., via VPN, bastion, or other servers in the same network).
   * **Use Case for `false`:** Enhanced security by not exposing the Kube API directly to the public internet, even via an LB.
+  * **Integration with NAT Router:** When both `control_plane_lb_enable_public_interface = false` and `nat_router` are configured, the NAT router automatically forwards port 6443 to the control plane LB's private IP. This allows external kubectl access via the NAT router's public IP while keeping the control plane LB private. The generated kubeconfig will automatically use the NAT router's public IP as the server address.
 
 ```terraform
   # Let's say you are not using the control plane LB solution above, and still want to have one hostname point to all your control-plane nodes.
@@ -2058,11 +2059,12 @@ Locked and loaded! Let's continue the detailed exploration.
 
 * **`kubeconfig_server_address` (String, Optional):**
   * **Purpose:** Allows you to explicitly set the server address (hostname or IP) that will be written into the `server:` field of the generated kubeconfig file.
-  * **Default Behavior:** Without this, the kubeconfig might point to:
+  * **Default Behavior:** Without this, the kubeconfig will automatically point to:
+    * The public IP of the control plane LB (if `use_control_plane_lb = true` and `control_plane_lb_enable_public_interface = true`).
+    * The public IP of the NAT router (if `use_control_plane_lb = true`, `control_plane_lb_enable_public_interface = false`, and `nat_router` is configured).
+    * The private IP of the control plane LB (if `use_control_plane_lb = true`, `control_plane_lb_enable_public_interface = false`, and no `nat_router`).
     * The IP of the first control plane node (if no CP LB).
-    * The IP of the control plane LB (if `use_control_plane_lb = true`).
-    * The IP of the main application LB (if `enable_klipper_metal_lb = false` and no CP LB, though this is less common for API access).
-  * **Use Case:** If you've set up DNS Round Robin for your control plane nodes (as described for `additional_tls_sans`) and want your kubeconfig to use that hostname (e.g., `cp.cluster.my.org`) instead of a direct IP.
+  * **Use Case:** If you've set up DNS Round Robin for your control plane nodes (as described for `additional_tls_sans`) and want your kubeconfig to use that hostname (e.g., `cp.cluster.my.org`) instead of a direct IP, or if you have a custom ingress setup.
   * **Requirement:** If you use a hostname here, ensure it resolves correctly and is included in the API server's TLS certificate SANs (via `additional_tls_sans` or default k3s behavior).
 
 ```terraform
@@ -2324,7 +2326,7 @@ This section introduces the mechanism for providing detailed, custom Helm chart 
   # Please understand that the indentation is very important, inside the EOTs, as those are proper yaml helm values.
   # We advise you to use the default values, and only change them if you know what you are doing!
 
-  # You can inline the values here in heredoc-style (as the examples below with the <<EOT to EOT). Please note that the current indentation inside the EOT is important.
+  # You can inline the values here in heredoc-style (as the examples below with the <<-EOT to EOT). Please note that the indentation inside the EOT is important.
   # Or you can create a thepackage-values.yaml file with the content and use it here with the following syntax:
   # thepackage_values = file("thepackage-values.yaml")
 
@@ -2439,7 +2441,7 @@ persistence:
   /*   traefik_values = <<-EOT
 deployment:
   replicas: 1 # Override default replica count logic
-globalArguments: [] # Can add global static config args here too
+additionalArguments: [] # Can add global static config args here too
 service:
   enabled: true
   type: LoadBalancer # Ensure service is of type LoadBalancer
@@ -2453,11 +2455,12 @@ service:
 
 ports: # Configure Traefik entrypoints
   web:
-    redirections: # Redirect HTTP (web) to HTTPS (websecure)
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections: # Redirect HTTP (web) to HTTPS (websecure)
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
     proxyProtocol: # Configure PROXY protocol for web entrypoint
       trustedIPs:
@@ -2557,7 +2560,7 @@ controller:
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
   # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
-  /*   haproxy_values = <<EOT
+  /*   haproxy_values = <<-EOT
   EOT */
 ```
 
@@ -2702,14 +2705,18 @@ The following variables have been added to the `kube-hetzner` module since the i
 * **`nat_router` (Object, Optional):**
   * **Purpose:** Creates a dedicated NAT router server that acts as the single egress point for all cluster traffic. When enabled, all control plane and agent nodes are provisioned without public IPs.
   * **Requirements:** Must set `use_control_plane_lb = true` when using NAT router, as kubectl needs a public endpoint to reach the cluster.
-  * **Benefits:** 
+  * **Benefits:**
     * Enhanced security by limiting public exposure to a single hardened node
     * Acts as a bastion host for SSH access to internal nodes
     * Simplifies firewall rules and security auditing
+    * Automatically forwards Kubernetes API traffic (port 6443) when `control_plane_lb_enable_public_interface = false`
   * **Trade-offs:** Introduces a single point of failure for egress traffic
   * **Configuration:**
     * `server_type`: The Hetzner server type for the NAT router
     * `location`: The location where the NAT router should be deployed
+    * `labels`: (Optional) Additional labels for the NAT router
+    * `enable_sudo`: (Optional, default: false) Enable sudo access for the nat-router user
+  * **Port Forwarding:** When the control plane LB has no public interface (`control_plane_lb_enable_public_interface = false`), the NAT router automatically configures iptables rules to forward incoming traffic on port 6443 to the control plane LB's private IP. This allows external kubectl access while keeping the control plane LB completely private.
 
 **k3s Binary Configuration**
 
@@ -2852,37 +2859,37 @@ The following variables allow deep customization of various components through H
 
 ```terraform
   # Custom Cilium values
-  # cilium_values = <<EOT
+  # cilium_values = <<-EOT
   # ipam:
   #   mode: kubernetes
   # EOT
   
   # Custom cert-manager values
-  # cert_manager_values = <<EOT
+  # cert_manager_values = <<-EOT
   # crds:
   #   enabled: true
   # EOT
   
   # Custom Hetzner CCM values
-  # hetzner_ccm_values = <<EOT
+  # hetzner_ccm_values = <<-EOT
   # networking:
   #   enabled: true
   # EOT
   
   # Custom CSI driver SMB values
-  # csi_driver_smb_values = <<EOT
+  # csi_driver_smb_values = <<-EOT
   # controller:
   #   replicas: 2
   # EOT
   
   # Custom Longhorn values
-  # longhorn_values = <<EOT
+  # longhorn_values = <<-EOT
   # defaultSettings:
   #   defaultDataPath: /var/longhorn
   # EOT
   
   # Custom Rancher values
-  # rancher_values = <<EOT
+  # rancher_values = <<-EOT
   # hostname: rancher.example.com
   # replicas: 3
   # EOT
@@ -2903,13 +2910,13 @@ Each of these `*_values` variables:
   # haproxy_version = "1.41.0"
   
   # Custom Traefik values
-  # traefik_values = <<EOT
+  # traefik_values = <<-EOT
   # deployment:
   #   replicas: 3
   # EOT
   
   # Custom Nginx values
-  # nginx_values = <<EOT
+  # nginx_values = <<-EOT
   # controller:
   #   replicaCount: 3
   # EOT
@@ -2918,7 +2925,7 @@ Each of these `*_values` variables:
   # haproxy_additional_proxy_protocol_ips = ["10.0.0.0/8", "172.16.0.0/12"]
   # haproxy_requests_cpu = "250m"
   # haproxy_requests_memory = "256Mi"
-  # haproxy_values = <<EOT
+  # haproxy_values = <<-EOT
   # controller:
   #   replicaCount: 3
   # EOT
