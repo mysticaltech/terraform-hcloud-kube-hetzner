@@ -90,7 +90,7 @@ env:
   HCLOUD_LOAD_BALANCERS_ENABLED:
     value: "true"
   HCLOUD_LOAD_BALANCERS_LOCATION:
-    value: "fsn1"  # Adjust to your LB region
+    value: "nbg1"  # Adjust to your LB region
   HCLOUD_LOAD_BALANCERS_USE_PRIVATE_IP:
     value: "true"
   HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS:

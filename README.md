@@ -100,7 +100,7 @@ The easiest way is to use the [homebrew](https://brew.sh/) package manager to in
 
 |        **Tool**        |                              **Installation Command**                              |
 |:----------------------:|:----------------------------------------------------------------------------------:|
-| Homebrew (macOS/Linux) | brew install terraform packer kubectl hcloud                                       |
+| Homebrew (macOS/Linux) | brew install hashicorp/tap/terraform hashicorp/tap/packer kubectl hcloud           |
 | Yay/Paru (Arch-based)  | yay -S terraform packer kubectl hcloud<br> paru -S terraform packer kubectl hcloud |
 | APT (Debian-based)     | sudo apt install terraform packer kubectl                                          |
 | DNF (Red Hat-based)    | sudo dnf install terraform packer kubectl                                          |
@@ -177,7 +177,7 @@ To manage your cluster with `kubectl`, you can either use SSH to connect to a co
 
 ### Connect via SSH
 
-You can connect to one of the control plane nodes via SSH with `ssh root@<control-plane-ip> -i /path/to/private_key -o StrictHostKeyChecking=no`. Now you are able to use `kubectl` to manage your workloads right away. By default, the firewall allows SSH connections from everywhere. Best to change that to your own IP by configuring the `firewall_ssh_source` in your kube.tf file (don't worry, you can always change it for deploy if your IP changes).
+You can connect to one of the control plane nodes via SSH with `ssh root@<control-plane-ip> -i /path/to/private_key -o StrictHostKeyChecking=no`. Now you are able to use `kubectl` to manage your workloads right away. By default, the firewall allows SSH connections from everywhere. Best to change that to your own IP by configuring the `firewall_ssh_source` in your kube.tf file. If your IP changes, you can update it and re-apply without needing SSH access; see the details in the [SSH docs](https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/ssh.md#firewall-ssh-source-and-changing-ips).
 
 ### Connect via Kube API
 
@@ -395,8 +395,8 @@ Example nodepool configuration:
 ```tf
 {
   name        = "egress",
-  server_type = "cx22",
-  location    = "fsn1",
+  server_type = "cx23",
+  location    = "nbg1",
   labels = [
     "node.kubernetes.io/role=egress"
   ],
@@ -417,7 +417,7 @@ locals {
 
 cluster_ipv4_cidr = local.cluster_ipv4_cidr
 
-cilium_values = <<EOT
+cilium_values = <<-EOT
 ipam:
   mode: kubernetes
 k8s:
@@ -753,7 +753,7 @@ locals {
 
   # to get the corresponding etcd_version for a k3s version you need to
   # - start k3s or have it running
-  # - run `curl -L --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2379/version`
+  # - run `curl -L --cacert /var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert /var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key /var/lib/rancher/k3s/server/tls/etcd/server-client.key https://127.0.0.1:2382/version`
   # for details see https://gist.github.com/superseb/0c06164eef5a097c66e810fe91a9d408
   etcd_version = "v3.5.9"
 
@@ -976,7 +976,7 @@ easily map between your nodes and your kube.tf file.
   agent_nodepools = [
     {
       name        = "agent-large",
-      server_type = "cx32",
+      server_type = "cx33",
       location    = "nbg1",
       labels      = [],
       taints      = [],
@@ -989,7 +989,7 @@ easily map between your nodes and your kube.tf file.
         },
         "1" : {
           append_index_to_node_name = false,
-          server_type = "cx42",
+          server_type = "cx43",
           labels = ["my.extra.label=slightlybiggernode"]
           placement_group = "agent-large-pg-2",
         },
@@ -1043,23 +1043,26 @@ If you follow this values, in your kube.tf, please set:
 - Add `disable_ipv4 = true` and  `disable_ipv6 = true` in all machines in all nodepools (control planes + agents).
 - Add `autoscaler_disable_ipv4 = true` and `autoscaler_disable_ipv6 = true` to disable public ips on autoscaled nodes.
 
-This setup is compatible with a loadbalancer for your control planes, however you should consider to set
-`control_plane_lb_enable_public_interface = false` to keep ip private.
+This setup is compatible with a load balancer for your control planes. However, you should consider setting
+`control_plane_lb_enable_public_interface = false` to keep the IP private. Note that if you use this setting,
+you'll need a way to access the Kubernetes API (such as through a VPN, bastion, or NAT router with port forwarding).
 </details>
 <details>
 
 <summary>Use only private ips in your cluster (NAT Router)</summary>
 
-Setup a purely private cluster where public internet traffic is limited to the 
+Setup a purely private cluster where public internet traffic is limited to the
 following paths:
 - egress: entirely through the NAT router, using a single IP for all egress traffic.
 - ssh: entirely through the bastion host, at the moment the same as the NAT router.
-- control-plane (kubectl): through the control plane load balancer only.
+- control-plane (kubectl): through the control plane load balancer if it has a public interface, or through the NAT router (with automatic port forwarding to the private control plane LB) when `control_plane_lb_enable_public_interface = false`.
 - regular ingress: through the agents load balancer only.
 
 By seperating various roles, this decreases the attack surfaces a bit.
 
 If you need highly available egress (often this is not necessary), this setup is not for you. This setup does not have any impact on the availability of ingress.
+
+> ℹ️ **August 11 2025 DHCP change**: Hetzner removed the legacy Router option on private networks on this date. Beginning with this module version, every node attached to the Hetzner private network automatically persists a `0.0.0.0/0` route via the virtual gateway on its private interface, so NAT/VPN egress survives DHCP renewals and reboots without manual `ip route add` fixes.
 
 </details>
 

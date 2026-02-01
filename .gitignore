@@ -50,3 +50,10 @@ CLAUDE.md
 .DS_Store
 
 requirements/*
+
+# Ignore IntelliJ related files
+.idea
+
+# Local triage documentation
+issues/
+prs/

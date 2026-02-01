@@ -75,6 +75,7 @@ module "kube-hetzner" {
 
   # Using the default configuration you can only create a maximum of 42 agent-nodepools.
   # This is due to the creation of a subnet for each nodepool with CIDRs being in the shape of 10.[nodepool-index].0.0/16 which collides with k3s' cluster and service IP ranges (defaults below).
+  # To create additional ones (or if you want to use different ranges for other reasons), set the `subnet_ip_range` explicitly for a node pool.
   # Furthermore the maximum number of nodepools (controlplane and agent) is 50, due to a hard limit of 50 subnets per network, see https://docs.hetzner.com/cloud/networks/faq/.
   # So to be able to create a maximum of 50 nodepools in total, the values below have to be changed to something outside that range, e.g. `10.200.0.0/16` and `10.201.0.0/16` for cluster and service respectively.
 
@@ -98,7 +99,7 @@ module "kube-hetzner" {
   # For instance, one is ok (non-HA), two is not ok, and three is ok (becomes HA). It does not matter if they are in the same nodepool or not! So they can be in different locations and of various types.
 
   # Of course, you can choose any number of nodepools you want, with the location you want. The only constraint on the location is that you need to stay in the same network region, Europe, or the US.
-  # For the server type, the minimum instance supported is cx22. The cax11 provides even better value for money if your applications are compatible with arm64; see https://www.hetzner.com/cloud.
+  # For the server type, the minimum instance supported is cx23. If you want to use arm64 use cax11; see https://www.hetzner.com/cloud.
 
   # IMPORTANT: Before you create your cluster, you can do anything you want with the nodepools, but you need at least one of each, control plane and agent.
   # Once the cluster is up and running, you can change nodepool count and even set it to 0 (in the case of the first control-plane nodepool, the minimum is 1).
@@ -121,9 +122,9 @@ module "kube-hetzner" {
 
   control_plane_nodepools = [
     {
-      name        = "control-plane-fsn1",
-      server_type = "cx22",
-      location    = "fsn1",
+      name        = "control-plane-nbg1",
+      server_type = "cx23",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
@@ -145,7 +146,7 @@ module "kube-hetzner" {
     },
     {
       name        = "control-plane-nbg1",
-      server_type = "cx22",
+      server_type = "cx23",
       location    = "nbg1",
       labels      = [],
       taints      = [],
@@ -165,7 +166,7 @@ module "kube-hetzner" {
     },
     {
       name        = "control-plane-hel1",
-      server_type = "cx22",
+      server_type = "cx23",
       location    = "hel1",
       labels      = [],
       taints      = [],
@@ -188,11 +189,12 @@ module "kube-hetzner" {
   agent_nodepools = [
     {
       name        = "agent-small",
-      server_type = "cx22",
-      location    = "fsn1",
+      server_type = "cx23",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
+      # subnet_ip_range = "10.0.0.0/16"  # Optional: override default subnet range
       # swap_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
@@ -205,11 +207,12 @@ module "kube-hetzner" {
     },
     {
       name        = "agent-large",
-      server_type = "cx32",
+      server_type = "cx33",
       location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
+      subnet_ip_range = "10.100.0.0/16"
 
       # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
       # placement_group = "default"
@@ -219,8 +222,8 @@ module "kube-hetzner" {
     },
     {
       name        = "storage",
-      server_type = "cx32",
-      location    = "fsn1",
+      server_type = "cx33",
+      location    = "nbg1",
       # Fully optional, just a demo.
       labels      = [
         "node.kubernetes.io/server-usage=storage"
@@ -233,7 +236,9 @@ module "kube-hetzner" {
       # Something worth noting is that Volume storage is slower than node storage, which is achieved by not mentioning longhorn_volume_size or setting it to 0.
       # So for something like DBs, you definitely want node storage, for other things like backups, volume storage is fine, and cheaper.
       # longhorn_volume_size = 20
-
+      # Set any path inside /var/ folder to have the ability to use an additional storage class along with the default one, which by default must be set in helm values to
+      # /var/longhorn
+      # longhorn_mount_path = "/var/lib/longhorn"
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
     },
@@ -242,8 +247,8 @@ module "kube-hetzner" {
     # See the https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner#examples for an example use case.
     {
       name        = "egress",
-      server_type = "cx22",
-      location    = "fsn1",
+      server_type = "cx23",
+      location    = "nbg1",
       labels = [
         "node.kubernetes.io/role=egress"
       ],
@@ -260,7 +265,7 @@ module "kube-hetzner" {
     {
       name        = "agent-arm-small",
       server_type = "cax11",
-      location    = "fsn1",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       count       = 1
@@ -271,12 +276,12 @@ module "kube-hetzner" {
     {
       name        = "agent-arm-medium",
       server_type = "cax21",
-      location    = "fsn1",
+      location    = "nbg1",
       labels      = [],
       taints      = [],
       nodes = {
         "1" : {
-          location                  = "nbg1"
+          location                  = "fsn1"
           labels = [
             "testing-labels=a1",
           ]
@@ -311,9 +316,15 @@ module "kube-hetzner" {
   # Just note, that if Cilium with cilium_values, the responsibility of enabling of disabling Wireguard falls on you.
   # enable_wireguard = true
 
+  # Override the flannel backend directly (takes precedence over enable_wireguard).
+  # Valid values: vxlan (default), host-gw, wireguard-native
+  # Use wireguard-native for Robot nodes with vSwitch to avoid MTU auto-calculation issues.
+  # See https://docs.k3s.io/networking/basic-network-options for details.
+  # flannel_backend = "wireguard-native"
+
   # * LB location and type, the latter will depend on how much load you want it to handle, see https://www.hetzner.com/cloud/load-balancer
   load_balancer_type     = "lb11"
-  load_balancer_location = "fsn1"
+  load_balancer_location = "nbg1"
 
   # Disable IPv6 for the load balancer, the default is false.
   # load_balancer_disable_ipv6 = true
@@ -340,11 +351,15 @@ module "kube-hetzner" {
   # easier, as all public traffic passes through a single strongly secured node. It does
   # however also introduce a single point of failure, so if you need high-availability on your
   # egress, you should consider other configurations.
-  # 
+  #
+  # Hetzner removed the DHCP Router option from private networks on 2025-08-11, so the module
+  # now ensures each node attached to the private network persists a default route via the
+  # virtual gateway. No manual `ip route add` is required after reboots or DHCP renewals.
+  #
   #
   # nat_router = {
   #   server_type = "cax21"
-  #   location    = "fsn1"
+  #   location    = "nbg1"
   #   enable_sudo = false # optional, default to false. Set to true to add nat-router user to the sudo'ers. Note that ssh as root is disabled.
   #   labels      = {} # optionally add labels.
   # }
@@ -366,8 +381,8 @@ module "kube-hetzner" {
   # autoscaler_nodepools = [
   #  {
   #    name        = "autoscaled-small"
-  #    server_type = "cx32"
-  #    location    = "fsn1"
+  #    server_type = "cx33"
+  #    location    = "nbg1"
   #    # Add the arg --enforce-node-group-min-size=true in the cluster_autoscaler_extra_args option below if you want min_nodes to be effective
   #    min_nodes   = 0
   #    max_nodes   = 5
@@ -423,7 +438,7 @@ module "kube-hetzner" {
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
-  # cluster_autoscaler_version = "v1.30.3"
+  # cluster_autoscaler_version = "v1.33.3"
   # cluster_autoscaler_log_level = 4
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
@@ -448,6 +463,33 @@ module "kube-hetzner" {
   #   "--ignore-daemonsets-utilization=true",
   #   "--enforce-node-group-min-size=true",
   # ]
+
+  # Cluster Autoscaler Deployment Configuration
+  #
+  # Configure the number of replicas and resource limits/requests for the cluster autoscaler deployment.
+  #
+  # cluster_autoscaler_replicas: Number of replicas for the cluster autoscaler deployment (default: 1)
+  #   - Setting this to > 1 enables HA for the autoscaler itself (uses leader election)
+  #
+  # cluster_autoscaler_resource_limits: Enable or disable resource limits/requests (default: true)
+  #   - Set to false to remove resource constraints entirely
+  #
+  # cluster_autoscaler_resource_values: Customize CPU and memory resources (defaults: 100m CPU, 300Mi memory for both requests and limits)
+  #
+  # Example:
+  #
+  # cluster_autoscaler_replicas = 2
+  # cluster_autoscaler_resource_limits = true
+  # cluster_autoscaler_resource_values = {
+  #   requests = {
+  #     cpu    = "100m"
+  #     memory = "300Mi"
+  #   }
+  #   limits = {
+  #     cpu    = "200m"
+  #     memory = "500Mi"
+  #   }
+  # }
 
   # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
   # This does not protect deletion from Terraform itself.
@@ -501,7 +543,7 @@ module "kube-hetzner" {
   # longhorn_replica_count = 1
 
   # When you enable Longhorn, you can go with the default settings and just modify the above two variables OR you can add a longhorn_values variable
-  # with all needed helm values, see towards the end of the file in the advanced section.
+  # with all needed helm values, see towards the end of the file in the advanced section. You can also use longhorn_merge_values.
   # If that file is present, the system will use it during the deploy, if not it will use the default values with the two variable above that can be customized.
   # After the cluster is deployed, you can always use HelmChartConfig definition to tweak the configuration.
 
@@ -530,6 +572,7 @@ module "kube-hetzner" {
   # If you want to enable the Nginx (https://kubernetes.github.io/ingress-nginx/) or HAProxy ingress controller instead of Traefik, you can set this to "nginx" or "haproxy".
   # By the default we load optimal Traefik, Nginx or HAProxy ingress controller config for Hetzner, however you may need to tweak it to your needs, so to do,
   # we allow you to add a traefik_values, nginx_values or haproxy_values, see towards the end of this file in the advanced section.
+  # You can also use *_merge_values to overlay defaults (or the *_values file if set).
   # After the cluster is deployed, you can always use HelmChartConfig definition to tweak the configuration.
   # If you want to disable both controllers set this to "none"
   # ingress_controller = "nginx"
@@ -543,7 +586,10 @@ module "kube-hetzner" {
   # Automatically "true" in the case of single node cluster (as it does not make sense to use the Hetzner LB in that situation).
   # It can work with any ingress controller that you choose to deploy.
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
-  # enable_klipper_metal_lb = "true"
+  # enable_klipper_metal_lb = true
+
+  # When using an external load balancer, you can specify a stable control plane endpoint URL.
+  # control_plane_endpoint = "https://my-external-lb:6443"
 
   # If you want to configure additional arguments for traefik, enter them here as a list and in the form of traefik CLI arguments; see https://doc.traefik.io/traefik/reference/static-configuration/cli/
   # They are the options that go into the additionalArguments section of the Traefik helm values file.
@@ -622,6 +668,11 @@ module "kube-hetzner" {
   # True by default for single node clusters, and when enable_klipper_metal_lb is true. In those cases, the value below will be ignored.
   # allow_scheduling_on_control_plane = true
 
+  # If you use both the Terraform-managed ingress LB AND CCM-managed LoadBalancer services, agents get registered to both.
+  # Enable this to exclude agents from CCM LBs (adds node.kubernetes.io/exclude-from-external-load-balancers=true label).
+  # WARNING: If allow_scheduling_on_control_plane=false, this leaves NO eligible targets for CCM LoadBalancer services.
+  # exclude_agents_from_external_load_balancers = true
+
   # If you want to disable the automatic upgrade of k3s, you can set below to "false".
   # Ideally, keep it on, to always have the latest Kubernetes version, but lock the initial_k3s_channel to a kube major version,
   # of your choice, like v1.25 or v1.26. That way you get the best of both worlds without the breaking changes risk.
@@ -664,18 +715,19 @@ module "kube-hetzner" {
 
   # Allows you to specify the k3s version. If defined, supersedes initial_k3s_channel.
   # See https://github.com/k3s-io/k3s/releases for the available versions.
-  # install_k3s_version = "v1.30.2+k3s2"
+  # install_k3s_version = "v1.33.7+k3s1"
 
   # Allows you to specify either stable, latest, testing or supported minor versions.
   # see https://rancher.com/docs/k3s/latest/en/upgrades/basic/ and https://update.k3s.io/v1-release/channels
   # ⚠️ If you are going to use Rancher addons for instance, it's always a good idea to fix the kube version to one minor version below the latest stable,
-  #     e.g. v1.29 instead of the stable v1.30.
-  # The default is "v1.30".
+  #     e.g. v1.32 instead of the stable v1.33.
+  # The default is "v1.33".
   # initial_k3s_channel = "stable"
 
-  # Allows to specify the version of the System Upgrade Controller for automated upgrades of k3s
+  # Allows to specify the version of the System Upgrade Controller for automated upgrades of k3s.
+  # v0.15.0+ supports the 'window' parameter for scheduling upgrade times.
   # See https://github.com/rancher/system-upgrade-controller/releases for the available versions.
-  # sys_upgrade_controller_version = "v0.14.2"
+  # sys_upgrade_controller_version = "v0.18.0"
 
   # The cluster name, by default "k3s"
   # cluster_name = ""
@@ -764,12 +816,57 @@ module "kube-hetzner" {
   # k3s_exec_agent_args = "--kubelet-arg kube-reserved=cpu=100m,memory=200Mi,ephemeral-storage=1Gi"
 
   # The vars below here passes it to the k3s config.yaml. This way it persist across reboots
-  # Make sure you set "feature-gates=NodeSwap=true,CloudDualStackNodeIPs=true" if want to use swap_size
+  # Make sure you set "feature-gates=NodeSwap=true" if want to use swap_size
+  # Note: CloudDualStackNodeIPs was removed in K8s 1.32 (always enabled now)
   # see https://github.com/k3s-io/k3s/issues/8811#issuecomment-1856974516
   # k3s_global_kubelet_args = ["kube-reserved=cpu=100m,ephemeral-storage=1Gi", "system-reserved=cpu=memory=200Mi", "image-gc-high-threshold=50", "image-gc-low-threshold=40"]
   # k3s_control_plane_kubelet_args = []
   # k3s_agent_kubelet_args = []
   # k3s_autoscaler_kubelet_args = []
+
+  # https://kubernetes.io/docs/reference/config-api/kubelet-config.v1beta1/
+  # k3s_kubelet_config = <<-EOT
+  #   apiVersion: kubelet.config.k8s.io/v1beta1
+  #   kind: KubeletConfiguration
+  #   imageGCLowThresholdPercent: 40
+  #   imageGCHighThresholdPercent: 50
+  #   imageMaximumGCAge: 24h
+  # EOT
+
+  # Enable Kubernetes audit logging on control plane nodes
+  # This will create an audit policy file and configure k3s to use it
+  # Audit logs will be written to /var/log/k3s-audit/audit.log by default
+  #
+  # k3s_audit_policy_config = <<-EOT
+  #   apiVersion: audit.k8s.io/v1
+  #   kind: Policy
+  #   rules:
+  #     # Log pod changes at RequestResponse level
+  #     - level: RequestResponse
+  #       omitStages:
+  #         - RequestReceived
+  #       resources:
+  #         - group: ""
+  #           resources: ["pods", "services"]
+  #       namespaces: ["default", "kube-system"]
+  #     # Log all other resources at Metadata level
+  #     - level: Metadata
+  #       omitStages:
+  #         - RequestReceived
+  #     # Don't log requests to certain non-resource URL paths
+  #     - level: None
+  #       nonResourceURLs:
+  #         - /api*
+  #         - /version
+  #         - /healthz
+  #         - /readyz
+  # EOT
+  #
+  # # Audit log configuration
+  # k3s_audit_log_path = "/var/log/k3s-audit/audit.log"  # Path to audit log file
+  # k3s_audit_log_maxage = 30     # Days to retain audit logs
+  # k3s_audit_log_maxbackup = 10  # Number of audit log files to keep
+  # k3s_audit_log_maxsize = 100   # Max size in MB before rotation
 
   # If you want to allow all outbound traffic you can set this to "false". Default is "true".
   # restrict_outbound_traffic = false
@@ -816,7 +913,7 @@ module "kube-hetzner" {
   # If you want to configure a different CNI for k3s, use this flag
   # possible values: flannel (Default), calico, and cilium
   # As for Cilium, we allow infinite configurations via helm values, please check the CNI section of the readme over at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/#cni.
-  # Also, see the cilium_values at towards the end of this file, in the advanced section.
+  # Also, see the cilium_values at towards the end of this file, in the advanced section (or use cilium_merge_values).
   # ⚠️ Depending on your setup, sometimes you need your control-planes to have more than
   # 2GB of RAM if you are going to use Cilium, otherwise the pods will not start.
   # cni_plugin = "cilium"
@@ -929,9 +1026,9 @@ module "kube-hetzner" {
   # See for options https://ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/install-upgrade-on-a-kubernetes-cluster#3-choose-your-ssl-configuration
   # The easiest thing is to leave everything as is (using the default rancher self-signed certificate) and put Cloudflare in front of it.
   # As for the number of replicas, by default it is set to the number of control plane nodes.
-  # You can customized all of the above by adding a rancher_values variable see at the end of this file in the advanced section.
+  # You can customized all of the above by adding a rancher_values variable see at the end of this file in the advanced section (or use rancher_merge_values).
   # After the cluster is deployed, you can always use HelmChartConfig definition to tweak the configuration.
-  # IMPORTANT: Rancher's install is quite memory intensive, you will require at least 4GB if RAM, meaning cx21 server type (for your control plane).
+  # IMPORTANT: Rancher's install is quite memory intensive, you will require at least 4GB if RAM, meaning cx23 server type (for your control plane).
   # ALSO, in order for Rancher to successfully deploy, you have to set the "rancher_hostname".
   # enable_rancher = true
 
@@ -990,14 +1087,16 @@ module "kube-hetzner" {
   # Please understand that the indentation is very important, inside the EOTs, as those are proper yaml helm values.
   # We advise you to use the default values, and only change them if you know what you are doing!
 
-  # You can inline the values here in heredoc-style (as the examples below with the <<EOT to EOT). Please note that the current indentation inside the EOT is important.
+  # You can inline the values here in heredoc-style (as the examples below with the <<-EOT to EOT). Please note that the indentation inside the EOT is important.
   # Or you can create a thepackage-values.yaml file with the content and use it here with the following syntax:
   # thepackage_values = file("thepackage-values.yaml")
+  # _values fully replaces the chart values used by the module. _merge_values keeps the defaults (or *_values if set) and overlays your YAML on top.
 
   # Cilium, all Cilium helm values can be found at https://github.com/cilium/cilium/blob/master/install/kubernetes/cilium/values.yaml
   # Be careful when maintaining your own cilium_values, as the choice of available settings depends on the Cilium version used. See also the cilium_version setting to fix a specific version.
+  # If you want to merge extra values into defaults (or cilium_values), use cilium_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   cilium_values = <<EOT
+  /*   cilium_values = <<-EOT
 
 ipam:
   mode: kubernetes
@@ -1018,13 +1117,20 @@ encryption:
 MTU: 1450
   EOT */
 
+  /*   cilium_merge_values = <<-EOT
+encryption:
+  enabled: true
+  type: wireguard
+  EOT */
+
   # If you want to use a specific cert-manager helm chart version, set it below; otherwise, leave them as-is for the latest versions.
   # cert_manager_version = ""
 
   # Cert manager, all cert-manager helm values can be found at https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/values.yaml
+  # If you want to merge extra values into defaults (or cert_manager_values), use cert_manager_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
   # For cert-manager versions < v1.15.0, you need to set installCRDs: true instead of crds.enabled and crds.keep.
-  /*   cert_manager_values = <<EOT
+  /*   cert_manager_values = <<-EOT
 crds:
   enabled: true
   keep: true
@@ -1035,11 +1141,17 @@ cainjector:
   replicaCount: 3
   EOT */
 
+  /*   cert_manager_merge_values = <<-EOT
+webhook:
+  replicaCount: 2
+  EOT */
+
   # Hetzner Cloud Controller Manager, all Hetzner Cloud Controller Manager helm values can be found at https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/main/chart/values.yaml
   # We advise you to not touch this and to let the defaults that are already set under the hood.
+  # If you want to merge extra values into defaults (or hetzner_ccm_values), use hetzner_ccm_merge_values.
   # For advanced use cases like adding Hetzner Robot servers, see: https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   hetzner_ccm_values = <<EOT
+  /*   hetzner_ccm_values = <<-EOT
 networking:
   enabled: true
 args:
@@ -1049,7 +1161,7 @@ args:
   webhook-secure-port: "0"
 env:
   HCLOUD_LOAD_BALANCERS_LOCATION:
-    value: "fsn1"
+    value: "nbg1"
   HCLOUD_LOAD_BALANCERS_USE_PRIVATE_IP:
     value: "true"
   HCLOUD_LOAD_BALANCERS_ENABLED:
@@ -1058,9 +1170,15 @@ env:
     value: "true"
   EOT */
 
+  /*   hetzner_ccm_merge_values = <<-EOT
+env:
+  HCLOUD_LOAD_BALANCERS_LOCATION:
+    value: "nbg1"
+  EOT */
+
   # csi-driver-smb, all csi-driver-smb helm values can be found at https://github.com/kubernetes-csi/csi-driver-smb/blob/master/charts/latest/csi-driver-smb/values.yaml
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   csi_driver_smb_values = <<EOT
+  /*   csi_driver_smb_values = <<-EOT
 controller:
   name: csi-smb-controller
   replicas: 1
@@ -1088,8 +1206,9 @@ controller:
   EOT */
 
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
+  # If you want to merge extra values into defaults (or longhorn_values), use longhorn_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   longhorn_values = <<EOT
+  /*   longhorn_values = <<-EOT
 defaultSettings:
   defaultDataPath: /var/longhorn
 persistence:
@@ -1098,16 +1217,22 @@ persistence:
   defaultClass: true
   EOT */
 
+  /*   longhorn_merge_values = <<-EOT
+defaultSettings:
+  defaultReplicaCount: 2
+  EOT */
+
   # If you want to use a specific Traefik helm chart version, set it below; otherwise, leave them as-is for the latest versions.
   # See https://github.com/traefik/traefik-helm-chart/releases for the available versions.
   # traefik_version = ""
 
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
+  # If you want to merge extra values into defaults (or traefik_values), use traefik_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   traefik_values = <<EOT
+  /*   traefik_values = <<-EOT
 deployment:
   replicas: 1
-globalArguments: []
+additionalArguments: []
 service:
   enabled: true
   type: LoadBalancer
@@ -1121,11 +1246,12 @@ service:
 
 ports:
   web:
-    redirections:
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 
     proxyProtocol:
       trustedIPs:
@@ -1146,14 +1272,21 @@ ports:
         - 10.0.0.0/8
   EOT */
 
+  /*   traefik_merge_values = <<-EOT
+service:
+  annotations:
+    "load-balancer.hetzner.cloud/location": "fsn1"
+  EOT */
+
   # If you want to use a specific Nginx helm chart version, set it below; otherwise, leave them as-is for the latest versions.
   # See https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table for the available versions.
   # nginx_version = ""
 
   # Nginx, all Nginx helm values can be found at https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
   # You can also have a look at https://kubernetes.github.io/ingress-nginx/, to understand how it works, and all the options at your disposal.
+  # If you want to merge extra values into defaults (or nginx_values), use nginx_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   nginx_values = <<EOT
+  /*   nginx_values = <<-EOT
 controller:
   watchIngressWithoutClass: "true"
   kind: "DaemonSet"
@@ -1169,6 +1302,11 @@ controller:
       "load-balancer.hetzner.cloud/location": "nbg1"
       "load-balancer.hetzner.cloud/type": "lb11"
       "load-balancer.hetzner.cloud/uses-proxyprotocol": "true"
+  EOT */
+
+  /*   nginx_merge_values = <<-EOT
+controller:
+  kind: "Deployment"
   EOT */
 
   # If you want to use a specific HAProxy helm chart version, set it below; otherwise, leave them as-is for the latest versions.
@@ -1208,18 +1346,29 @@ controller:
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
   # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
-  /*   haproxy_values = <<EOT
+  # If you want to merge extra values into defaults (or haproxy_values), use haproxy_merge_values.
+  /*   haproxy_values = <<-EOT
+  EOT */
+
+  /*   haproxy_merge_values = <<-EOT
+controller:
+  replicaCount: 2
   EOT */
 
   # Rancher, all Rancher helm values can be found at https://rancher.com/docs/rancher/v2.5/en/installation/install-rancher-on-k8s/chart-options/
+  # If you want to merge extra values into defaults (or rancher_values), use rancher_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
-  /*   rancher_values = <<EOT
+  /*   rancher_values = <<-EOT
 ingress:
   tls:
     source: "rancher"
 hostname: "rancher.example.com"
 replicas: 1
 bootstrapPassword: "supermario"
+  EOT */
+
+  /*   rancher_merge_values = <<-EOT
+replicas: 3
   EOT */
 
 }
