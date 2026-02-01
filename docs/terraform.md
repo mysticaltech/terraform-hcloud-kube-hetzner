@@ -3,7 +3,7 @@
 
 | Name | Version |
 |------|---------|
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.8.0 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.10.1 |
 | <a name="requirement_assert"></a> [assert](#requirement\_assert) | >= 0.16.0 |
 | <a name="requirement_github"></a> [github](#requirement\_github) | >= 6.4.0 |
 | <a name="requirement_hcloud"></a> [hcloud](#requirement\_hcloud) | >= 1.59.0 |
@@ -19,9 +19,9 @@
 | <a name="provider_github"></a> [github](#provider\_github) | >= 6.4.0 |
 | <a name="provider_hcloud"></a> [hcloud](#provider\_hcloud) | >= 1.59.0 |
 | <a name="provider_local"></a> [local](#provider\_local) | >= 2.5.2 |
-| <a name="provider_null"></a> [null](#provider\_null) | n/a |
 | <a name="provider_random"></a> [random](#provider\_random) | n/a |
 | <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
 ### Modules
 
@@ -78,26 +78,26 @@
 | [local_file.nginx_values](https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/file) | resource |
 | [local_file.traefik_values](https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/file) | resource |
 | [local_sensitive_file.kubeconfig](https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/sensitive_file) | resource |
-| [terraform_data.agent_config](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.agents](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.audit_policy](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.authentication_config](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.autoscaled_nodes_kubelet_config](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.autoscaled_nodes_registries](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.configure_autoscaler](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.configure_floating_ip](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.configure_longhorn_volume](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.control_plane_config](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.control_planes](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.first_control_plane](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.kube_system_secrets](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.kustomization](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.kustomization_user](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.kustomization_user_deploy](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
-| [terraform_data.nat_router_await_cloud_init](https://developer.hashicorp.com/terraform/language/resources/terraform-data) | resource |
 | [random_password.k3s_token](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [random_password.rancher_bootstrap](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [ssh_sensitive_resource.kubeconfig](https://registry.terraform.io/providers/loafoe/ssh/2.7.0/docs/resources/sensitive_resource) | resource |
+| [terraform_data.agent_config](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.agents](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.audit_policy](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.authentication_config](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.autoscaled_nodes_kubelet_config](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.autoscaled_nodes_registries](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.configure_autoscaler](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.configure_floating_ip](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.configure_longhorn_volume](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.control_plane_config](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.control_planes](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.first_control_plane](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.kube_system_secrets](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.kustomization](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.kustomization_user](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.kustomization_user_deploy](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.nat_router_await_cloud_init](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [cloudinit_config.autoscaler_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
 | [cloudinit_config.autoscaler_legacy_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
 | [cloudinit_config.nat_router_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
