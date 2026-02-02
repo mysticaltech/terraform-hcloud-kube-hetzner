@@ -1543,5 +1543,6 @@ variable "optional_bastion_host" {
     bastion_private_key = string
   })
   description = "Optional bastion host used to connect to the nodes in the cluster. Can be useful when using a preexisting NAT router."
+  sensitive = true
   default = null
 }
