@@ -359,7 +359,7 @@ locals {
     bastion_port        = var.ssh_port
     bastion_user        = "nat-router"
     bastion_private_key = var.ssh_private_key
-    } : {
+    } : var.default_bastion != null ? var.default_bastion : {
     bastion_host        = null
     bastion_port        = null
     bastion_user        = null

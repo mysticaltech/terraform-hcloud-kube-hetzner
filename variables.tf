@@ -1534,3 +1534,13 @@ variable "control_plane_endpoint" {
     error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443)."
   }
 }
+
+variable "default_bastion" {
+  type = object({
+    bastion_host        = string
+    bastion_port        = number
+    bastion_user        = string
+    bastion_private_key = string
+  })
+  default = null
+}
