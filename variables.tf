@@ -1535,12 +1535,13 @@ variable "control_plane_endpoint" {
   }
 }
 
-variable "default_bastion" {
+variable "optional_bastion_host" {
   type = object({
     bastion_host        = string
     bastion_port        = number
     bastion_user        = string
     bastion_private_key = string
   })
+  description = "Optional bastion host used to connect to the nodes in the cluster. Can be useful when using a preexisting NAT router."
   default = null
 }
