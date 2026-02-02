@@ -231,6 +231,11 @@ resource "terraform_data" "audit_policy" {
     agent_identity = local.ssh_agent_identity
     host           = local.control_plane_ips[each.key]
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
   }
 
   provisioner "file" {
