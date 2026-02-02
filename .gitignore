@@ -45,6 +45,7 @@ issue_fix.patch
 
 # AI related files
 CLAUDE.md
+kube-hetzner-knowledge.jsondata
 
 # Misc
 .DS_Store
