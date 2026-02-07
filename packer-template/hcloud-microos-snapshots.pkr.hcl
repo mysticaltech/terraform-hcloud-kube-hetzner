@@ -70,8 +70,8 @@ locals {
   # Commands to write sysctl config if provided (decode base64)
   sysctl_commands = local.sysctl_config_content != "" ? "echo '${local.sysctl_config_content}' | base64 -d > /etc/sysctl.d/99-custom.conf" : ""
 
-  # Add local variables for inline shell commands
-  download_image = "wget --timeout=5 --waitretry=5 --tries=5 --retry-connrefused --inet4-only "
+  # Keep output low; otherwise long downloads can overwhelm CI/log capture.
+  download_image = "wget --progress=dot:giga -nv --timeout=5 --waitretry=5 --tries=5 --retry-connrefused --inet4-only "
 
   write_image = <<-EOT
     set -ex
