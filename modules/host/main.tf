@@ -128,7 +128,10 @@ resource "hcloud_server" "server" {
 
 # Create network attachment when network_id is provided
 resource "hcloud_server_network" "server" {
-  count     = var.network_id != null && var.network_id > 0 ? 1 : 0
+  # Always attach to the cluster private network. We can't conditionally
+  # create this based on `network_id`, since that value can be unknown during
+  # planning when the network is created in the same apply.
+  count     = 1
   ip        = var.private_ipv4
   server_id = hcloud_server.server.id
   subnet_id = var.ipv4_subnet_id
