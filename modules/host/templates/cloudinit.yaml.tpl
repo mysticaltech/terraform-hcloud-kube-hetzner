@@ -3,6 +3,7 @@
 write_files:
 
 ${cloudinit_write_files_common}
+
 %{ if os == "leapmicro" ~}
 - path: /usr/local/bin/apply-k8s-selinux-policy.sh
   permissions: '0755'
@@ -170,83 +171,6 @@ ${cloudinit_runcmd_common}
 - systemctl daemon-reload
 - systemctl enable k8s-selinux-policy.service
 - systemctl start k8s-selinux-policy.service
-%{ endif ~}
-
-%{ if os == "microos" ~}
-# Apply SELinux policies for k8s on MicroOS (keeping old approach for now)
-- |
-  if command -v checkmodule >/dev/null 2>&1 && command -v semodule_package >/dev/null 2>&1 && command -v semodule >/dev/null 2>&1; then
-    echo "Setting up SELinux policies for Kubernetes..."
-    
-    # Create the policy file
-    cat > /tmp/k8s_custom_policies.te <<'SELINUX_POLICY'
-  module k8s_custom_policies 1.0;
-  
-  require {
-      type container_t;
-      type cert_t;
-      type proc_t;
-      type sysfs_t;
-      type unreserved_port_t;
-      type kubernetes_port_t;
-      type http_port_t;
-      type hplip_port_t;
-      type node_t;
-      class dir { read search open getattr };
-      class file { read open getattr };
-      class lnk_file { read getattr };
-      class tcp_socket { name_bind name_connect accept listen };
-      class node { tcp_recv tcp_send };
-      class peer recv;
-      class filesystem getattr;
-  }
-  
-  # Allow containers to read certificate directories and files
-  allow container_t cert_t:dir { read search open getattr };
-  allow container_t cert_t:file { read open getattr };
-  
-  # Allow containers to read proc filesystem (needed for metrics-server filesystem collector)
-  allow container_t proc_t:file { read open getattr };
-  allow container_t proc_t:dir { read search open getattr };
-  allow container_t proc_t:lnk_file { read getattr };
-  allow container_t proc_t:filesystem getattr;
-  
-  # Also allow sysfs access which is often needed alongside proc
-  allow container_t sysfs_t:file { read open getattr };
-  allow container_t sysfs_t:dir { read search open getattr };
-  allow container_t sysfs_t:lnk_file { read getattr };
-  allow container_t sysfs_t:filesystem getattr;
-  
-  # Allow containers to bind to kubernetes ports (including 10250 for metrics-server)
-  allow container_t kubernetes_port_t:tcp_socket { name_bind name_connect accept listen };
-  
-  # Allow containers to bind to hplip ports (including 9100 for node-exporter)
-  allow container_t hplip_port_t:tcp_socket { name_bind name_connect accept listen };
-  
-  # Allow containers to bind to unreserved high ports
-  allow container_t unreserved_port_t:tcp_socket { name_bind name_connect accept listen };
-  
-  # Allow containers to bind to http ports (some exporters may use these)
-  allow container_t http_port_t:tcp_socket { name_bind name_connect accept listen };
-  
-  # Allow container-to-container communication (needed for readiness probes)
-  allow container_t container_t:tcp_socket { name_connect accept };
-  allow container_t container_t:peer recv;
-  
-  # Allow containers to use network nodes
-  allow container_t node_t:node { tcp_recv tcp_send };
-  SELINUX_POLICY
-    
-    echo "Compiling and applying SELinux policies..."
-    checkmodule -M -m -o /tmp/k8s_custom_policies.mod /tmp/k8s_custom_policies.te && \
-    semodule_package -o /tmp/k8s_custom_policies.pp -m /tmp/k8s_custom_policies.mod && \
-    semodule -i /tmp/k8s_custom_policies.pp && \
-    rm -f /tmp/k8s_custom_policies.{te,mod,pp} && \
-    echo "Custom SELinux policies applied successfully" || \
-    echo "Warning: Could not apply custom SELinux policies"
-  else
-    echo "SELinux policy tools not available, skipping custom policies"
-  fi
 %{ endif ~}
 
 # Configure default routes based on public ip availability

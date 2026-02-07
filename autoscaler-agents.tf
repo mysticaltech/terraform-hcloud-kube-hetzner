@@ -122,6 +122,7 @@ data "cloudinit_config" "autoscaler_config" {
         sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         swap_size         = var.autoscaler_nodepools[count.index].swap_size
         zram_size         = var.autoscaler_nodepools[count.index].zram_size
+        os                = local.autoscaler_nodepools_os[count.index]
         k3s_config = yamlencode(merge(
           {
             server = local.k3s_endpoint
@@ -137,8 +138,8 @@ data "cloudinit_config" "autoscaler_config" {
           local.prefer_bundled_bin_config
         ))
         install_k3s_agent_script     = join("\n", concat(local.install_k3s_agent, ["systemctl start k3s-agent"]))
-        cloudinit_write_files_common = local.cloudinit_write_files_common_by_os[local.autoscaler_nodepools_os[count.index]]
-        cloudinit_runcmd_common      = local.cloudinit_runcmd_common_by_os[local.autoscaler_nodepools_os[count.index]]
+        cloudinit_write_files_common = local.cloudinit_write_files_common
+        cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
         network_gw_ipv4              = local.network_gw_ipv4
       }
@@ -165,6 +166,7 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         swap_size         = ""
         zram_size         = ""
+        os                = local.first_nodepool_os
         k3s_config = yamlencode(merge(
           {
             server        = local.k3s_endpoint
@@ -179,8 +181,8 @@ data "cloudinit_config" "autoscaler_legacy_config" {
           local.prefer_bundled_bin_config
         ))
         install_k3s_agent_script     = join("\n", concat(local.install_k3s_agent, ["systemctl start k3s-agent"]))
-        cloudinit_write_files_common = local.cloudinit_write_files_common_by_os[local.first_nodepool_os]
-        cloudinit_runcmd_common      = local.cloudinit_runcmd_common_by_os[local.first_nodepool_os]
+        cloudinit_write_files_common = local.cloudinit_write_files_common
+        cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
         network_gw_ipv4              = local.network_gw_ipv4,
       }

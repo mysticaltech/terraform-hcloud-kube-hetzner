@@ -124,6 +124,11 @@ module "kube-hetzner" {
 
   # Multi-architecture clusters are OK for most use cases, as container underlying images tend to be multi-architecture too.
 
+  # Node OS (immutable):
+  # - Default for new nodepools is openSUSE Leap Micro ("leapmicro", stable).
+  # - Existing nodepools keep their current OS on upgrade (MicroOS by default) unless you set `os`.
+  # Set `os` per nodepool (and optionally per node in `agent_nodepools[].nodes`).
+
   # * Example below:
 
   control_plane_nodepools = [
@@ -134,7 +139,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
-      # os          = "leapmicro" # valid: "leapmicro" | "microos" (omit to auto-select)
+      # os          = "leapmicro" # valid: "leapmicro" | "microos"
       # swap_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
@@ -201,6 +206,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
+      # os          = "leapmicro" # valid: "leapmicro" | "microos"
       # subnet_ip_range = "10.0.0.0/16"  # Optional: override default subnet range
       # swap_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
@@ -289,6 +295,7 @@ module "kube-hetzner" {
       nodes = {
         "1" : {
           location                  = "fsn1"
+          # os                        = "microos" # optional per-node override
           labels = [
             "testing-labels=a1",
           ]
@@ -390,6 +397,7 @@ module "kube-hetzner" {
   #    name        = "autoscaled-small"
   #    server_type = "cx33"
   #    location    = "nbg1"
+  #    # os          = "leapmicro" # optional; must be the same for all autoscaler nodepools
   #    # Add the arg --enforce-node-group-min-size=true in the cluster_autoscaler_extra_args option below if you want min_nodes to be effective
   #    min_nodes   = 0
   #    max_nodes   = 5

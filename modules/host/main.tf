@@ -36,15 +36,10 @@ resource "hcloud_server" "server" {
     ipv6_enabled = !var.disable_ipv6
   }
 
-  # Don't use inline network block - we'll use the separate hcloud_server_network resource
-  # This avoids conflicts between inline and separate network attachments
-  dynamic "network" {
-    for_each = []
-    content {
-      network_id = var.network_id
-      ip         = var.private_ipv4
-      alias_ips  = []
-    }
+  network {
+    network_id = var.network_id
+    ip         = var.private_ipv4
+    alias_ips  = []
   }
 
   labels = var.labels

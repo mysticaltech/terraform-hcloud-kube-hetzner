@@ -8,7 +8,8 @@ module "agents" {
   for_each = local.agent_nodes
 
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
-  microos_snapshot_id              = substr(each.value.server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
+  os_snapshot_id                   = local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
+  os                               = each.value.os
   base_domain                      = var.base_domain
   ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
   ssh_port                         = var.ssh_port
@@ -39,10 +40,7 @@ module "agents" {
   network_id                       = data.hcloud_network.k3s.id
   private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
 
-  labels = merge(local.labels, local.labels_agent_node, {
-    os                = each.value.os
-    "kube-hetzner/os" = each.value.os
-  })
+  labels = merge(local.labels, local.labels_agent_node, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
@@ -278,7 +276,6 @@ resource "terraform_data" "configure_floating_ip" {
   triggers_replace = {
     agent_id       = module.agents[each.key].id
     floating_ip_id = hcloud_floating_ip.agents[each.key].id
-    os             = lookup(each.value, "os", "")
   }
 
   provisioner "remote-exec" {

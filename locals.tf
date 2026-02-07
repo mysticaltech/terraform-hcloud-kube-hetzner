@@ -234,17 +234,17 @@ locals {
   })
 
   apply_k3s_selinux = [<<-EOT
-	echo "Checking k3s SELinux policy status..."
-	if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm -q k3s-selinux >/dev/null 2>&1; then
-	  if [ -f /usr/share/selinux/packages/k3s.pp ]; then
-	    echo "Applying k3s SELinux policy..."
-	    semodule -v -i /usr/share/selinux/packages/k3s.pp || true
-	  else
-	    echo "k3s SELinux policy file not found at /usr/share/selinux/packages/k3s.pp; skipping"
-	  fi
-	else
-	  echo "k3s-selinux package or semodule not available; skipping"
-	fi
+echo "Checking k3s SELinux policy status..."
+if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm -q k3s-selinux >/dev/null 2>&1; then
+  if [ -f /usr/share/selinux/packages/k3s.pp ]; then
+    echo "Applying k3s SELinux policy..."
+    semodule -v -i /usr/share/selinux/packages/k3s.pp || true
+  else
+    echo "k3s SELinux policy file not found at /usr/share/selinux/packages/k3s.pp; skipping"
+  fi
+else
+  echo "k3s-selinux package or semodule not available; skipping"
+fi
 EOT
   ]
   swap_node_label = ["node.kubernetes.io/server-swap=enabled"]
@@ -284,11 +284,7 @@ EOT
       )
 
       # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
-      os_label = (
-        contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], try(s.labels["os"], "")))
-        ? try(s.labels["kube-hetzner/os"], try(s.labels["os"], null))
-        : null
-      )
+      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
     }
   ]
 
@@ -390,7 +386,7 @@ EOT
         selinux : nodepool_obj.selinux
         os : coalesce(nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
-        placement_group : nodepool_obj.placement_group
+        placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
@@ -418,7 +414,7 @@ EOT
           swap_size : nodepool_obj.swap_size,
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
-          os : coalesce(node_obj.os, nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name]),
+          os : coalesce(nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name]),
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
@@ -517,7 +513,7 @@ EOT
   network_gw_ipv4 = cidrhost(var.network_ipv4_cidr, 1)
 
   # if we are in a single cluster config, we use the default klipper lb instead of Hetzner LB
-  control_plane_count    = length(var.control_plane_nodepools) > 0 ? sum([for v in var.control_plane_nodepools : v.count]) : 0
+  control_plane_count    = sum([for v in var.control_plane_nodepools : v.count])
   agent_count            = length(var.agent_nodepools) > 0 ? sum([for v in var.agent_nodepools : length(coalesce(v.nodes, {})) + coalesce(v.count, 0)]) : 0
   autoscaler_max_count   = length(var.autoscaler_nodepools) > 0 ? sum([for v in var.autoscaler_nodepools : v.max_nodes]) : 0
   is_single_node_cluster = (local.control_plane_count + local.agent_count + local.autoscaler_max_count) == 1
@@ -1321,12 +1317,7 @@ else
 fi
 EOF
 
-cloudinit_write_files_common_by_os = {
-  microos   = local.opensuse_write_files_common
-  leapmicro = local.opensuse_write_files_common
-}
-
-opensuse_write_files_common = <<EOT
+cloudinit_write_files_common = <<EOT
 # Script to rename the private interface to eth1 and unify NetworkManager connection naming
 - path: /etc/cloud/rename_interface.sh
   content: |
@@ -1465,12 +1456,7 @@ opensuse_write_files_common = <<EOT
 %{endif}
 EOT
 
-cloudinit_runcmd_common_by_os = {
-  microos   = local.opensuse_runcmd_common
-  leapmicro = local.opensuse_runcmd_common
-}
-
-opensuse_runcmd_common = <<EOT
+cloudinit_runcmd_common = <<EOT
 # ensure that /var uses full available disk size, thanks to btrfs this is easy
 - [btrfs, 'filesystem', 'resize', 'max', '/var']
 
@@ -1503,6 +1489,15 @@ opensuse_runcmd_common = <<EOT
     printf '%s\n' "[Journal]" "SystemMaxUse=3G" "MaxRetentionSec=1week" > /etc/systemd/journald.conf.d/kube-hetzner.conf
   else
     echo "journald.conf not found, skipping journal size configuration"
+  fi
+
+# Reduces the default number of snapshots from 2-10 number limit, to 4 and from 4-10 number limit important, to 2
+- |
+  if [ -f /etc/snapper/configs/root ]; then
+    sed -i 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g' /etc/snapper/configs/root
+    sed -i 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g' /etc/snapper/configs/root
+  else
+    echo "Snapper config not found, skipping snapshot limit configuration"
   fi
 
 # Allow network interface
@@ -1550,5 +1545,12 @@ check "ccm_lb_has_eligible_targets" {
   assert {
     condition     = !(var.exclude_agents_from_external_load_balancers && !local.allow_loadbalancer_target_on_control_plane)
     error_message = "Warning: exclude_agents_from_external_load_balancers=true with allow_scheduling_on_control_plane=false leaves NO eligible targets for CCM-managed LoadBalancer services. Either set allow_scheduling_on_control_plane=true or disable exclude_agents_from_external_load_balancers."
+  }
+}
+
+check "autoscaler_nodepools_os_consistent" {
+  assert {
+    condition     = length(distinct(local.autoscaler_nodepools_os)) <= 1
+    error_message = "All autoscaler_nodepools must use the same effective OS. Set 'os' explicitly per autoscaler_nodepool (or omit it everywhere) so the module can select a single image set."
   }
 }

@@ -16,12 +16,6 @@ variable "hcloud_token" {
   sensitive = true
 }
 
-variable "k3s_selinux_version" {
-  type        = string
-  default     = "v1.6.stable.1"
-  description = "k3s-selinux version to install"
-}
-
 # We download the OpenSUSE MicroOS x86 image from an automatically selected mirror.
 variable "opensuse_microos_x86_mirror_link" {
   type    = string
@@ -102,7 +96,7 @@ locals {
     transactional-update --continue shell <<- EOF
     setenforce 0
     rpm --import https://rpm.rancher.io/public.key
-    zypper install -y https://github.com/k3s-io/k3s-selinux/releases/download/${var.k3s_selinux_version}/k3s-selinux-${replace(var.k3s_selinux_version, "v", "")}-1.sle.noarch.rpm
+    zypper install -y https://github.com/k3s-io/k3s-selinux/releases/download/v1.6.stable.1/k3s-selinux-1.6-1.sle.noarch.rpm
     zypper addlock k3s-selinux
     restorecon -Rv /etc/selinux/targeted/policy
     restorecon -Rv /var/lib
@@ -122,8 +116,6 @@ locals {
     echo "Setting timezone to '${var.timezone}'..."
     timedatectl set-timezone '${var.timezone}'
     sleep 1 && udevadm settle
-    echo "Running fstrim to reduce snapshot size..."
-    fstrim -av || true
   EOT
 }
 
