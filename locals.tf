@@ -268,13 +268,17 @@ EOT
   # Used for mapping existing node names (which include the random suffix) back into nodepool names.
   cluster_prefix_for_node_names = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
 
+  configured_control_plane_nodepool_names = distinct([for np in var.control_plane_nodepools : np.name])
+  configured_agent_nodepool_names         = distinct([for np in var.agent_nodepools : np.name])
+
+  # Union for any cluster-wide checks.
   configured_nodepool_names = distinct(concat(
-    [for np in var.control_plane_nodepools : np.name],
-    [for np in var.agent_nodepools : np.name],
+    local.configured_control_plane_nodepool_names,
+    local.configured_agent_nodepool_names,
   ))
 
-  existing_servers_info = [
-    for s in concat(data.hcloud_servers.existing_control_plane_nodes.servers, data.hcloud_servers.existing_agent_nodes.servers) : {
+  existing_control_plane_servers_info = [
+    for s in data.hcloud_servers.existing_control_plane_nodes.servers : {
       # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
       name_base = trimprefix(
         length(split("-", s.name)) > 1
@@ -288,25 +292,42 @@ EOT
     }
   ]
 
-  existing_servers_nodepool_os = [
-    for s in local.existing_servers_info : merge(s, {
+  existing_agent_servers_info = [
+    for s in data.hcloud_servers.existing_agent_nodes.servers : {
+      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
+      name_base = trimprefix(
+        length(split("-", s.name)) > 1
+        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
+        : s.name,
+        local.cluster_prefix_for_node_names,
+      )
+
+      # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
+      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
+    }
+  ]
+
+  existing_servers_info = concat(local.existing_control_plane_servers_info, local.existing_agent_servers_info)
+
+  existing_control_plane_servers_nodepool_os = [
+    for s in local.existing_control_plane_servers_info : merge(s, {
       # Choose the best-matching nodepool for this server name ("longest prefix wins") so that:
       # - node name suffixes (e.g. "-0") don't break matching
       # - nodepool "auto" doesn't incorrectly match "auto-large"
       nodepool = (
         length([
-          for np in local.configured_nodepool_names :
+          for np in local.configured_control_plane_nodepool_names :
           np
           if startswith(s.name_base, np) && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
         ]) > 0
         ? one([
-          for np in local.configured_nodepool_names :
+          for np in local.configured_control_plane_nodepool_names :
           np
           if(
             startswith(s.name_base, np)
             && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
             && length(np) == max([
-              for np2 in local.configured_nodepool_names :
+              for np2 in local.configured_control_plane_nodepool_names :
               length(np2)
               if startswith(s.name_base, np2) && (length(s.name_base) == length(np2) || substr(s.name_base, length(np2), 1) == "-")
             ]...)
@@ -317,23 +338,71 @@ EOT
     })
   ]
 
-  existing_nodepool_names = distinct(compact([for s in local.existing_servers_nodepool_os : s.nodepool]))
+  existing_agent_servers_nodepool_os = [
+    for s in local.existing_agent_servers_info : merge(s, {
+      # Choose the best-matching nodepool for this server name ("longest prefix wins") so that:
+      # - node name suffixes (e.g. "-0") don't break matching
+      # - nodepool "auto" doesn't incorrectly match "auto-large"
+      nodepool = (
+        length([
+          for np in local.configured_agent_nodepool_names :
+          np
+          if startswith(s.name_base, np) && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+        ]) > 0
+        ? one([
+          for np in local.configured_agent_nodepool_names :
+          np
+          if(
+            startswith(s.name_base, np)
+            && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+            && length(np) == max([
+              for np2 in local.configured_agent_nodepool_names :
+              length(np2)
+              if startswith(s.name_base, np2) && (length(s.name_base) == length(np2) || substr(s.name_base, length(np2), 1) == "-")
+            ]...)
+          )
+        ])
+        : null
+      )
+    })
+  ]
 
-  existing_os_labels_by_nodepool = {
-    for np in local.configured_nodepool_names :
-    np => distinct(compact([for s in local.existing_servers_nodepool_os : s.os_label if s.nodepool == np]))
+  existing_control_plane_nodepool_names = distinct(compact([for s in local.existing_control_plane_servers_nodepool_os : s.nodepool]))
+  existing_agent_nodepool_names         = distinct(compact([for s in local.existing_agent_servers_nodepool_os : s.nodepool]))
+
+  existing_os_labels_by_control_plane_nodepool = {
+    for np in local.configured_control_plane_nodepool_names :
+    np => distinct(compact([for s in local.existing_control_plane_servers_nodepool_os : s.os_label if s.nodepool == np]))
   }
 
-  existing_cluster_os_labels = distinct(compact([for s in local.existing_servers_nodepool_os : s.os_label]))
+  existing_os_labels_by_agent_nodepool = {
+    for np in local.configured_agent_nodepool_names :
+    np => distinct(compact([for s in local.existing_agent_servers_nodepool_os : s.os_label if s.nodepool == np]))
+  }
 
-  nodepool_default_os = {
-    for nodepool_name in local.configured_nodepool_names :
+  existing_cluster_os_labels = distinct(compact([for s in local.existing_servers_info : s.os_label]))
+
+  control_plane_nodepool_default_os = {
+    for nodepool_name in local.configured_control_plane_nodepool_names :
     nodepool_name => (
-      !contains(local.existing_nodepool_names, nodepool_name)
+      !contains(local.existing_control_plane_nodepool_names, nodepool_name)
       ? "leapmicro"
       : (
-        length(local.existing_os_labels_by_nodepool[nodepool_name]) == 1
-        ? local.existing_os_labels_by_nodepool[nodepool_name][0]
+        length(local.existing_os_labels_by_control_plane_nodepool[nodepool_name]) == 1
+        ? local.existing_os_labels_by_control_plane_nodepool[nodepool_name][0]
+        : "microos"
+      )
+    )
+  }
+
+  agent_nodepool_default_os = {
+    for nodepool_name in local.configured_agent_nodepool_names :
+    nodepool_name => (
+      !contains(local.existing_agent_nodepool_names, nodepool_name)
+      ? "leapmicro"
+      : (
+        length(local.existing_os_labels_by_agent_nodepool[nodepool_name]) == 1
+        ? local.existing_os_labels_by_agent_nodepool[nodepool_name][0]
         : "microos"
       )
     )
@@ -354,7 +423,7 @@ EOT
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
-        os : coalesce(nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name])
+        os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -384,7 +453,7 @@ EOT
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
-        os : coalesce(nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name])
+        os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -414,7 +483,7 @@ EOT
           swap_size : nodepool_obj.swap_size,
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
-          os : coalesce(nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name]),
+          os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name]),
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
@@ -440,7 +509,7 @@ EOT
     local.agent_nodes_from_maps_for_counts,
   )
 
-  default_autoscaler_os = length(local.existing_servers_nodepool_os) == 0 ? "leapmicro" : (
+  default_autoscaler_os = length(local.existing_servers_info) == 0 ? "leapmicro" : (
     length(local.existing_cluster_os_labels) == 1 ? local.existing_cluster_os_labels[0] : "microos"
   )
 
