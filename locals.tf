@@ -940,7 +940,6 @@ image:
   tag: ${var.traefik_image_tag}
 deployment:
   replicas: ${local.ingress_replica_count}
-globalArguments: []
 service:
   enabled: true
   type: LoadBalancer
@@ -966,11 +965,12 @@ ports:
 %{if var.traefik_redirect_to_https || !local.using_klipper_lb~}
   web:
 %{if var.traefik_redirect_to_https~}
-    redirections:
-      entryPoint:
-        to: websecure
-        scheme: https
-        permanent: true
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
 %{endif~}
 %{if !local.using_klipper_lb~}
     proxyProtocol:
