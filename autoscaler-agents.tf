@@ -1,13 +1,16 @@
 locals {
-  cluster_prefix = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+  cluster_prefix    = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+  first_nodepool_os = length(var.autoscaler_nodepools) == 0 ? local.default_autoscaler_os : local.autoscaler_nodepools_os[0]
   first_nodepool_snapshot_id = length(var.autoscaler_nodepools) == 0 ? "" : (
-    substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
+    local.snapshot_id_by_os[local.first_nodepool_os][substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? "arm" : "x86"]
   )
 
-  imageList = {
-    arm64 : tostring(data.hcloud_image.microos_arm_snapshot.id)
-    amd64 : tostring(data.hcloud_image.microos_x86_snapshot.id)
-  }
+  # Only include architectures with a resolved snapshot id. This avoids writing empty values
+  # into the autoscaler config when the cluster doesn't use that architecture.
+  imageList = length(var.autoscaler_nodepools) == 0 ? {} : merge(
+    local.snapshot_id_by_os[local.first_nodepool_os]["arm"] != "" ? { arm64 = tostring(local.snapshot_id_by_os[local.first_nodepool_os]["arm"]) } : {},
+    local.snapshot_id_by_os[local.first_nodepool_os]["x86"] != "" ? { amd64 = tostring(local.snapshot_id_by_os[local.first_nodepool_os]["x86"]) } : {},
+  )
 
   nodeConfigName = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
   cluster_config = {
@@ -92,8 +95,7 @@ resource "terraform_data" "configure_autoscaler" {
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
     random_password.rancher_bootstrap,
-    hcloud_volume.longhorn_volume,
-    data.hcloud_image.microos_x86_snapshot
+    hcloud_volume.longhorn_volume
   ]
 }
 moved {
@@ -120,6 +122,7 @@ data "cloudinit_config" "autoscaler_config" {
         sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         swap_size         = var.autoscaler_nodepools[count.index].swap_size
         zram_size         = var.autoscaler_nodepools[count.index].zram_size
+        os                = local.autoscaler_nodepools_os[count.index]
         k3s_config = yamlencode(merge(
           {
             server = local.k3s_endpoint
@@ -163,6 +166,7 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         swap_size         = ""
         zram_size         = ""
+        os                = local.first_nodepool_os
         k3s_config = yamlencode(merge(
           {
             server        = local.k3s_endpoint

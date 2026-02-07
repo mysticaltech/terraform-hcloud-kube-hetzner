@@ -31,14 +31,26 @@ variable "robot_ccm_enabled" {
   description = "Enables the integration of Hetzner Robot dedicated servers via the Cloud Controller Manager (CCM). If true, `robot_user` and `robot_password` must also be provided, otherwise the integration will not be activated."
 }
 
+variable "leapmicro_x86_snapshot_id" {
+  description = "Leap Micro x86 snapshot ID to be used. If empty, the most recent image created will be used."
+  type        = string
+  default     = ""
+}
+
+variable "leapmicro_arm_snapshot_id" {
+  description = "Leap Micro ARM snapshot ID to be used. If empty, the most recent image created will be used."
+  type        = string
+  default     = ""
+}
+
 variable "microos_x86_snapshot_id" {
-  description = "MicroOS x86 snapshot ID to be used. Per default empty, the most recent image created using createkh will be used"
+  description = "MicroOS x86 snapshot ID to be used. If empty, the most recent image created will be used."
   type        = string
   default     = ""
 }
 
 variable "microos_arm_snapshot_id" {
-  description = "MicroOS ARM snapshot ID to be used. Per default empty, the most recent image created using createkh will be used"
+  description = "MicroOS ARM snapshot ID to be used. If empty, the most recent image created will be used."
   type        = string
   default     = ""
 }
@@ -270,6 +282,7 @@ variable "control_plane_nodepools" {
     selinux                    = optional(bool, true)
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
+    os                         = optional(string)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
@@ -285,6 +298,15 @@ variable "control_plane_nodepools" {
     )
     error_message = "Names in control_plane_nodepools must be unique."
   }
+
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      control_plane_nodepool.os == null || control_plane_nodepool.os == "microos" || control_plane_nodepool.os == "leapmicro"
+    ])
+    error_message = "The os must be either 'microos' or 'leapmicro'."
+  }
+
   validation {
     condition     = length(var.control_plane_nodepools) > 0
     error_message = "At least one control plane nodepool is required. Kubernetes cannot run without control plane nodes."
@@ -315,6 +337,7 @@ variable "agent_nodepools" {
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
     subnet_ip_range            = optional(string, null)
+    os                         = optional(string)
     count                      = optional(number, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
@@ -336,6 +359,7 @@ variable "agent_nodepools" {
       placement_group_compat_idx = optional(number, 0)
       placement_group            = optional(string, null)
       append_index_to_node_name  = optional(bool, true)
+      os                         = optional(string)
     })))
   }))
   default = []
@@ -349,6 +373,31 @@ variable "agent_nodepools" {
       )
     )
     error_message = "Names in agent_nodepools must be unique."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      agent_nodepool.os == null || agent_nodepool.os == "microos" || agent_nodepool.os == "leapmicro"
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the nodepool level. The 'os' for each 'agent_nodepool' must be either 'microos' or 'leapmicro'.
+    Please correct the nodepool 'os' value.
+    EOF
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.os == null || agent_node.os == "microos" || agent_node.os == "leapmicro"
+      ])
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the node level. Each node's 'os' within a nodepool must be either 'microos', 'leapmicro', or unset.
+    Please correct any invalid node 'os' values.
+    EOF
   }
 
   validation {
@@ -498,6 +547,7 @@ variable "autoscaler_nodepools" {
     max_nodes    = number
     labels       = optional(map(string), {})
     kubelet_args = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+    os           = optional(string)
     taints = optional(list(object({
       key    = string
       value  = string
@@ -507,6 +557,17 @@ variable "autoscaler_nodepools" {
     zram_size = optional(string, "")
   }))
   default = []
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      autoscaler_nodepool.os == null || autoscaler_nodepool.os == "microos" || autoscaler_nodepool.os == "leapmicro"
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the autoscaler nodepool level. The 'os' for each 'autoscaler_nodepool' must be either 'microos' or 'leapmicro'.
+    Please correct the autoscaler nodepool 'os' value.
+    EOF
+  }
 }
 
 variable "autoscaler_labels" {

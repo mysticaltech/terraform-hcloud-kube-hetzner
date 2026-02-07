@@ -1806,7 +1806,7 @@ Excellent! Let's continue our meticulous dissection.
 
 * **`disable_selinux` (Boolean, Optional):**
   * **Default:** `false` (meaning SELinux is *enabled* in enforcing mode).
-  * **Background:** The base OS image used by this module (openSUSE MicroOS) comes with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
+  * **Background:** The base OS images used by this module (openSUSE Leap Micro or openSUSE MicroOS) come with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
   * **Purpose:**
     * `false`: Keeps SELinux enabled. This is generally better for security but can sometimes cause issues if containers are not SELinux-aware or if their default SELinux policies are too restrictive for their needs.
     * `true`: Disables SELinux (likely sets it to permissive or fully disabled) on the nodes. This can make it easier to get problematic containers running but reduces the overall security posture.
@@ -2402,25 +2402,33 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.23: Base OS Image Configuration**
 
 ```terraform
-  # MicroOS snapshot IDs to be used. Per default empty, the most recent image created using createkh will be used.
-  # We recommend the default, but if you want to use specific IDs you can.
+  # Leap Micro snapshot IDs to be used (recommended). Per default empty, the most recent image created using createkh will be used.
+  # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'leapmicro-snapshot=yes'" command.
+  # leapmicro_x86_snapshot_id = "1234567"
+  # leapmicro_arm_snapshot_id = "1234567"
+
+  # MicroOS snapshot IDs to be used (legacy/upgrade). Per default empty, the most recent image created using createkh will be used.
   # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'microos-snapshot=yes'" command.
   # microos_x86_snapshot_id = "1234567"
   # microos_arm_snapshot_id = "1234567"
 ```
 
-* **Background:** This module uses openSUSE MicroOS as the base operating system for the cluster nodes. MicroOS is a transactional, immutable-style OS designed for container workloads. The `createkh` tool (mentioned in the comment, part of the `kube-hetzner` project) is likely used to prepare and snapshot customized MicroOS images suitable for this module.
-* **`microos_x86_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated x86 snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for x86-based nodes (e.g., `cx` series).
-* **`microos_arm_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated ARM snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for ARM-based nodes (e.g., `cax` series).
-* **Recommendation:** "We recommend the default". Using the default ensures you get the latest tested and prepared image from the module maintainers.
-* **Use Case for Pinning:**
-  * Ensuring absolute reproducibility if you need to rebuild a cluster exactly as it was.
-  * If a new default snapshot introduces an issue, you can temporarily pin to a known good older snapshot ID.
-* **Fetching IDs:** The `hcloud image list --selector 'microos-snapshot=yes'` command helps you find available snapshot IDs created by `createkh` in your Hetzner project.
+* **Background:** This module supports two immutable openSUSE base OS options for nodes:
+  * **Leap Micro** (`leapmicro`, recommended for new nodepools): stable, transactional updates.
+  * **MicroOS** (`microos`, legacy/upgrade support): rolling, transactional updates.
+* **Snapshots:** The module expects you to have snapshots in your Hetzner project labeled `leapmicro-snapshot=yes` and/or `microos-snapshot=yes` (typically created via the packer templates in `packer-template/`).
+* **`leapmicro_x86_snapshot_id` / `leapmicro_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `leapmicro-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for Leap Micro nodes (x86 for `cx*`, ARM for `cax*`).
+  * **Fetching IDs:** `hcloud image list --selector 'leapmicro-snapshot=yes'`
+* **`microos_x86_snapshot_id` / `microos_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `microos-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for MicroOS nodes (legacy/upgrade scenarios).
+  * **Fetching IDs:** `hcloud image list --selector 'microos-snapshot=yes'`
+* **OS selection (`os`) on nodepools (Optional):**
+  * **Valid values:** `leapmicro` or `microos`.
+  * **Where:** `control_plane_nodepools[].os`, `agent_nodepools[].os`, `agent_nodepools[].nodes[*].os`, and `autoscaler_nodepools[].os`.
+  * **Defaulting:** Existing nodepools keep their current OS on upgrade (MicroOS by default when unknown). New nodepools default to Leap Micro.
 
 ---
 

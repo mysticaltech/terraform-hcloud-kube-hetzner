@@ -22,7 +22,7 @@ variable "network" {
 
 resource "hcloud_server" "server" {
   name               = local.name
-  image              = var.microos_snapshot_id
+  image              = var.os_snapshot_id
   server_type        = var.server_type
   location           = var.location
   ssh_keys           = var.ssh_keys
@@ -238,6 +238,7 @@ data "cloudinit_config" "config" {
         cloudinit_write_files_common = var.cloudinit_write_files_common
         cloudinit_runcmd_common      = var.cloudinit_runcmd_common
         swap_size                    = var.swap_size
+        os                           = var.os
         private_network_only         = (var.disable_ipv4 && var.disable_ipv6)
         network_gw_ipv4              = var.network_gw_ipv4
       }

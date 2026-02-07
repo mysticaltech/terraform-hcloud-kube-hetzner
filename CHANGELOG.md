@@ -53,6 +53,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 
 ### 🚀 New Features
 
+- **Leap Micro Support (Stable Default OS)** - Added `os` selector for control plane, agent, and autoscaler nodepools (plus per-node agent overrides). New nodepools default to `leapmicro`; existing nodepools remain on MicroOS by default on upgrade to avoid recreation. New variables: `leapmicro_x86_snapshot_id`, `leapmicro_arm_snapshot_id`. Added packer template `packer-template/hcloud-leapmicro-snapshots.pkr.hcl` and automatic OS detection via the `kube-hetzner/os` server label.
 - **Hetzner Robot Integration** - Manage dedicated Robot servers via vSwitch and Cloud Controller Manager. New variables: `robot_ccm_enabled`, `robot_user`, `robot_password`, `vswitch_id`, `vswitch_subnet_index` (#1916)
 - **Audit Logging** - Kubernetes audit logs with configurable policy via `k3s_audit_policy_config` and log rotation settings (#1825)
 - **Control Plane Endpoint** - New `control_plane_endpoint` variable for stable external API server endpoint (e.g., external load balancers) (#1911)
