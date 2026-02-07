@@ -174,29 +174,17 @@ locals {
   })
 
   apply_k3s_selinux = [<<-EOT
-# k3s-selinux should be pre-installed in the Packer image for Leap Micro
-# Just verify and apply the policy if needed
-echo "Checking k3s SELinux policy status..."
-
-# Check if k3s-selinux is installed
-if rpm -q k3s-selinux >/dev/null 2>&1; then
-  echo "k3s-selinux package is installed"
-
-  # Check if the policy file exists and needs to be applied
-  if [ -f /usr/share/selinux/packages/k3s.pp ]; then
-    echo "Applying k3s SELinux policy..."
-    /sbin/semodule -v -i /usr/share/selinux/packages/k3s.pp && {
-      echo "Successfully applied k3s SELinux policy"
-    } || {
-      echo "Warning: Failed to apply k3s SELinux policy, it may already be applied"
-    }
-  else
-    echo "k3s SELinux policy file not found, it may be built into k3s or already applied"
-  fi
-else
-  echo "Warning: k3s-selinux package not found. It should be pre-installed in the Packer image."
-  echo "Continuing without k3s-selinux - k3s may handle SELinux internally"
-fi
+	echo "Checking k3s SELinux policy status..."
+	if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm -q k3s-selinux >/dev/null 2>&1; then
+	  if [ -f /usr/share/selinux/packages/k3s.pp ]; then
+	    echo "Applying k3s SELinux policy..."
+	    semodule -v -i /usr/share/selinux/packages/k3s.pp || true
+	  else
+	    echo "k3s SELinux policy file not found at /usr/share/selinux/packages/k3s.pp; skipping"
+	  fi
+	else
+	  echo "k3s-selinux package or semodule not available; skipping"
+	fi
 EOT
   ]
   swap_node_label = ["node.kubernetes.io/server-swap=enabled"]
@@ -217,6 +205,80 @@ EOT
     local.common_post_install_k3s_commands
   )
 
+  # Used for mapping existing node names (which include the random suffix) back into nodepool names.
+  cluster_prefix_for_node_names = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+
+  configured_nodepool_names = distinct(concat(
+    [for np in var.control_plane_nodepools : np.name],
+    [for np in var.agent_nodepools : np.name],
+  ))
+
+  existing_servers_info = [
+    for s in concat(data.hcloud_servers.existing_control_plane_nodes.servers, data.hcloud_servers.existing_agent_nodes.servers) : {
+      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
+      name_base = trimprefix(
+        length(split("-", s.name)) > 1
+        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
+        : s.name,
+        local.cluster_prefix_for_node_names,
+      )
+
+      # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
+      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
+    }
+  ]
+
+  existing_servers_nodepool_os = [
+    for s in local.existing_servers_info : merge(s, {
+      # Choose the best-matching nodepool for this server name ("longest prefix wins") so that:
+      # - node name suffixes (e.g. "-0") don't break matching
+      # - nodepool "auto" doesn't incorrectly match "auto-large"
+      nodepool = (
+        length([
+          for np in local.configured_nodepool_names :
+          np
+          if startswith(s.name_base, np) && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+        ]) > 0
+        ? one([
+          for np in local.configured_nodepool_names :
+          np
+          if(
+            startswith(s.name_base, np)
+            && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+            && length(np) == max([
+              for np2 in local.configured_nodepool_names :
+              length(np2)
+              if startswith(s.name_base, np2) && (length(s.name_base) == length(np2) || substr(s.name_base, length(np2), 1) == "-")
+            ]...)
+          )
+        ])
+        : null
+      )
+    })
+  ]
+
+  existing_nodepool_names = distinct(compact([for s in local.existing_servers_nodepool_os : s.nodepool]))
+
+  existing_os_labels_by_nodepool = {
+    for np in local.configured_nodepool_names :
+    np => distinct(compact([for s in local.existing_servers_nodepool_os : s.os_label if s.nodepool == np]))
+  }
+
+  existing_cluster_os_labels = distinct(compact([for s in local.existing_servers_nodepool_os : s.os_label]))
+
+  nodepool_default_os = {
+    for nodepool_name in local.configured_nodepool_names :
+    nodepool_name => (
+      !contains(local.existing_nodepool_names, nodepool_name)
+      ? "leapmicro"
+      : (
+        length(local.existing_os_labels_by_nodepool[nodepool_name]) == 1
+        ? local.existing_os_labels_by_nodepool[nodepool_name][0]
+        : "microos"
+      )
+    )
+  }
+
   control_plane_nodes = merge([
     for pool_index, nodepool_obj in var.control_plane_nodepools : {
       for node_index in range(nodepool_obj.count) :
@@ -232,9 +294,9 @@ EOT
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
+        os : coalesce(nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
-        os : nodepool_obj.os
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
@@ -261,9 +323,9 @@ EOT
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
+        os : coalesce(nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group
-        os : nodepool_obj.os
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
@@ -290,10 +352,10 @@ EOT
           swap_size : nodepool_obj.swap_size,
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
+          os : coalesce(node_obj.os, nodepool_obj.os, local.nodepool_default_os[nodepool_obj.name]),
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
-          os : nodepool_obj.os
           disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
           disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
           network_id : nodepool_obj.network_id,
@@ -315,6 +377,52 @@ EOT
     local.agent_nodes_from_integer_counts,
     local.agent_nodes_from_maps_for_counts,
   )
+
+  default_autoscaler_os = length(local.existing_servers_nodepool_os) == 0 ? "leapmicro" : (
+    length(local.existing_cluster_os_labels) == 1 ? local.existing_cluster_os_labels[0] : "microos"
+  )
+
+  autoscaler_nodepools_os = [
+    for np in var.autoscaler_nodepools :
+    coalesce(np.os, local.default_autoscaler_os)
+  ]
+
+  node_os_arch_pairs = concat(
+    [
+      for n in values(local.control_plane_nodes) :
+      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+    [
+      for n in values(local.agent_nodes) :
+      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+    [
+      for np in var.autoscaler_nodepools :
+      { os = coalesce(np.os, local.default_autoscaler_os), arch = substr(np.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+  )
+
+  os_arch_requirements = {
+    microos = {
+      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "x86"])
+    }
+    leapmicro = {
+      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "x86"])
+    }
+  }
+
+  snapshot_id_by_os = {
+    leapmicro = {
+      arm = var.leapmicro_arm_snapshot_id != "" ? var.leapmicro_arm_snapshot_id : try(data.hcloud_image.leapmicro_arm_snapshot[0].id, "")
+      x86 = var.leapmicro_x86_snapshot_id != "" ? var.leapmicro_x86_snapshot_id : try(data.hcloud_image.leapmicro_x86_snapshot[0].id, "")
+    }
+    microos = {
+      arm = var.microos_arm_snapshot_id != "" ? var.microos_arm_snapshot_id : try(data.hcloud_image.microos_arm_snapshot[0].id, "")
+      x86 = var.microos_x86_snapshot_id != "" ? var.microos_x86_snapshot_id : try(data.hcloud_image.microos_x86_snapshot[0].id, "")
+    }
+  }
 
   use_existing_network = length(var.existing_network_id) > 0
 
@@ -1257,18 +1365,9 @@ opensuse_runcmd_common = <<EOT
     sed -i 's/#MaxRetentionSec=/MaxRetentionSec=1week/g' /etc/systemd/journald.conf
   elif [ -f /usr/lib/systemd/journald.conf ]; then
     mkdir -p /etc/systemd/journald.conf.d/
-    echo -e "[Journal]\nSystemMaxUse=3G\nMaxRetentionSec=1week" > /etc/systemd/journald.conf.d/kube-hetzner.conf
+    printf '%s\n' "[Journal]" "SystemMaxUse=3G" "MaxRetentionSec=1week" > /etc/systemd/journald.conf.d/kube-hetzner.conf
   else
     echo "journald.conf not found, skipping journal size configuration"
-  fi
-
-# Reduces the default number of snapshots from 2-10 number limit, to 4 and from 4-10 number limit important, to 2
-- |
-  if [ -f /etc/snapper/configs/root ]; then
-    sed -i 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g' /etc/snapper/configs/root
-    sed -i 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g' /etc/snapper/configs/root
-  else
-    echo "Snapper config not found, skipping snapshot limit configuration"
   fi
 
 # Allow network interface
@@ -1276,7 +1375,7 @@ opensuse_runcmd_common = <<EOT
 
 # Ensure sshd includes config.d directory and restart to apply the new config
 - |
-  if ! grep -q "^Include /etc/ssh/sshd_config.d/\*.conf" /etc/ssh/sshd_config 2>/dev/null; then
+  if ! grep -q "^Include /etc/ssh/sshd_config.d/\\*.conf" /etc/ssh/sshd_config 2>/dev/null; then
     echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
   fi
 - [systemctl, 'restart', 'sshd']
@@ -1297,31 +1396,11 @@ opensuse_runcmd_common = <<EOT
 
 EOT
 
-snapshot_id_by_os = {
-  leapmicro = local.os_requirements.leapmicro ? {
-    arm = var.leapmicro_arm_snapshot_id != "" ? var.leapmicro_arm_snapshot_id : try(data.hcloud_image.leapmicro_arm_snapshot[0].id, ""),
-    x86 = var.leapmicro_x86_snapshot_id != "" ? var.leapmicro_x86_snapshot_id : try(data.hcloud_image.leapmicro_x86_snapshot[0].id, "")
-  } : null,
-  microos = local.os_requirements.microos ? {
-    arm = var.microos_arm_snapshot_id != "" ? var.microos_arm_snapshot_id : try(data.hcloud_image.microos_arm_snapshot[0].id, ""),
-    x86 = var.microos_x86_snapshot_id != "" ? var.microos_x86_snapshot_id : try(data.hcloud_image.microos_x86_snapshot[0].id, "")
-  } : null
 }
 
-# Get all unique OS requirements across all nodes
-used_os = distinct(concat(
-  [for node in var.control_plane_nodepools : node.os],
-  [for node in var.agent_nodepools : node.os],
-  flatten([
-    for node in var.agent_nodepools :
-    coalesce(values(node.nodes != null ? { for k, n in node.nodes : k => coalesce(n.os, node.os) } : {}), [])
-  ]),
-  [for node in var.autoscaler_nodepools : node.os]
-))
-
-# Check OS image requirements
-os_requirements = {
-  microos   = contains(local.used_os, "microos")
-  leapmicro = contains(local.used_os, "leapmicro")
-}
+check "autoscaler_nodepools_os_consistent" {
+  assert {
+    condition     = length(distinct(local.autoscaler_nodepools_os)) <= 1
+    error_message = "All autoscaler_nodepools must use the same effective OS. Set 'os' explicitly per autoscaler_nodepool (or omit it everywhere) so the module can select a single image set."
+  }
 }

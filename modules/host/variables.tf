@@ -3,10 +3,15 @@ variable "name" {
   type        = string
 }
 variable "os_snapshot_id" {
-  description = "Hetzner OS snapshot ID to be used. Per default empty, an initial snapshot will be created"
+  description = "OS snapshot ID to be used."
   type        = string
-  default     = ""
 }
+
+variable "os" {
+  description = "Operating system used for the snapshot. Used to conditionally apply OS-specific cloud-init steps."
+  type        = string
+}
+
 variable "base_domain" {
   description = "Base domain used for reverse dns"
   type        = string
@@ -143,12 +148,6 @@ variable "keep_disk_size" {
   type        = bool
   default     = false
   description = "Whether to keep OS disks of nodes the same size when upgrading a node"
-}
-
-variable "os" {
-  type        = string
-  default     = ""
-  description = "OS name used in the image"
 }
 
 variable "disable_ipv4" {

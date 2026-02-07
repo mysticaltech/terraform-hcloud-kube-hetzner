@@ -8,14 +8,21 @@ ${cloudinit_write_files_common}
   permissions: '0755'
   content: |
     #!/bin/bash
-    # Apply comprehensive SELinux policy for K8s on Leap Micro
-    
-    echo "[$(date)] Starting K8s SELinux policy application" >> /var/log/k8s-selinux.log
-    
-    # Create the policy file
+    # Apply additional SELinux policy needed for core Kubernetes workloads on Leap Micro.
+    set -euo pipefail
+
+    LOG_FILE=/var/log/k8s-selinux.log
+    echo "[$(date)] Starting K8s SELinux policy application" >> "$LOG_FILE"
+
+    MARKER_FILE=/var/lib/kube-hetzner/k8s-selinux-policy.applied
+    if [ -f "$MARKER_FILE" ] && semodule -l 2>/dev/null | awk '{print $1}' | grep -qx 'k8s_custom_policies'; then
+        echo "[$(date)] SELinux policy already applied; skipping" >> "$LOG_FILE"
+        exit 0
+    fi
+
     cat > /tmp/k8s_custom_policies.te <<'EOF'
     module k8s_custom_policies 1.0;
-    
+
     require {
         type container_t;
         type cert_t;
@@ -37,74 +44,75 @@ ${cloudinit_write_files_common}
         class peer recv;
         class filesystem getattr;
     }
-    
+
     # Allow containers to read certificate directories and files
     allow container_t cert_t:dir { read search open getattr };
     allow container_t cert_t:file { read open getattr };
-    
+
     # Allow containers to read proc filesystem (needed for metrics-server filesystem collector)
     allow container_t proc_t:file { read open getattr };
     allow container_t proc_t:dir { read search open getattr };
     allow container_t proc_t:lnk_file { read getattr };
     allow container_t proc_t:filesystem getattr;
-    
+
     # Also allow sysfs access which is often needed alongside proc
     allow container_t sysfs_t:file { read open getattr };
     allow container_t sysfs_t:dir { read search open getattr };
     allow container_t sysfs_t:lnk_file { read getattr };
     allow container_t sysfs_t:filesystem getattr;
-    
+
     # Allow containers to bind to kubernetes ports (including 10250 for metrics-server)
     allow container_t kubernetes_port_t:tcp_socket { name_bind name_connect accept listen };
-    
+
     # Allow containers to bind to hplip ports (including 9100 for node-exporter)
     allow container_t hplip_port_t:tcp_socket { name_bind name_connect accept listen };
-    
+
     # Allow containers to bind to unreserved high ports
     allow container_t unreserved_port_t:tcp_socket { name_bind name_connect accept listen };
-    
+
     # Allow container-to-container communication (needed for readiness probes)
     allow container_t container_t:tcp_socket { name_connect accept };
     allow container_t container_t:peer recv;
-    
+
     # Allow containers to use network nodes
     allow container_t node_t:node { tcp_recv tcp_send };
-    
+
     # Allow containers to bind to http ports (some exporters may use these)
     allow container_t http_port_t:tcp_socket { name_bind name_connect accept listen };
-    
+
     # Allow containers to read kernel TCP sockets (needed for metrics-server to read /proc/net/tcp)
     allow container_t kernel_t:tcp_socket { read write };
-    
+
     # Allow containers to read SELinux status (needed for node-exporter)
     allow container_t security_t:file { read open getattr };
-    
+
     # Allow containers to access init process information (needed for node-exporter to read mountinfo, etc.)
     allow container_t init_t:dir { read search open getattr };
     allow container_t init_t:file { read open getattr };
     allow container_t init_t:lnk_file { read getattr };
     EOF
-    
-    # Remove any old modules
-    for mod in k8s_custom_policies k8s_comprehensive kube_hetzner_selinux; do
-        semodule -r $mod 2>/dev/null || true
+
+    # Remove any old modules (best-effort).
+    for mod in k8s_custom_policies k8s_comprehensive; do
+        semodule -r "$mod" 2>/dev/null || true
     done
-    
-    # Compile and install the policy
-    if checkmodule -M -m -o /tmp/k8s_custom_policies.mod /tmp/k8s_custom_policies.te >> /var/log/k8s-selinux.log 2>&1; then
-        if semodule_package -o /tmp/k8s_custom_policies.pp -m /tmp/k8s_custom_policies.mod >> /var/log/k8s-selinux.log 2>&1; then
-            if semodule -i /tmp/k8s_custom_policies.pp >> /var/log/k8s-selinux.log 2>&1; then
-                echo "[$(date)] SELinux policy applied successfully" >> /var/log/k8s-selinux.log
-                # Disable dontaudit rules to make SELinux less restrictive and show all denials
-                semodule -DB >> /var/log/k8s-selinux.log 2>&1
-                echo "[$(date)] Disabled dontaudit rules for better visibility" >> /var/log/k8s-selinux.log
+
+    # Compile and install the policy.
+    if checkmodule -M -m -o /tmp/k8s_custom_policies.mod /tmp/k8s_custom_policies.te >>"$LOG_FILE" 2>&1; then
+        if semodule_package -o /tmp/k8s_custom_policies.pp -m /tmp/k8s_custom_policies.mod >>"$LOG_FILE" 2>&1; then
+            if semodule -i /tmp/k8s_custom_policies.pp >>"$LOG_FILE" 2>&1; then
+                echo "[$(date)] SELinux policy applied successfully" >>"$LOG_FILE"
+                mkdir -p "$(dirname "$MARKER_FILE")"
+                printf '%s\n' "applied $(date -Iseconds)" > "$MARKER_FILE"
                 rm -f /tmp/k8s_custom_policies.{te,mod,pp}
                 exit 0
             fi
         fi
     fi
-    echo "[$(date)] Failed to apply SELinux policy" >> /var/log/k8s-selinux.log
+
+    echo "[$(date)] Failed to apply SELinux policy" >>"$LOG_FILE"
     exit 1
+
 - path: /etc/systemd/system/k8s-selinux-policy.service
   permissions: '0644'
   content: |
@@ -113,12 +121,14 @@ ${cloudinit_write_files_common}
     DefaultDependencies=no
     After=local-fs.target
     Before=k3s.service network-pre.target
-    
+    ConditionSecurity=selinux
+    ConditionPathExists=!/var/lib/kube-hetzner/k8s-selinux-policy.applied
+
     [Service]
     Type=oneshot
     RemainAfterExit=yes
     ExecStart=/usr/local/bin/apply-k8s-selinux-policy.sh
-    
+
     [Install]
     WantedBy=sysinit.target
 %{ endif ~}
@@ -139,7 +149,7 @@ ssh_authorized_keys:
   - ${key}
 %{ endfor ~}
 
-# Allow root SSH login (needed for LeapMicro)
+# Allow root SSH login (required for provisioning)
 disable_root: false
 ssh_pwauth: false
 

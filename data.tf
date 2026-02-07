@@ -33,29 +33,37 @@ data "hcloud_ssh_keys" "keys_by_selector" {
   with_selector = var.ssh_hcloud_key_label
 }
 
+data "hcloud_servers" "existing_control_plane_nodes" {
+  with_selector = "provisioner=terraform,engine=k3s,cluster=${var.cluster_name},role=control_plane_node"
+}
+
+data "hcloud_servers" "existing_agent_nodes" {
+  with_selector = "provisioner=terraform,engine=k3s,cluster=${var.cluster_name},role=agent_node"
+}
+
 data "hcloud_image" "microos_x86_snapshot" {
-  count             = local.os_requirements.microos ? 1 : 0
+  count             = local.os_arch_requirements.microos.x86 && var.microos_x86_snapshot_id == "" ? 1 : 0
   with_selector     = "microos-snapshot=yes"
   with_architecture = "x86"
   most_recent       = true
 }
 
 data "hcloud_image" "microos_arm_snapshot" {
-  count             = local.os_requirements.microos ? 1 : 0
+  count             = local.os_arch_requirements.microos.arm && var.microos_arm_snapshot_id == "" ? 1 : 0
   with_selector     = "microos-snapshot=yes"
   with_architecture = "arm"
   most_recent       = true
 }
 
 data "hcloud_image" "leapmicro_x86_snapshot" {
-  count             = local.os_requirements.leapmicro ? 1 : 0
+  count             = local.os_arch_requirements.leapmicro.x86 && var.leapmicro_x86_snapshot_id == "" ? 1 : 0
   with_selector     = "leapmicro-snapshot=yes"
   with_architecture = "x86"
   most_recent       = true
 }
 
 data "hcloud_image" "leapmicro_arm_snapshot" {
-  count             = local.os_requirements.leapmicro ? 1 : 0
+  count             = local.os_arch_requirements.leapmicro.arm && var.leapmicro_arm_snapshot_id == "" ? 1 : 0
   with_selector     = "leapmicro-snapshot=yes"
   with_architecture = "arm"
   most_recent       = true

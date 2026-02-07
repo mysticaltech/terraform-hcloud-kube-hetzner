@@ -225,7 +225,7 @@ variable "control_plane_nodepools" {
     selinux                    = optional(bool, true)
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
-    os                         = optional(string, "leapmicro")
+    os                         = optional(string)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
@@ -245,7 +245,7 @@ variable "control_plane_nodepools" {
   validation {
     condition = alltrue([
       for control_plane_nodepool in var.control_plane_nodepools :
-      control_plane_nodepool.os == "microos" || control_plane_nodepool.os == "leapmicro"
+      control_plane_nodepool.os == null || control_plane_nodepool.os == "microos" || control_plane_nodepool.os == "leapmicro"
     ])
     error_message = "The os must be either 'microos' or 'leapmicro'."
   }
@@ -269,7 +269,7 @@ variable "agent_nodepools" {
     selinux                    = optional(bool, true)
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
-    os                         = optional(string, "leapmicro")
+    os                         = optional(string)
     count                      = optional(number, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
@@ -307,6 +307,31 @@ variable "agent_nodepools" {
   }
 
   validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      agent_nodepool.os == null || agent_nodepool.os == "microos" || agent_nodepool.os == "leapmicro"
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the nodepool level. The 'os' for each 'agent_nodepool' must be either 'microos' or 'leapmicro'.
+    Please correct the nodepool 'os' value.
+    EOF
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.os == null || agent_node.os == "microos" || agent_node.os == "leapmicro"
+      ])
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the node level. Each node's 'os' within a nodepool must be either 'microos', 'leapmicro', or unset.
+    Please correct any invalid node 'os' values.
+    EOF
+  }
+
+  validation {
     condition     = alltrue([for agent_nodepool in var.agent_nodepools : (agent_nodepool.count == null) != (agent_nodepool.nodes == null)])
     error_message = "Set either nodes or count per agent_nodepool, not both."
   }
@@ -324,31 +349,6 @@ variable "agent_nodepools" {
     condition = length(var.agent_nodepools) == 0 ? true : sum([for agent_nodepool in var.agent_nodepools : length(coalesce(agent_nodepool.nodes, {})) + coalesce(agent_nodepool.count, 0)]) <= 100
     # 154 because the private ip is derived from tonumber(key) + 101. See private_ipv4 in agents.tf
     error_message = "Hetzner does not support networks with more than 100 servers."
-  }
-
-  validation {
-    condition = alltrue([
-      for agent_nodepool in var.agent_nodepools :
-      agent_nodepool.os == "microos" || agent_nodepool.os == "leapmicro"
-    ])
-    error_message = <<-EOF
-    Invalid 'os' value at the nodepool level. The 'os' for each 'agent_nodepool' must be either 'microos' or 'leapmicro'.
-    Please correct the nodepool 'os' value.
-    EOF
-  }
-
-  validation {
-    condition = alltrue([
-      for agent_nodepool in var.agent_nodepools :
-      alltrue([
-        for agent_key, agent_node in coalesce(agent_nodepool.nodes, {}) :
-        agent_node.os == "microos" || agent_node.os == "leapmicro" || agent_node.os == null
-      ])
-    ])
-    error_message = <<-EOF
-    Invalid 'os' value at the node level. Each node's 'os' within a nodepool must be either 'microos', 'leapmicro', or unset.
-    Please correct any invalid node 'os' values.
-    EOF
   }
 }
 
@@ -414,7 +414,9 @@ variable "autoscaler_nodepools" {
     max_nodes    = number
     labels       = optional(map(string), {})
     kubelet_args = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
-    os           = optional(string, "leapmicro")
+    swap_size    = optional(string, "")
+    zram_size    = optional(string, "")
+    os           = optional(string)
     taints = optional(list(object({
       key    = string
       value  = string
@@ -426,11 +428,10 @@ variable "autoscaler_nodepools" {
   validation {
     condition = alltrue([
       for autoscaler_nodepool in var.autoscaler_nodepools :
-      autoscaler_nodepool.os == "microos" || autoscaler_nodepool.os == "leapmicro"
+      autoscaler_nodepool.os == null || autoscaler_nodepool.os == "microos" || autoscaler_nodepool.os == "leapmicro"
     ])
     error_message = <<-EOF
     Invalid 'os' value at the autoscaler nodepool level. The 'os' for each 'autoscaler_nodepool' must be either 'microos' or 'leapmicro'.
-    If unspecified, it defaults to 'leapmicro', which applies to all nodes in this nodepool.
     Please correct the autoscaler nodepool 'os' value.
     EOF
   }
