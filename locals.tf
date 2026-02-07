@@ -96,31 +96,66 @@ locals {
       ]))
     ] : [],
     local.has_dns_servers ? ["systemctl restart NetworkManager"] : [],
-    # Configure private network routing and NetworkManager for Hetzner DHCP changes
     [
       join("\n", [
-        "# Configure routing for Hetzner network (protection against DHCP changes after Aug 11, 2025)",
-        "set +e  # Don't fail if routes exist",
+        "# Ensure persistent private-network default route (Hetzner DHCP change Aug 11, 2025)",
+        "set +e  # Allow idempotent network adjustments",
+        "METRIC=30000",
         "",
-        "# Check if eth1 exists (standard setup with public + private IPs)",
-        "if ip link show eth1 &>/dev/null; then",
-        "  # Add default route via private network with high metric",
-        "  # Metric 20101 matches current DHCP-provided route for compatibility",
-        "  ip route add default via ${local.network_gw_ipv4} dev eth1 metric 20101 2>/dev/null",
-        "  ",
-        "  # Configure NetworkManager to ignore DHCP default route on private interface",
+        "# Determine the private interface dynamically (no hardcoded eth1)",
+        "PRIV_IF=$(ip -4 route show ${var.network_ipv4_cidr} 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
+        "if [ -z \"$PRIV_IF\" ]; then",
+        "  ROUTE_LINE=$(ip -4 route get ${local.network_gw_ipv4} 2>/dev/null)",
+        "  if [ -n \"$ROUTE_LINE\" ] && ! echo \"$ROUTE_LINE\" | grep -q ' via '; then",
+        "    PRIV_IF=$(echo \"$ROUTE_LINE\" | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
+        "  fi",
+        "fi",
+        "if [ -n \"$PRIV_IF\" ]; then",
         "  if systemctl is-active --quiet NetworkManager; then",
-        "    NM_CONN=$(nmcli -g GENERAL.CONNECTION device show eth1 2>/dev/null | head -1)",
+        "    NM_CONN=$(nmcli -g GENERAL.CONNECTION device show \"$PRIV_IF\" 2>/dev/null | head -1)",
         "    if [ -n \"$NM_CONN\" ]; then",
-        "      if ! nmcli connection modify \"$NM_CONN\" ipv4.never-default yes >/dev/null 2>&1; then",
-        "        echo \"Warning: Failed to set ipv4.never-default on eth1. This node may be affected by Hetzner DHCP changes.\" >&2",
+        "      # Persist a default route via the private gateway with higher metric than public NICs",
+        "      ROUTE_READY=0",
+        "      ROUTE_LINE=$(nmcli -g ipv4.routes connection show \"$NM_CONN\" | tr ',' '\\n' | awk '$1==\"0.0.0.0/0\" && $2==\"${local.network_gw_ipv4}\"{print $0; exit}')",
+        "      if [ -n \"$ROUTE_LINE\" ]; then",
+        "        CUR_ROUTE_METRIC=$(echo \"$ROUTE_LINE\" | awk '{print $3}')",
+        "        if [ -z \"$CUR_ROUTE_METRIC\" ] || [ \"$CUR_ROUTE_METRIC\" != \"$METRIC\" ]; then",
+        "          nmcli connection modify \"$NM_CONN\" -ipv4.routes \"$ROUTE_LINE\" >/dev/null 2>&1 || true",
+        "          if nmcli connection modify \"$NM_CONN\" +ipv4.routes \"0.0.0.0/0 ${local.network_gw_ipv4} $METRIC\" >/dev/null 2>&1; then",
+        "            ROUTE_READY=1",
+        "          else",
+        "            echo \"Warning: Failed to update default route metric on $PRIV_IF. Node may be affected by Hetzner DHCP changes.\" >&2",
+        "          fi",
+        "        else",
+        "          ROUTE_READY=1",
+        "        fi",
+        "      else",
+        "        if nmcli connection modify \"$NM_CONN\" +ipv4.routes \"0.0.0.0/0 ${local.network_gw_ipv4} $METRIC\" >/dev/null 2>&1; then",
+        "          ROUTE_READY=1",
+        "        else",
+        "          echo \"Warning: Failed to persist default route on $PRIV_IF. Node may be affected by Hetzner DHCP changes.\" >&2",
+        "        fi",
         "      fi",
-        "      # Also configure IPv6 to not use eth1 as default route",
-        "      if ! nmcli connection modify \"$NM_CONN\" ipv6.never-default yes >/dev/null 2>&1; then",
-        "        echo \"Warning: Failed to set ipv6.never-default on eth1. This node may be affected by Hetzner DHCP changes.\" >&2",
+        "      if [ \"$ROUTE_READY\" -eq 1 ]; then",
+        "        nmcli connection modify \"$NM_CONN\" ipv4.never-default yes >/dev/null 2>&1 || true",
+        "        nmcli connection modify \"$NM_CONN\" ipv6.never-default yes >/dev/null 2>&1 || true",
+        "        nmcli connection modify \"$NM_CONN\" ipv4.route-metric $METRIC >/dev/null 2>&1 || true",
+        "        nmcli connection up \"$NM_CONN\" >/dev/null 2>&1 || true",
         "      fi",
         "    fi",
         "  fi",
+        "  # Runtime guard to cover current leases before dispatcher hooks fire",
+        "  EXISTING_RT=$(ip -4 route show default dev \"$PRIV_IF\" | awk '$3==\"${local.network_gw_ipv4}\"{print $0; exit}')",
+        "  if [ -n \"$EXISTING_RT\" ]; then",
+        "    CUR_RT_METRIC=$(echo \"$EXISTING_RT\" | awk 'match($0,/metric ([0-9]+)/,m){print m[1]}')",
+        "    if [ -z \"$CUR_RT_METRIC\" ] || [ \"$CUR_RT_METRIC\" != \"$METRIC\" ]; then",
+        "      ip -4 route change default via ${local.network_gw_ipv4} dev \"$PRIV_IF\" metric $METRIC 2>/dev/null || true",
+        "    fi",
+        "  else",
+        "    ip -4 route add default via ${local.network_gw_ipv4} dev \"$PRIV_IF\" metric $METRIC 2>/dev/null || true",
+        "  fi",
+        "else",
+        "  echo \"Info: Unable to identify interface that reaches ${local.network_gw_ipv4}; skipping private default route setup.\"",
         "fi",
         "",
         "set -e"
@@ -224,7 +259,11 @@ EOT
       )
 
       # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
-      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
+      os_label = (
+        contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], try(s.labels["os"], "")))
+        ? try(s.labels["kube-hetzner/os"], try(s.labels["os"], null))
+        : null
+      )
     }
   ]
 
@@ -998,8 +1037,8 @@ podDisruptionBudget:
   enabled: true
   maxUnavailable: 33%
 %{endif~}
-providers:
 %{if var.traefik_provider_kubernetes_gateway_enabled~}
+providers:
   kubernetesGateway:
     enabled: true
 %{endif~}

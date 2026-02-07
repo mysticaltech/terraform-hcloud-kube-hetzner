@@ -50,3 +50,6 @@ CLAUDE.md
 .DS_Store
 
 requirements/*
+
+# Ignore IntelliJ related files
+.idea

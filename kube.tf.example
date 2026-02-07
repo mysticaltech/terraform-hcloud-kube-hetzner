@@ -343,6 +343,10 @@ module "kube-hetzner" {
   # however also introduce a single point of failure, so if you need high-availability on your
   # egress, you should consider other configurations.
   # 
+  # Hetzner removed the DHCP Router option from private networks on 2025-08-11, so the module
+  # now ensures each node attached to the private network persists a default route via the
+  # virtual gateway. No manual `ip route add` is required after reboots or DHCP renewals.
+  # 
   #
   # nat_router = {
   #   server_type = "cax21"
