@@ -8,7 +8,7 @@
   <h2 align="center">Kube-Hetzner</h2>
 
   <p align="center">
-    A highly optimized, easy-to-use, auto-upgradable, HA-default & Load-Balanced, Kubernetes cluster powered by k3s-on-LeapMicro and deployed for peanuts on <a href="https://hetzner.com" target="_blank">Hetzner Cloud</a> 🤑
+    A highly optimized, easy-to-use, auto-upgradable, HA-default & Load-Balanced, Kubernetes cluster powered by k3s on openSUSE Leap Micro (default) / MicroOS (legacy) and deployed for peanuts on <a href="https://hetzner.com" target="_blank">Hetzner Cloud</a> 🤑
   </p>
   <hr />
     <p align="center">
@@ -49,12 +49,18 @@ To achieve this, we built up on the shoulders of giants by choosing [openSUSE Le
 
 **Migration Notes (MicroOS → LeapMicro)**
 
-As of version **X.Y.Z**, **openSUSE LeapMicro** replaced **MicroOS** as the default operating system for Kube-Hetzner installations.
+Leap Micro is the recommended default OS for new nodepools. MicroOS remains supported for existing clusters and upgrade scenarios.
 
-Reason for switching to LeapMicro:
+Defaulting behavior:
 
-- **Stability & Reliability:** LeapMicro provides a stable, fixed-point release with fewer updates, reducing the risk of disruptions that MicroOS's rolling-release model occasionally introduced.
-- **Controlled Updates:** LeapMicro’s snapshot-based updates allow pinning specific kernel and package versions, enabling more predictable upgrades compared to MicroOS.
+- **New nodepools:** default to **`leapmicro`**.
+- **Existing nodepools:** default to **`microos`** when the OS is unknown, to avoid accidental node recreation on upgrade.
+
+OS selection is available on:
+
+- `control_plane_nodepools[].os`
+- `agent_nodepools[].os` (and per-node overrides at `agent_nodepools[].nodes[*].os`)
+- `autoscaler_nodepools[].os`
 
 🚨 If you already have an existing deployment, please ensure you read the [Upgrade & Migration Guide](UPGRADE_AND_MIGRATION_GUIDE.md) before proceeding.
 
@@ -118,11 +124,11 @@ The easiest way is to use the [homebrew](https://brew.sh/) package manager to in
 | Snap                   | sudo snap install terraform kubectl --classic && snap install packer               |
 | Chocolatey (Windows)   | choco install terraform packer kubernetes-cli hcloud                               |
 
-### 💡 [Do not skip] Creating your kube.tf file and the OpenSUSE LeapMicro snapshot
+### 💡 [Do not skip] Creating your kube.tf file and the OS snapshots (Leap Micro recommended)
 
 1. Create a project in your [Hetzner Cloud Console](https://console.hetzner.cloud/), and go to **Security > API Tokens** of that project to grab the API key, it needs to be Read & Write. Take note of the key! ✅
 2. Generate a passphrase-less ed25519 SSH key pair for your cluster; take note of the respective paths of your private and public keys. Or, see our detailed [SSH options](https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/ssh.md). ✅
-3. Now navigate to where you want to have your project live and execute the following command, which will help you get started with a **new folder** along with the required files, and will propose you to create a needed LeapMicro snapshot. ✅
+3. Now navigate to where you want to have your project live and execute the following command, which will help you get started with a **new folder** along with the required files, and will propose creating the required OS snapshots (Leap Micro recommended; MicroOS optional for upgrades). ✅
 
    ```sh
    tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
@@ -148,16 +154,19 @@ The easiest way is to use the [homebrew](https://brew.sh/) package manager to in
 
    _For the curious, here is what the script does:_
 
-   ```sh
-   mkdir /path/to/your/new/folder
-   cd /path/to/your/new/folder
-   curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o kube.tf
-   curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
-   export HCLOUD_TOKEN="your_hcloud_token"
-   packer init hcloud-leapmicro-snapshots.pkr.hcl
-   packer build hcloud-leapmicro-snapshots.pkr.hcl
-   hcloud context create <project-name>
-   ```
+	   ```sh
+	   mkdir /path/to/your/new/folder
+	   cd /path/to/your/new/folder
+	   curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o kube.tf
+	   curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
+	   curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
+	   export HCLOUD_TOKEN="your_hcloud_token"
+	   # Leap Micro (recommended):
+	   packer init hcloud-leapmicro-snapshots.pkr.hcl && packer build hcloud-leapmicro-snapshots.pkr.hcl
+	   # MicroOS (optional, legacy/upgrade):
+	   # packer init hcloud-microos-snapshots.pkr.hcl && packer build hcloud-microos-snapshots.pkr.hcl
+	   hcloud context create <project-name>
+	   ```
 
 4. In that new project folder that gets created, you will find your `kube.tf` and it must be customized to suit your needs. ✅
 
