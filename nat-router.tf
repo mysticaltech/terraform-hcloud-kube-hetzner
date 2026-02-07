@@ -1,13 +1,5 @@
 locals {
   nat_router_ip = var.nat_router != null ? cidrhost(hcloud_network_subnet.nat_router[0].ip_range, 1) : ""
-  nat_router_data_center = var.nat_router != null ? {
-    "fsn1" : "fsn1-dc14",
-    "nbg1" : "nbg1-dc3",
-    "hel1" : "hel1-dc2",
-    "ash" : "ash-dc1",
-    "hil" : "hil-dc1",
-    "sin" : "sin-dc1",
-  }[var.nat_router.location] : null
 }
 
 data "cloudinit_config" "nat_router_config" {
@@ -31,6 +23,8 @@ data "cloudinit_config" "nat_router_config" {
         private_network_ipv4_range = data.hcloud_network.k3s.ip_range
         ssh_port                   = var.ssh_port
         ssh_max_auth_tries         = var.ssh_max_auth_tries
+        enable_cp_lb_port_forward  = var.use_control_plane_lb && !var.control_plane_lb_enable_public_interface
+        cp_lb_private_ip           = hcloud_load_balancer_network.control_plane.*.ip[0]
       }
     )
   }
@@ -46,24 +40,38 @@ resource "hcloud_network_route" "nat_route_public_internet" {
 resource "hcloud_primary_ip" "nat_router_primary_ipv4" {
   # explicitly declare the ipv4 address, such that the address
   # is stable against possible replacements of the nat router
+  # NOTE: Use location instead of datacenter - datacenter is deprecated.
+  # Please upgrade to v1.58.0+ of the hcloud provider to avoid issues
+  # once the Hetzner Cloud API no longer accepts the datacenter attribute.
   count         = var.nat_router != null ? 1 : 0
   type          = "ipv4"
   name          = "${var.cluster_name}-nat-router-ipv4"
-  datacenter    = local.nat_router_data_center
+  location      = var.nat_router.location
   auto_delete   = false
   assignee_type = "server"
+
+  # Prevent recreation when user changes location after initial creation
+  lifecycle {
+    ignore_changes = [location]
+  }
 }
 
 resource "hcloud_primary_ip" "nat_router_primary_ipv6" {
-  # explicitly declare the ipv4 address, such that the address
+  # explicitly declare the ipv6 address, such that the address
   # is stable against possible replacements of the nat router
   count         = var.nat_router != null ? 1 : 0
   type          = "ipv6"
   name          = "${var.cluster_name}-nat-router-ipv6"
-  datacenter    = local.nat_router_data_center
+  location      = var.nat_router.location
   auto_delete   = false
   assignee_type = "server"
+
+  # Prevent recreation when user changes location after initial creation
+  lifecycle {
+    ignore_changes = [location]
+  }
 }
+
 resource "hcloud_server" "nat_router" {
   count        = var.nat_router != null ? 1 : 0
   name         = "${var.cluster_name}-nat-router"
@@ -96,7 +104,7 @@ resource "hcloud_server" "nat_router" {
 
 }
 
-resource "null_resource" "nat_router_await_cloud_init" {
+resource "terraform_data" "nat_router_await_cloud_init" {
   count = var.nat_router != null ? 1 : 0
 
   depends_on = [
@@ -104,7 +112,7 @@ resource "null_resource" "nat_router_await_cloud_init" {
     hcloud_server.nat_router,
   ]
 
-  triggers = {
+  triggers_replace = {
     config = data.cloudinit_config.nat_router_config[0].rendered
   }
 
@@ -120,4 +128,8 @@ resource "null_resource" "nat_router_await_cloud_init" {
     inline = ["cloud-init status --wait > /dev/null || echo 'Ready to move on'"]
     # on_failure = continue # this will fail because the reboot 
   }
+}
+moved {
+  from = null_resource.nat_router_await_cloud_init
+  to   = terraform_data.nat_router_await_cloud_init
 }

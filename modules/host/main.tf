@@ -11,14 +11,6 @@ resource "random_string" "server" {
   }
 }
 
-resource "random_string" "identity_file" {
-  length  = 20
-  lower   = true
-  special = false
-  numeric = true
-  upper   = false
-}
-
 variable "network" {
   type = object({
     network_id = number
@@ -80,36 +72,19 @@ resource "hcloud_server" "server" {
     bastion_user        = var.ssh_bastion.bastion_user
     bastion_private_key = var.ssh_bastion.bastion_private_key
 
+    timeout = "10m"
   }
 
-  # Prepare ssh identity file
-  provisioner "local-exec" {
-    command = <<-EOT
-      install -b -m 600 /dev/null /tmp/${random_string.identity_file.id}
-      echo "${local.ssh_client_identity}" | sed 's/\r$//' > /tmp/${random_string.identity_file.id}
-    EOT
-  }
+  provisioner "remote-exec" {
+    inline = [
+      "echo 'Waiting for system to become fully ready...'",
 
-  # Wait for OS to reboot and be ready.
-  provisioner "local-exec" {
-    command = <<-EOT
-      timeout 600 bash <<EOF
-        until ssh ${local.ssh_args} -i /tmp/${random_string.identity_file.id} ${local.ssh_proxy_jump} -o ConnectTimeout=2 -p ${var.ssh_port} root@${coalesce(self.ipv4_address, self.ipv6_address, try(one(self.network).ip, null))} true 2> /dev/null
-        do
-          echo "Waiting for ${var.os} to become available..."
-          sleep 3
-        done
-      EOF
-    EOT
-  }
+      # Wait until the system is fully booted and in a running state.
+      "timeout 600 bash -c 'until systemctl is-system-running --quiet; do echo \"Waiting for system...\"; sleep 3; done'",
 
-  # Cleanup ssh identity file
-  provisioner "local-exec" {
-    command = <<-EOT
-      rm /tmp/${random_string.identity_file.id}
-    EOT
+      "echo 'System is fully ready!'"
+    ]
   }
-
 
   provisioner "remote-exec" {
     inline = var.automatically_upgrade_os ? [
@@ -126,19 +101,8 @@ resource "hcloud_server" "server" {
 
 }
 
-# Create network attachment when network_id is provided
-resource "hcloud_server_network" "server" {
-  # Always attach to the cluster private network. We can't conditionally
-  # create this based on `network_id`, since that value can be unknown during
-  # planning when the network is created in the same apply.
-  count     = 1
-  ip        = var.private_ipv4
-  server_id = hcloud_server.server.id
-  subnet_id = var.ipv4_subnet_id
-}
-
-resource "null_resource" "registries" {
-  triggers = {
+resource "terraform_data" "registries" {
+  triggers_replace = {
     registries = var.k3s_registries
   }
 
@@ -166,6 +130,82 @@ resource "null_resource" "registries" {
   }
 
   depends_on = [hcloud_server.server]
+}
+moved {
+  from = null_resource.registries
+  to   = terraform_data.registries
+}
+
+resource "terraform_data" "kubelet_config" {
+  count = var.k3s_kubelet_config != "" ? 1 : 0
+
+  triggers_replace = {
+    kubelet_config = var.k3s_kubelet_config
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    port           = var.ssh_port
+
+    bastion_host        = var.ssh_bastion.bastion_host
+    bastion_port        = var.ssh_bastion.bastion_port
+    bastion_user        = var.ssh_bastion.bastion_user
+    bastion_private_key = var.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "file" {
+    content     = var.k3s_kubelet_config
+    destination = "/tmp/kubelet-config.yaml"
+  }
+
+  provisioner "remote-exec" {
+    inline = [var.k3s_kubelet_config_update_script]
+  }
+
+  depends_on = [hcloud_server.server]
+}
+moved {
+  from = null_resource.kubelet_config
+  to   = terraform_data.kubelet_config
+}
+
+resource "terraform_data" "audit_policy" {
+  count = var.k3s_audit_policy_config != "" ? 1 : 0
+
+  triggers_replace = {
+    audit_policy = var.k3s_audit_policy_config
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    port           = var.ssh_port
+
+    bastion_host        = var.ssh_bastion.bastion_host
+    bastion_port        = var.ssh_bastion.bastion_port
+    bastion_user        = var.ssh_bastion.bastion_user
+    bastion_private_key = var.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "file" {
+    content     = var.k3s_audit_policy_config
+    destination = "/tmp/audit-policy.yaml"
+  }
+
+  provisioner "remote-exec" {
+    inline = [var.k3s_audit_policy_update_script]
+  }
+
+  depends_on = [hcloud_server.server]
+}
+moved {
+  from = null_resource.audit_policy
+  to   = terraform_data.audit_policy
 }
 
 resource "hcloud_rdns" "server" {
@@ -211,8 +251,8 @@ data "cloudinit_config" "config" {
   }
 }
 
-resource "null_resource" "zram" {
-  triggers = {
+resource "terraform_data" "zram" {
+  triggers_replace = {
     zram_size = var.zram_size
   }
 
@@ -296,9 +336,14 @@ WantedBy=multi-user.target
   depends_on = [hcloud_server.server]
 }
 
+moved {
+  from = null_resource.zram
+  to   = terraform_data.zram
+}
+
 # Resource to toggle transactional-update.timer based on automatically_upgrade_os setting
-resource "null_resource" "os_upgrade_toggle" {
-  triggers = {
+resource "terraform_data" "os_upgrade_toggle" {
+  triggers_replace = {
     os_upgrade_state = var.automatically_upgrade_os ? "enabled" : "disabled"
     server_id        = hcloud_server.server.id
   }
@@ -333,6 +378,11 @@ resource "null_resource" "os_upgrade_toggle" {
 
   depends_on = [
     hcloud_server.server,
-    null_resource.registries
+    terraform_data.registries
   ]
+}
+
+moved {
+  from = null_resource.os_upgrade_toggle
+  to   = terraform_data.os_upgrade_toggle
 }

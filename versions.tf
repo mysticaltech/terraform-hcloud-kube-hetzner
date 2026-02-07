@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.8.0"
+  required_version = ">= 1.10.1"
   required_providers {
     github = {
       source  = "integrations/github"
@@ -7,7 +7,7 @@ terraform {
     }
     hcloud = {
       source  = "hetznercloud/hcloud"
-      version = ">= 1.51.0"
+      version = ">= 1.59.0"
     }
     local = {
       source  = "hashicorp/local"
@@ -26,4 +26,9 @@ terraform {
       version = ">= 0.7.1"
     }
   }
+}
+
+# Prevent provider picking up `GITHUB_TOKEN` env var and trying to authenticate
+provider "github" {
+  token = ""
 }

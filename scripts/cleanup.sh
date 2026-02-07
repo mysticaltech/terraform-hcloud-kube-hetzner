@@ -217,7 +217,3 @@ delete_ssh_keys
 if (( DELETE_MICROOS_SNAPSHOTS == 1 )); then
   delete_snapshots_by_selector "microos-snapshot=yes"
 fi
-
-if (( DELETE_LEAPMICRO_SNAPSHOTS == 1 )); then
-  delete_snapshots_by_selector "leapmicro-snapshot=yes"
-fi

@@ -114,6 +114,26 @@ variable "k3s_registries_update_script" {
   type    = string
 }
 
+variable "k3s_kubelet_config" {
+  default = ""
+  type    = string
+}
+
+variable "k3s_kubelet_config_update_script" {
+  default = ""
+  type    = string
+}
+
+variable "k3s_audit_policy_config" {
+  description = "K3S audit-policy.yaml contents"
+  type        = string
+}
+
+variable "k3s_audit_policy_update_script" {
+  description = "Script to update audit policy configuration"
+  type        = string
+}
+
 variable "cloudinit_write_files_common" {
   default = ""
   type    = string
@@ -179,6 +199,6 @@ variable "ssh_bastion" {
 }
 
 variable "network_gw_ipv4" {
-  type    = string
-  default = "Default IPv4 gateway address for the node's primary network interface"
+  type        = string
+  description = "Default IPv4 gateway address for the node's primary network interface"
 }
