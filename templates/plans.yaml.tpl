@@ -33,6 +33,24 @@ spec:
     disableEviction: ${disable_eviction}
     skipWaitForDeleteTimeout: 60%{ endif }
   %{ if !drain }cordon: true%{ endif }
+  %{~ if upgrade_window != null ~}
+  window:
+    %{~ if length(upgrade_window.days) > 0 ~}
+    days:
+      %{~ for day in upgrade_window.days ~}
+      - ${day}
+      %{~ endfor ~}
+    %{~ endif ~}
+    %{~ if upgrade_window.startTime != "" ~}
+    startTime: "${upgrade_window.startTime}"
+    %{~ endif ~}
+    %{~ if upgrade_window.endTime != "" ~}
+    endTime: "${upgrade_window.endTime}"
+    %{~ endif ~}
+    %{~ if upgrade_window.timeZone != "" ~}
+    timeZone: "${upgrade_window.timeZone}"
+    %{~ endif ~}
+  %{~ endif ~}
   upgrade:
     image: rancher/k3s-upgrade
 ---
@@ -62,5 +80,23 @@ spec:
     - {key: node-role.kubernetes.io/control-plane, effect: NoSchedule, operator: Exists}
     - {key: CriticalAddonsOnly, effect: NoExecute, operator: Exists}
   cordon: true
+  %{~ if upgrade_window != null ~}
+  window:
+    %{~ if length(upgrade_window.days) > 0 ~}
+    days:
+      %{~ for day in upgrade_window.days ~}
+      - ${day}
+      %{~ endfor ~}
+    %{~ endif ~}
+    %{~ if upgrade_window.startTime != "" ~}
+    startTime: "${upgrade_window.startTime}"
+    %{~ endif ~}
+    %{~ if upgrade_window.endTime != "" ~}
+    endTime: "${upgrade_window.endTime}"
+    %{~ endif ~}
+    %{~ if upgrade_window.timeZone != "" ~}
+    timeZone: "${upgrade_window.timeZone}"
+    %{~ endif ~}
+  %{~ endif ~}
   upgrade:
     image: rancher/k3s-upgrade

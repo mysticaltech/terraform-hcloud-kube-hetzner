@@ -422,6 +422,7 @@ resource "terraform_data" "kustomization" {
         version          = var.install_k3s_version
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
+        upgrade_window   = var.system_upgrade_schedule_window
     })
     destination = "/var/post_install/plans.yaml"
   }

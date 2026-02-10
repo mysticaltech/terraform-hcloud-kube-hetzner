@@ -826,6 +826,22 @@ variable "automatically_upgrade_k3s" {
   description = "Whether to automatically upgrade k3s based on the selected channel."
 }
 
+variable "system_upgrade_schedule_window" {
+  type = object({
+    days      = optional(list(string), [])
+    startTime = optional(string, "")
+    endTime   = optional(string, "")
+    timeZone  = optional(string, "UTC")
+  })
+  default     = null
+  description = "Schedule window for k3s automated upgrades (system-upgrade-controller v0.15.0+). When set, upgrade jobs will only be created within the specified time window. 'days' accepts lowercase day names (e.g. [\"monday\",\"tuesday\"]). 'startTime'/'endTime' use HH:MM format. 'timeZone' defaults to UTC. See https://docs.k3s.io/upgrades/automated#scheduling-upgrades"
+
+  validation {
+    condition     = var.system_upgrade_schedule_window == null || length(var.system_upgrade_schedule_window.days) > 0 || var.system_upgrade_schedule_window.startTime != "" || var.system_upgrade_schedule_window.endTime != ""
+    error_message = "system_upgrade_schedule_window must have at least one of 'days', 'startTime', or 'endTime' set when not null."
+  }
+}
+
 variable "automatically_upgrade_os" {
   type        = bool
   default     = true
