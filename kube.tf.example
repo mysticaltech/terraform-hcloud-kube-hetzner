@@ -357,6 +357,7 @@ module "kube-hetzner" {
   # easier, as all public traffic passes through a single strongly secured node. It does
   # however also introduce a single point of failure, so if you need high-availability on your
   # egress, you should consider other configurations.
+  # If a simple failover mechanism is acceptable, you can set enable_redundancy = true to deploy two NAT routers running keepalived to provide a failover mechanism.
   #
   # Hetzner removed the DHCP Router option from private networks on 2025-08-11, so the module
   # now ensures each node attached to the private network persists a default route via the
@@ -364,11 +365,14 @@ module "kube-hetzner" {
   #
   #
   # nat_router = {
-  #   server_type = "cax21"
-  #   location    = "nbg1"
-  #   enable_sudo = false # optional, default to false. Set to true to add nat-router user to the sudo'ers. Note that ssh as root is disabled.
-  #   labels      = {} # optionally add labels.
+  #   server_type       = "cax21"
+  #   location          = "nbg1"
+  #   enable_sudo       = false   # optional, default to false. Set to true to add nat-router user to the sudo'ers. Note that ssh as root is disabled.
+  #   enable_redundancy = true    # optional, default to false. Enable failover for the NAT router.
+  #   standby_location  = "fsn1"  # optional, default to "". Must be set if enable_redundancy is true.
+  #   labels            = {}      # optionally add labels.
   # }
+  # nat_router_hcloud_token = ""  # optional, default to "". Must be set if enable_redundancy is true. This token needs read/write to change the private alias ip in the nat_router subnetwork for failover
 
 
   ### The following values are entirely optional (and can be removed from this if unused)
