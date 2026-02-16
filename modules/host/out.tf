@@ -27,13 +27,3 @@ output "domain_assignments" {
     }
   ]
 }
-
-output "tailscale_ip_address" {
-  description = "The Tailscale Tailnet IP address of the server"
-  value       = local.tailscale_ip
-}
-
-output "tailscale_advertised_routes" {
-  description = "List of routes advertised by the node"
-  value       = local.tailscale_routes
-}

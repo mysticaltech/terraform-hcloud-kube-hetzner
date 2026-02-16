@@ -105,7 +105,7 @@ resource "terraform_data" "registries" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -142,7 +142,7 @@ resource "terraform_data" "kubelet_config" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -178,7 +178,7 @@ resource "terraform_data" "audit_policy" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -254,7 +254,7 @@ resource "terraform_data" "zram" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -346,7 +346,7 @@ resource "terraform_data" "os_upgrade_toggle" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host

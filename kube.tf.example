@@ -610,6 +610,14 @@ module "kube-hetzner" {
   # When using an external load balancer, you can specify a stable control plane endpoint URL.
   # control_plane_endpoint = "https://my-external-lb:6443"
 
+  # Optional map of node name => SSH host override.
+  # Useful when an external overlay network (Tailscale, ZeroTier, Cloudflare WARP, etc.)
+  # is managed outside this module and you want Terraform to connect through overlay IPs.
+  # node_connection_overrides = {
+  #   "k3s-control-plane" = "100.64.0.10"
+  #   "k3s-agent-0"       = "100.64.0.11"
+  # }
+
   # If you want to configure additional arguments for traefik, enter them here as a list and in the form of traefik CLI arguments; see https://doc.traefik.io/traefik/reference/static-configuration/cli/
   # They are the options that go into the additionalArguments section of the Traefik helm values file.
   # We already add "providers.kubernetesingress.ingressendpoint.publishedservice" by default so that Traefik works automatically with services such as External-DNS and ArgoCD.
