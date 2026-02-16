@@ -12,7 +12,7 @@ jobs:
     name: Scan terraform files with tfsec
     steps:
       - name: Clone repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: tfsec
         uses: aquasecurity/tfsec-pr-commenter-action@v1.3.1
@@ -21,7 +21,7 @@ jobs:
           tfsec_args: --ignore-hcl-errors
 
       - name: Run tfsec with reviewdog output on the PR
-        uses: reviewdog/action-tfsec@v1.29.0
+        uses: reviewdog/action-tfsec@v1.30.0
         with:
           github_token: ${{ secrets.github_token }}
           filter_mode: nofilter
@@ -33,17 +33,17 @@ jobs:
     name: Validate terraform configuration
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: terraform validate
-        uses: dflook/terraform-validate@v2.0.1
+        uses: dflook/terraform-validate@v2.2.3
 
   fmt-check:
     runs-on: ubuntu-latest
     name: Check formatting of terraform files
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: terraform fmt
-        uses: dflook/terraform-fmt-check@v2.0.1
+        uses: dflook/terraform-fmt-check@v2.2.3

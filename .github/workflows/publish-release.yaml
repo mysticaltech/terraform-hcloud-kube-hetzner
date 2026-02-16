@@ -6,16 +6,93 @@ on:
     tags:
       - '*'
   workflow_dispatch:
-      tags:
-        - '*'
+
 jobs:
   Release:
     name: Release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ncipollo/release-action@v1
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Full history for contributor extraction
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog for this release
+        run: |
+          # Extract the [Unreleased] section from CHANGELOG.md
+          if [ -f CHANGELOG.md ]; then
+            # Get content between [Unreleased] and the next ## heading
+            awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md > changelog_section.md
+
+            if [ -s changelog_section.md ]; then
+              echo "Found changelog content:"
+              cat changelog_section.md
+            else
+              echo "No unreleased changelog content found"
+              : > changelog_section.md
+            fi
+          else
+            echo "No CHANGELOG.md found"
+            : > changelog_section.md
+          fi
+
+      - name: Generate contributors list
+        env:
+          PREV_TAG: ${{ steps.prev_tag.outputs.tag }}
+        run: |
+          if [ -n "${PREV_TAG}" ]; then
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          # Get unique contributors from commits and co-authors
+          CONTRIBUTORS=$(git log "${RANGE}" --format='%an' | sort -u | while read -r name; do
+            echo "* ${name}"
+          done)
+
+          # Also extract Co-authored-by names
+          COAUTHORS=$(git log "${RANGE}" --format='%b' | grep -i "co-authored-by" | sed 's/.*: //' | sed 's/ <.*//' | sort -u | while read -r name; do
+            [ -n "$name" ] && echo "* ${name}"
+          done)
+
+          # Combine and dedupe
+          ALL_CONTRIBUTORS=$(printf '%s\n%s' "${CONTRIBUTORS}" "${COAUTHORS}" | grep -v "^$" | sort -u)
+
+          # Write to file for multi-line output
+          {
+            echo "## 👥 Contributors"
+            echo ""
+            echo "Thanks to all contributors who made this release possible:"
+            echo ""
+            echo "${ALL_CONTRIBUTORS}"
+          } > contributors.md
+
+          echo "Generated contributors list:"
+          cat contributors.md
+
+      - name: Combine release notes
+        run: |
+          # Combine changelog + contributors into final release body
+          {
+            cat changelog_section.md
+            echo ""
+            cat contributors.md
+          } > release_body.md
+
+          echo "Final release body:"
+          cat release_body.md
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
         with:
           generateReleaseNotes: true
           name: ${{ github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          bodyFile: release_body.md
+          appendBody: true

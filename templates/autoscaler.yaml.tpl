@@ -40,7 +40,6 @@ rules:
       - "replicationcontrollers"
       - "persistentvolumeclaims"
       - "persistentvolumes"
-      - "volumeattachments"
     verbs: ["watch", "list", "get"]
   - apiGroups: ["extensions"]
     resources: ["replicasets", "daemonsets"]
@@ -52,7 +51,7 @@ rules:
     resources: ["statefulsets", "replicasets", "daemonsets"]
     verbs: ["watch", "list", "get"]
   - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses", "csinodes", "csistoragecapacities", "csidrivers"]
+    resources: ["storageclasses", "csinodes", "csistoragecapacities", "csidrivers", "volumeattachments"]
     verbs: ["watch", "list", "get"]
   - apiGroups: ["batch", "extensions"]
     resources: ["jobs"]
@@ -126,7 +125,7 @@ metadata:
   labels:
     app: cluster-autoscaler
 spec:
-  replicas: 1
+  replicas: ${ca_replicas}
   selector:
     matchLabels:
       app: cluster-autoscaler
@@ -156,13 +155,15 @@ spec:
       containers:
         - image: ${ca_image}:${ca_version}
           name: cluster-autoscaler
+          %{~ if ca_resource_limits ~}
           resources:
             limits:
-              cpu: 100m
-              memory: 300Mi
+              cpu: ${ca_resources.limits.cpu}
+              memory: ${ca_resources.limits.memory}
             requests:
-              cpu: 100m
-              memory: 300Mi
+              cpu: ${ca_resources.requests.cpu}
+              memory: ${ca_resources.requests.memory}
+          %{~ endif ~}
           ports:
             - containerPort: 8085
           command:
@@ -195,14 +196,10 @@ spec:
             value: '${ipv4_subnet_id}'
           - name: HCLOUD_FIREWALL
             value: '${firewall_id}'
-          %{~ if disable_ipv4 ~}
           - name: HCLOUD_PUBLIC_IPV4
-            value: "false"
-          %{~ endif ~}
-          %{~ if disable_ipv6 ~}
+            value: '${enable_ipv4}'
           - name: HCLOUD_PUBLIC_IPV6
-            value: "false"
-          %{~ endif ~}
+            value: '${enable_ipv6}'
           %{~ if cluster_autoscaler_server_creation_timeout != "" ~}
           - name: HCLOUD_SERVER_CREATION_TIMEOUT
             value: '${cluster_autoscaler_server_creation_timeout}'

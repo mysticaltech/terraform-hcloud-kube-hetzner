@@ -2,7 +2,7 @@ locals {
   user_kustomization_templates = try(fileset(var.extra_kustomize_folder, "**/*.yaml.tpl"), toset([]))
 }
 
-resource "null_resource" "kustomization_user" {
+resource "terraform_data" "kustomization_user" {
   for_each = local.user_kustomization_templates
 
   connection {
@@ -11,6 +11,12 @@ resource "null_resource" "kustomization_user" {
     agent_identity = local.ssh_agent_identity
     host           = local.first_control_plane_ip
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+
   }
 
   provisioner "remote-exec" {
@@ -24,16 +30,20 @@ resource "null_resource" "kustomization_user" {
     destination = replace("/var/user_kustomize/${each.key}", ".yaml.tpl", ".yaml")
   }
 
-  triggers = {
+  triggers_replace = {
     manifest_sha1 = "${sha1(templatefile("${var.extra_kustomize_folder}/${each.key}", var.extra_kustomize_parameters))}"
   }
 
   depends_on = [
-    null_resource.kustomization
+    terraform_data.kustomization
   ]
 }
+moved {
+  from = null_resource.kustomization_user
+  to   = terraform_data.kustomization_user
+}
 
-resource "null_resource" "kustomization_user_deploy" {
+resource "terraform_data" "kustomization_user_deploy" {
   count = length(local.user_kustomization_templates) > 0 ? 1 : 0
 
   connection {
@@ -42,6 +52,12 @@ resource "null_resource" "kustomization_user_deploy" {
     agent_identity = local.ssh_agent_identity
     host           = local.first_control_plane_ip
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+
   }
 
   # Remove templates after rendering, and apply changes.
@@ -57,11 +73,15 @@ resource "null_resource" "kustomization_user_deploy" {
 
   lifecycle {
     replace_triggered_by = [
-      null_resource.kustomization_user
+      terraform_data.kustomization_user
     ]
   }
 
   depends_on = [
-    null_resource.kustomization_user
+    terraform_data.kustomization_user
   ]
+}
+moved {
+  from = null_resource.kustomization_user_deploy
+  to   = terraform_data.kustomization_user_deploy
 }

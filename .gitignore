@@ -45,3 +45,16 @@ issue_fix.patch
 
 # AI related files
 CLAUDE.md
+kube-hetzner-knowledge.jsondata
+
+# Misc
+.DS_Store
+
+requirements/*
+
+# Ignore IntelliJ related files
+.idea
+
+# Local triage documentation
+issues/
+prs/

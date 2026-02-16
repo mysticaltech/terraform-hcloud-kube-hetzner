@@ -199,14 +199,14 @@ if (( DELETE_VOLUMES == 1 )); then
   delete_volumes
 fi
 delete_servers
+delete_autoscaled_nodes
 delete_placement_groups
 delete_load_balancer
-delete_firewalls
 delete_networks
+delete_firewalls
 delete_ssh_keys
-delete_autoscaled_nodes
+
 
 if (( DELETE_SNAPSHOTS == 1 )); then
   delete_snapshots
 fi
-
