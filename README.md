@@ -1164,6 +1164,13 @@ Your sponsorship directly funds:
 - **[Rancher](https://www.rancher.com)** — k3s, the heart of this project
 - **[openSUSE](https://www.opensuse.org)** — Leap Micro & MicroOS, next-level container OS
 
+<div align="center">
+<a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>
+<br><br>
+</div>
+
+Thanks to **[Hetzner](https://www.hetzner.com)** for supporting this project with cloud credits.
+
 ---
 
 <div align="center">
