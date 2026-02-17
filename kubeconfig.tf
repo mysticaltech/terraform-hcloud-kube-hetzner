@@ -1,8 +1,6 @@
 resource "ssh_sensitive_resource" "kubeconfig" {
   # Note: moved from remote_file to ssh_sensitive_resource because
   # remote_file does not support bastion hosts and ssh_sensitive_resource does.
-  # The default behaviour is to run file blocks and commands at create time
-  # You can also specify 'destroy' to run the commands at destroy time
   when = "create"
 
   bastion_host        = local.ssh_bastion.bastion_host
@@ -18,14 +16,18 @@ resource "ssh_sensitive_resource" "kubeconfig" {
 
   # An ssh-agent with your SSH private keys should be running
   # Use 'private_key' to set the SSH key otherwise
-
   timeout = "15m"
 
   commands = [
-    "cat /etc/rancher/k3s/k3s.yaml"
+    local.kubernetes_distribution == "rke2"
+    ? "cat /etc/rancher/rke2/rke2.yaml"
+    : "cat /etc/rancher/k3s/k3s.yaml"
   ]
 
-  depends_on = [terraform_data.control_planes[0]]
+  depends_on = [
+    terraform_data.control_planes,
+    null_resource.control_planes_rke2,
+  ]
 }
 
 locals {

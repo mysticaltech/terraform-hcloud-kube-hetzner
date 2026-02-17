@@ -113,6 +113,7 @@ ${cloudinit_write_files_common}
   encoding: base64
   path: /tmp/config.yaml
 
+# TODO: Extend this for rke2
 - content: ${base64encode(install_k3s_agent_script)}
   encoding: base64
   path: /var/pre_install/install-k3s-agent.sh
