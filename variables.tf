@@ -915,6 +915,55 @@ variable "autoscaler_nodepools" {
     Please correct the autoscaler nodepool 'os' value.
     EOF
   }
+
+  validation {
+    condition = length(
+      [for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.name]
+      ) == length(
+      distinct(
+        [for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.name]
+      )
+    )
+    error_message = "Names in autoscaler_nodepools must be unique."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      autoscaler_nodepool.min_nodes >= 0 &&
+      autoscaler_nodepool.max_nodes >= 0 &&
+      autoscaler_nodepool.min_nodes == floor(autoscaler_nodepool.min_nodes) &&
+      autoscaler_nodepool.max_nodes == floor(autoscaler_nodepool.max_nodes) &&
+      autoscaler_nodepool.min_nodes <= autoscaler_nodepool.max_nodes
+    ])
+    error_message = "Each autoscaler_nodepool must define non-negative integer min_nodes/max_nodes with min_nodes <= max_nodes."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for autoscaler_nodepool in var.autoscaler_nodepools : [
+        for autoscaler_taint in autoscaler_nodepool.taints :
+        contains(["NoSchedule", "PreferNoSchedule", "NoExecute"], autoscaler_taint.effect)
+      ]
+    ]))
+    error_message = "Each autoscaler taint effect must be one of: NoSchedule, PreferNoSchedule, NoExecute."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      can(regex("^$|[1-9][0-9]{0,3}(G|M)$", autoscaler_nodepool.swap_size))
+    ])
+    error_message = "Each autoscaler_nodepool swap_size must be empty or match sizes like 512M, 1G, or 32G."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      can(regex("^$|[1-9][0-9]{0,3}(G|M)$", autoscaler_nodepool.zram_size))
+    ])
+    error_message = "Each autoscaler_nodepool zram_size must be empty or match sizes like 512M, 1G, or 32G."
+  }
 }
 
 variable "autoscaler_labels" {

@@ -456,6 +456,7 @@ module "kube-hetzner" {
   #    # Add the arg --enforce-node-group-min-size=true in the cluster_autoscaler_extra_args option below if you want min_nodes to be effective
   #    min_nodes   = 0
   #    max_nodes   = 5
+  #    # min_nodes/max_nodes must be non-negative integers and min_nodes must be <= max_nodes
   #    labels      = {
   #      "node.kubernetes.io/role": "peak-workloads"
   #    }
@@ -463,10 +464,12 @@ module "kube-hetzner" {
   #      {
   #       key= "node.kubernetes.io/role"
   #       value= "peak-workloads"
-  #       effect= "NoExecute"
+  #       effect= "NoExecute" # or NoSchedule, PreferNoSchedule
   #      }
   #    ]
   #    # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
+  #    # swap_size = "2G"
+  #    # zram_size = "2G"
   #  }
   # ]
   #

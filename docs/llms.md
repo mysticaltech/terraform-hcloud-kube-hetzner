@@ -767,21 +767,26 @@ The example shows three control plane nodepools, each with one node, in differen
     * **`server_type` (String, Obligatory):** The Hetzner server type for nodes created in this pool (e.g., `cx33`, `cax21`). Must adhere to the single-architecture constraint mentioned above.
     * **`location` (String, Obligatory):** Hetzner location for nodes in this pool.
     * **`min_nodes` (Number, Obligatory):** The minimum number of nodes this pool can scale down to. Can be `0`.
+      * Must be a non-negative integer and must be less than or equal to `max_nodes`.
     * **`max_nodes` (Number, Obligatory):** The maximum number of nodes this pool can scale up to.
+      * Must be a non-negative integer and greater than or equal to `min_nodes`.
     * **`labels` (Map of Strings, Optional):**
       * Kubernetes labels to apply to nodes provisioned by the autoscaler in this pool.
       * **Format Difference:** Note that this `labels` attribute is a *map* (`key: value`), unlike the `labels` in `control_plane_nodepools` and `agent_nodepools` which are lists of strings (`["key=value"]`). This is likely due to how the Cluster Autoscaler itself expects these definitions.
     * **`taints` (List of Maps, Optional):**
       * Kubernetes taints to apply to nodes provisioned by the autoscaler in this pool.
       * **Format:** Each element in the list is a map with `key`, `value`, and `effect` (e.g., `NoSchedule`, `NoExecute`, `PreferNoSchedule`).
+      * `effect` must be one of: `NoSchedule`, `PreferNoSchedule`, `NoExecute`.
     * **`kubelet_args` (List of Strings, Optional):** Same purpose as in other nodepools, for passing custom arguments to kubelet on autoscaled nodes.
     * **`swap_size` (String, Optional):**
       * Examples: `"512M"`, `"2G"`, `"4G"`.
+      * Validation format: empty string, or a value matching `[1-9][0-9]{0,3}(M|G)`.
       * Configures a swap file of the specified size on autoscaled nodes.
       * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled. Make sure you set `"feature-gates=NodeSwap=true"` in `k3s_global_kubelet_args` or `k3s_autoscaler_kubelet_args`.
       * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
     * **`zram_size` (String, Optional):**
       * Examples: `"512M"`, `"1G"`.
+      * Validation format: empty string, or a value matching `[1-9][0-9]{0,3}(M|G)`.
       * Configures zRAM (compressed RAM block device used for swap) on autoscaled nodes.
       * Uses zstd compression algorithm for optimal performance.
       * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
