@@ -50,6 +50,11 @@ output "ingress_public_ipv4" {
   )
 }
 
+output "load_balancer_public_ipv4" {
+  description = "The public IPv4 address of the Terraform-managed ingress load balancer, if present."
+  value       = try(one(hcloud_load_balancer.cluster[*].ipv4), null)
+}
+
 output "ingress_public_ipv6" {
   description = "The public IPv6 address of the Hetzner load balancer (with fallback to first control plane node)"
   value = (
@@ -80,6 +85,18 @@ output "k3s_token" {
   sensitive   = true
 }
 
+output "k3s_config" {
+  description = "Rendered k3s control plane config by node."
+  value       = local.k3s-config
+  sensitive   = true
+}
+
+output "rke2_config" {
+  description = "Rendered rke2 control plane config by node."
+  value       = local.rke2-config
+  sensitive   = true
+}
+
 output "control_plane_nodes" {
   description = "The control plane nodes"
   value       = [for node in module.control_planes : node]
@@ -88,6 +105,16 @@ output "control_plane_nodes" {
 output "agent_nodes" {
   description = "The agent nodes"
   value       = [for node in module.agents : node]
+}
+
+output "control_planes" {
+  description = "Full control plane module map keyed by node identifier."
+  value       = module.control_planes
+}
+
+output "agents" {
+  description = "Full agent module map keyed by node identifier."
+  value       = module.agents
 }
 
 output "domain_assignments" {
@@ -100,6 +127,20 @@ output "domain_assignments" {
     ]),
     # Get assignments from floating IPs.
     [for rdns in hcloud_rdns.agents : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    # NAT router primary IP PTR assignments.
+    [for rdns in hcloud_rdns.nat_router_primary_ipv4 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    [for rdns in hcloud_rdns.nat_router_primary_ipv6 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    # Control plane load balancer PTR assignment.
+    [for rdns in hcloud_rdns.control_plane_lb_ipv4 : {
       domain = rdns.dns_ptr
       ips    = [rdns.ip_address]
     }]
