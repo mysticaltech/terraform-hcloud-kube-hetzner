@@ -4,7 +4,7 @@ locals {
   ssh_agent_identity = var.ssh_private_key == null ? var.ssh_public_key : null
 
   # the hosts name with its unique suffix attached
-  name = "${var.name}-${random_string.server.id}"
+  name = var.append_random_suffix ? "${var.name}-${random_string.server.id}" : var.name
 
   # check if the user has set dns servers
   has_dns_servers = length(var.dns_servers) > 0

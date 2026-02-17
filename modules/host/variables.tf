@@ -2,6 +2,13 @@ variable "name" {
   description = "Host name"
   type        = string
 }
+
+variable "append_random_suffix" {
+  description = "Whether to append a random suffix to the server name."
+  type        = bool
+  default     = true
+}
+
 variable "connection_host" {
   description = "Optional SSH host override used for Terraform provisioners."
   type        = string

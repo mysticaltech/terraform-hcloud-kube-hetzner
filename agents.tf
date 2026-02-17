@@ -42,6 +42,7 @@ module "agents" {
   for_each = local.agent_nodes
 
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
+  append_random_suffix             = each.value.append_random_suffix
   connection_host                  = lookup(var.node_connection_overrides, "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}", "")
   os_snapshot_id                   = local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                               = each.value.os
