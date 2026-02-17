@@ -67,7 +67,7 @@ module "control_planes" {
   k3s_audit_policy_update_script   = local.k3s_audit_policy_update_script
   cloudinit_write_files_common     = local.cloudinit_write_files_common
   cloudinit_runcmd_common          = local.cloudinit_runcmd_common
-  cloudinit_write_files_extra      = each.value.extra_write_files
+  cloudinit_write_files_extra      = concat(each.value.extra_write_files, local.k3s_encryption_write_files)
   cloudinit_runcmd_extra           = each.value.extra_runcmd
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
@@ -255,7 +255,7 @@ locals {
       https-listen-port        = var.kubeapi_port
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_control_plane_kubelet_args
       kubelet-arg                 = concat(local.kubelet_arg, v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
-      kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
+      kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.k3s_encryption_at_rest ? ["encryption-provider-config=${local.k3s_encryption_config_path}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface
       node-ip                     = module.control_planes[k].private_ipv4_address
@@ -363,9 +363,9 @@ resource "terraform_data" "control_plane_config" {
   for_each = local.kubernetes_distribution == "k3s" ? local.control_plane_nodes : {}
 
   triggers_replace = {
-    control_plane_id = module.control_planes[each.key].id
-    config           = sha1(yamlencode(local.k3s-config[each.key]))
-    encryption       = sha1(local.secrets_encryption_config)
+    control_plane_id  = module.control_planes[each.key].id
+    config            = sha1(yamlencode(local.k3s-config[each.key]))
+    encryption_config = var.k3s_encryption_at_rest ? sha1(local.k3s_encryption_config) : ""
   }
 
   connection {
@@ -389,12 +389,15 @@ resource "terraform_data" "control_plane_config" {
   }
 
   provisioner "file" {
-    content     = local.secrets_encryption_config
+    content     = var.k3s_encryption_at_rest ? local.k3s_encryption_config : ""
     destination = "/tmp/encryption-config.yaml"
   }
 
   provisioner "remote-exec" {
-    inline = [local.k3s_config_update_script]
+    inline = concat(
+      var.k3s_encryption_at_rest ? ["install -m 0600 /tmp/encryption-config.yaml ${local.k3s_encryption_config_path}"] : ["rm -f ${local.k3s_encryption_config_path} /tmp/encryption-config.yaml"],
+      [local.k3s_config_update_script]
+    )
   }
 
   depends_on = [

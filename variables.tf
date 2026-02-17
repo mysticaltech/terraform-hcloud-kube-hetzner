@@ -22,6 +22,12 @@ variable "k3s_token" {
   default     = null
 }
 
+variable "k3s_encryption_at_rest" {
+  description = "Enable Kubernetes Secret encryption at rest for k3s by provisioning an EncryptionConfiguration file and applying it to the kube-apiserver."
+  type        = bool
+  default     = false
+}
+
 variable "robot_user" {
   type        = string
   default     = ""
