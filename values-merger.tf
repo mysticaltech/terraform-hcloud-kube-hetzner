@@ -12,13 +12,6 @@ module "values_merger_longhorn" {
   merge_values    = var.longhorn_merge_values
 }
 
-module "values_merger_velero" {
-  source          = "./modules/values_merger"
-  default_values  = local.velero_values_default
-  override_values = var.velero_values
-  merge_values    = var.velero_merge_values
-}
-
 module "values_merger_nginx" {
   source          = "./modules/values_merger"
   default_values  = local.nginx_values_default
@@ -31,6 +24,13 @@ module "values_merger_hetzner_ccm" {
   default_values  = local.hetzner_ccm_values_default
   override_values = var.hetzner_ccm_values
   merge_values    = var.hetzner_ccm_merge_values
+}
+
+module "values_merger_hetzner_csi" {
+  source          = "./modules/values_merger"
+  default_values  = local.hetzner_csi_values_default
+  override_values = var.hetzner_csi_values
+  merge_values    = var.hetzner_csi_merge_values
 }
 
 module "values_merger_haproxy" {
@@ -59,4 +59,11 @@ module "values_merger_cert_manager" {
   default_values  = local.cert_manager_values_default
   override_values = var.cert_manager_values
   merge_values    = var.cert_manager_merge_values
+}
+
+module "values_merger_csi_driver_smb" {
+  source          = "./modules/values_merger"
+  default_values  = local.csi_driver_smb_values_default
+  override_values = var.csi_driver_smb_values
+  merge_values    = var.csi_driver_smb_merge_values
 }
