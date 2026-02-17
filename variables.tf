@@ -837,8 +837,39 @@ variable "system_upgrade_schedule_window" {
   description = "Schedule window for k3s automated upgrades (system-upgrade-controller v0.15.0+). When set, upgrade jobs will only be created within the specified time window. 'days' accepts lowercase day names (e.g. [\"monday\",\"tuesday\"]). 'startTime'/'endTime' use HH:MM format. 'timeZone' defaults to UTC. See https://docs.k3s.io/upgrades/automated#scheduling-upgrades"
 
   validation {
-    condition     = var.system_upgrade_schedule_window == null || length(var.system_upgrade_schedule_window.days) > 0 || var.system_upgrade_schedule_window.startTime != "" || var.system_upgrade_schedule_window.endTime != ""
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      length(try(var.system_upgrade_schedule_window.days, [])) > 0 ||
+      coalesce(try(var.system_upgrade_schedule_window.startTime, ""), "") != "" ||
+      coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "") != ""
+    )
     error_message = "system_upgrade_schedule_window must have at least one of 'days', 'startTime', or 'endTime' set when not null."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : alltrue([
+      for day in try(var.system_upgrade_schedule_window.days, []) :
+      can(regex("^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$", day))
+    ])
+    error_message = "system_upgrade_schedule_window.days must contain lowercase day names (monday-sunday)."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : alltrue([
+      for time_value in [
+        coalesce(try(var.system_upgrade_schedule_window.startTime, ""), ""),
+        coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "")
+      ] :
+      time_value == "" || can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", time_value))
+    ])
+    error_message = "system_upgrade_schedule_window.startTime and endTime must use 24-hour HH:MM format when set."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "") == "" ||
+      can(regex("^[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)*$", coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "")))
+    )
+    error_message = "system_upgrade_schedule_window.timeZone must be a valid IANA timezone name (for example, UTC or Europe/Budapest)."
   }
 }
 

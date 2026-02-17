@@ -35,20 +35,20 @@ spec:
   %{ if !drain }cordon: true%{ endif }
   %{~ if upgrade_window != null ~}
   window:
-    %{~ if length(upgrade_window.days) > 0 ~}
+    %{~ if length(try(upgrade_window.days, [])) > 0 ~}
     days:
-      %{~ for day in upgrade_window.days ~}
-      - ${day}
+      %{~ for day in try(upgrade_window.days, []) ~}
+      - ${jsonencode(day)}
       %{~ endfor ~}
     %{~ endif ~}
-    %{~ if upgrade_window.startTime != "" ~}
-    startTime: "${upgrade_window.startTime}"
+    %{~ if coalesce(try(upgrade_window.startTime, ""), "") != "" ~}
+    startTime: ${jsonencode(coalesce(try(upgrade_window.startTime, ""), ""))}
     %{~ endif ~}
-    %{~ if upgrade_window.endTime != "" ~}
-    endTime: "${upgrade_window.endTime}"
+    %{~ if coalesce(try(upgrade_window.endTime, ""), "") != "" ~}
+    endTime: ${jsonencode(coalesce(try(upgrade_window.endTime, ""), ""))}
     %{~ endif ~}
-    %{~ if upgrade_window.timeZone != "" ~}
-    timeZone: "${upgrade_window.timeZone}"
+    %{~ if coalesce(try(upgrade_window.timeZone, ""), "") != "" ~}
+    timeZone: ${jsonencode(coalesce(try(upgrade_window.timeZone, ""), ""))}
     %{~ endif ~}
   %{~ endif ~}
   upgrade:
@@ -82,20 +82,20 @@ spec:
   cordon: true
   %{~ if upgrade_window != null ~}
   window:
-    %{~ if length(upgrade_window.days) > 0 ~}
+    %{~ if length(try(upgrade_window.days, [])) > 0 ~}
     days:
-      %{~ for day in upgrade_window.days ~}
-      - ${day}
+      %{~ for day in try(upgrade_window.days, []) ~}
+      - ${jsonencode(day)}
       %{~ endfor ~}
     %{~ endif ~}
-    %{~ if upgrade_window.startTime != "" ~}
-    startTime: "${upgrade_window.startTime}"
+    %{~ if coalesce(try(upgrade_window.startTime, ""), "") != "" ~}
+    startTime: ${jsonencode(coalesce(try(upgrade_window.startTime, ""), ""))}
     %{~ endif ~}
-    %{~ if upgrade_window.endTime != "" ~}
-    endTime: "${upgrade_window.endTime}"
+    %{~ if coalesce(try(upgrade_window.endTime, ""), "") != "" ~}
+    endTime: ${jsonencode(coalesce(try(upgrade_window.endTime, ""), ""))}
     %{~ endif ~}
-    %{~ if upgrade_window.timeZone != "" ~}
-    timeZone: "${upgrade_window.timeZone}"
+    %{~ if coalesce(try(upgrade_window.timeZone, ""), "") != "" ~}
+    timeZone: ${jsonencode(coalesce(try(upgrade_window.timeZone, ""), ""))}
     %{~ endif ~}
   %{~ endif ~}
   upgrade:
