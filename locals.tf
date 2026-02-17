@@ -475,6 +475,8 @@ EOT
       format("%s-%s-%s", pool_index, node_index, nodepool_obj.name) => {
         nodepool_name : nodepool_obj.name,
         server_type : nodepool_obj.server_type,
+        longhorn_volume_size : coalesce(nodepool_obj.longhorn_volume_size, 0),
+        longhorn_mount_path : nodepool_obj.longhorn_mount_path,
         location : nodepool_obj.location,
         labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
         taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints)),

@@ -437,7 +437,7 @@ resource "null_resource" "control_planes_rke2" {
 
   # Start the server and wait until it is ready.
   provisioner "remote-exec" {
-    inline = [
+    inline = concat(var.enable_longhorn || var.enable_iscsid ? ["systemctl enable --now iscsid"] : [], [
       "systemctl start rke2-server",
       "systemctl enable rke2-server",
       "mkdir -p /var/post_install /var/user_kustomize",
@@ -450,7 +450,7 @@ resource "null_resource" "control_planes_rke2" {
         done
       EOF
       EOT
-    ]
+    ])
   }
 
   depends_on = [
@@ -489,7 +489,7 @@ resource "terraform_data" "control_planes" {
 
   # Start the server and wait until it is ready.
   provisioner "remote-exec" {
-    inline = [
+    inline = concat(var.enable_longhorn || var.enable_iscsid ? ["systemctl enable --now iscsid"] : [], [
       "systemctl start k3s 2> /dev/null",
       "mkdir -p /var/post_install /var/user_kustomize",
       <<-EOT
@@ -501,7 +501,7 @@ resource "terraform_data" "control_planes" {
         done
       EOF
       EOT
-    ]
+    ])
   }
 
   depends_on = [
@@ -514,4 +514,55 @@ resource "terraform_data" "control_planes" {
 moved {
   from = null_resource.control_planes
   to   = terraform_data.control_planes
+}
+
+resource "hcloud_volume" "longhorn_volume_control_plane" {
+  for_each = { for k, v in local.control_plane_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
+
+  labels = {
+    provisioner = "terraform"
+    cluster     = var.cluster_name
+    scope       = "longhorn"
+  }
+  name              = "${var.cluster_name}-longhorn-${module.control_planes[each.key].name}"
+  size              = local.control_plane_nodes[each.key].longhorn_volume_size
+  server_id         = module.control_planes[each.key].id
+  automount         = true
+  format            = var.longhorn_fstype
+  delete_protection = var.enable_delete_protection.volume
+}
+
+resource "terraform_data" "configure_longhorn_volume_control_plane" {
+  for_each = { for k, v in local.control_plane_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
+
+  triggers_replace = {
+    control_plane_id = module.control_planes[each.key].id
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -e",
+      "mkdir -p '${each.value.longhorn_mount_path}' >/dev/null",
+      "mountpoint -q '${each.value.longhorn_mount_path}' || mount -o discard,defaults ${hcloud_volume.longhorn_volume_control_plane[each.key].linux_device} '${each.value.longhorn_mount_path}'",
+      "${var.longhorn_fstype == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.longhorn_volume_control_plane[each.key].linux_device}",
+      "awk -v path='${each.value.longhorn_mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.longhorn_volume_control_plane[each.key].linux_device} ${each.value.longhorn_mount_path} ${var.longhorn_fstype} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.control_plane_ips[each.key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  depends_on = [
+    hcloud_volume.longhorn_volume_control_plane
+  ]
 }

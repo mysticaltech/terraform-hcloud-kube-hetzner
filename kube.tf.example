@@ -164,6 +164,11 @@ module "kube-hetzner" {
       taints      = [],
       count       = 1
 
+      # Optional: attach one Hetzner Volume per control-plane node for Longhorn data (10-10240 GB).
+      # longhorn_volume_size = 20
+      # Optional: mount path for the attached volume. Must be under /var/.
+      # longhorn_mount_path = "/var/lib/longhorn"
+
       # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
       # placement_group = "default"
 
