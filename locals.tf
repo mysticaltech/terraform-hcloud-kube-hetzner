@@ -1391,3 +1391,12 @@ check "ccm_lb_has_eligible_targets" {
     error_message = "Warning: exclude_agents_from_external_load_balancers=true with allow_scheduling_on_control_plane=false leaves NO eligible targets for CCM-managed LoadBalancer services. Either set allow_scheduling_on_control_plane=true or disable exclude_agents_from_external_load_balancers."
   }
 }
+
+check "system_upgrade_window_requires_supported_controller_version" {
+  assert {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      try(provider::semvers::compare(trimprefix(var.sys_upgrade_controller_version, "v"), "0.15.0"), -1) >= 0
+    )
+    error_message = "system_upgrade_schedule_window requires sys_upgrade_controller_version v0.15.0 or newer."
+  }
+}

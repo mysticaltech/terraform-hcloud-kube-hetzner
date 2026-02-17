@@ -748,6 +748,16 @@ module "kube-hetzner" {
   # See https://github.com/rancher/system-upgrade-controller/releases for the available versions.
   # sys_upgrade_controller_version = "v0.18.0"
 
+  # Schedule window for k3s automated upgrades (system-upgrade-controller v0.15.0+).
+  # Restricts upgrade job creation to the specified time window.
+  # See https://docs.k3s.io/upgrades/automated#scheduling-upgrades
+  # system_upgrade_schedule_window = {
+  #   days      = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+  #   startTime = "19:00"
+  #   endTime   = "21:00"
+  #   timeZone  = "UTC"
+  # }
+
   # The cluster name, by default "k3s"
   # cluster_name = ""
 
