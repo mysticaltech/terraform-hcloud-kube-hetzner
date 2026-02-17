@@ -28,8 +28,30 @@ locals {
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
 
+  use_multi_networks  = length(var.networks) > 0
+  network_keys        = local.use_multi_networks ? sort(keys(var.networks)) : ["default"]
+  primary_network_key = local.network_keys[0]
+  network_ip_ranges = local.use_multi_networks ? {
+    for network_key in local.network_keys :
+    network_key => var.networks[network_key].ip_range
+    } : {
+    default = var.network_ipv4_cidr
+  }
+  network_zones = local.use_multi_networks ? {
+    for network_key in local.network_keys :
+    network_key => coalesce(var.networks[network_key].network_zone, var.network_region)
+    } : {
+    default = var.network_region
+  }
+  network_expose_routes_to_vswitch = local.use_multi_networks ? {
+    for network_key in local.network_keys :
+    network_key => coalesce(var.networks[network_key].expose_routes_to_vswitch, false)
+    } : {
+    default = var.vswitch_id != null
+  }
+
   # Bit size of the "network_ipv4_cidr".
-  network_size = 32 - split("/", var.network_ipv4_cidr)[1]
+  network_size = 32 - split("/", local.network_ip_ranges[local.primary_network_key])[1]
 
   # Bit size of each subnet
   subnet_size = local.network_size - log(var.subnet_amount, 2)
@@ -140,7 +162,7 @@ locals {
         "METRIC=30000",
         "",
         "# Determine the private interface dynamically (no hardcoded eth1)",
-        "PRIV_IF=$(ip -4 route show ${var.network_ipv4_cidr} 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
+        "PRIV_IF=$(ip -4 route show ${local.network_ip_ranges[local.primary_network_key]} 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
         "if [ -z \"$PRIV_IF\" ]; then",
         "  ROUTE_LINE=$(ip -4 route get ${local.network_gw_ipv4} 2>/dev/null)",
         "  if [ -n \"$ROUTE_LINE\" ] && ! echo \"$ROUTE_LINE\" | grep -q ' via '; then",
@@ -469,6 +491,34 @@ EOT
     )
   }
 
+  control_plane_nodepool_network_keys = {
+    for pool_index, nodepool_obj in var.control_plane_nodepools :
+    pool_index => local.network_keys[nodepool_obj.network_id]
+  }
+
+  agent_nodepool_network_keys = {
+    for pool_index, nodepool_obj in var.agent_nodepools :
+    pool_index => local.network_keys[nodepool_obj.network_id]
+  }
+
+  control_plane_subnet_offsets_by_pool = {
+    for pool_index, nodepool_obj in var.control_plane_nodepools :
+    pool_index => length([
+      for candidate_index, candidate_nodepool_obj in var.control_plane_nodepools :
+      candidate_index
+      if candidate_index < pool_index && candidate_nodepool_obj.network_id == nodepool_obj.network_id
+    ])
+  }
+
+  agent_subnet_offsets_by_pool = {
+    for pool_index, nodepool_obj in var.agent_nodepools :
+    pool_index => length([
+      for candidate_index, candidate_nodepool_obj in var.agent_nodepools :
+      candidate_index
+      if candidate_index < pool_index && candidate_nodepool_obj.network_id == nodepool_obj.network_id
+    ])
+  }
+
   control_plane_nodes = merge([
     for pool_index, nodepool_obj in var.control_plane_nodepools : {
       for node_index in range(nodepool_obj.count) :
@@ -490,6 +540,7 @@ EOT
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
+        network_key : local.control_plane_nodepool_network_keys[pool_index],
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
       }
@@ -522,6 +573,7 @@ EOT
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
+        network_key : local.agent_nodepool_network_keys[pool_index],
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
       }
@@ -555,6 +607,7 @@ EOT
           disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
           disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
           network_id : nodepool_obj.network_id,
+          network_key : local.agent_nodepool_network_keys[pool_index],
           extra_write_files : nodepool_obj.extra_write_files,
           extra_runcmd : nodepool_obj.extra_runcmd,
         },
@@ -624,7 +677,16 @@ EOT
     }
   }
 
-  use_existing_network = length(var.existing_network_id) > 0
+  use_existing_network      = !local.use_multi_networks && length(var.existing_network_id) > 0
+  legacy_primary_network_id = local.use_multi_networks ? null : (local.use_existing_network ? tonumber(var.existing_network_id[0]) : hcloud_network.k3s[0].id)
+  multi_network_ids = local.use_multi_networks ? {
+    for network_key, network in hcloud_network.k3s_multi :
+    network_key => network.id
+  } : {}
+  primary_network_id = local.use_multi_networks ? local.multi_network_ids[local.primary_network_key] : local.legacy_primary_network_id
+  network_ids = local.use_multi_networks ? local.multi_network_ids : {
+    (local.primary_network_key) = local.primary_network_id
+  }
 
   use_nat_router = var.nat_router != null
 
@@ -646,12 +708,59 @@ EOT
 
   # Create subnets from the base network CIDR.
   # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
-  network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_amount, 2), index)]
+  network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(local.network_ip_ranges[local.primary_network_key], log(var.subnet_amount, 2), index)]
+  network_ipv4_subnets_by_network = {
+    for network_key in local.network_keys :
+    network_key => [for index in range(var.subnet_amount) : cidrsubnet(local.network_ip_ranges[network_key], log(var.subnet_amount, 2), index)]
+  }
+  control_plane_subnet_specs_multi = local.use_multi_networks ? {
+    for pool_index, nodepool_obj in var.control_plane_nodepools :
+    tostring(pool_index) => {
+      network_key  = local.control_plane_nodepool_network_keys[pool_index]
+      network_zone = local.network_zones[local.control_plane_nodepool_network_keys[pool_index]]
+      ip_range     = local.network_ipv4_subnets_by_network[local.control_plane_nodepool_network_keys[pool_index]][var.subnet_amount - 1 - local.control_plane_subnet_offsets_by_pool[pool_index]]
+    }
+  } : {}
+  agent_subnet_specs_multi = local.use_multi_networks ? {
+    for pool_index, nodepool_obj in var.agent_nodepools :
+    tostring(pool_index) => {
+      network_key  = local.agent_nodepool_network_keys[pool_index]
+      network_zone = local.network_zones[local.agent_nodepool_network_keys[pool_index]]
+      ip_range     = coalesce(nodepool_obj.subnet_ip_range, local.network_ipv4_subnets_by_network[local.agent_nodepool_network_keys[pool_index]][local.agent_subnet_offsets_by_pool[pool_index]])
+    }
+  } : {}
+  control_plane_subnets_by_nodepool = local.use_multi_networks ? {
+    for pool_index, nodepool_obj in var.control_plane_nodepools :
+    nodepool_obj.name => {
+      id       = hcloud_network_subnet.control_plane_multi[tostring(pool_index)].id
+      ip_range = hcloud_network_subnet.control_plane_multi[tostring(pool_index)].ip_range
+    }
+    } : {
+    for pool_index, nodepool_obj in var.control_plane_nodepools :
+    nodepool_obj.name => {
+      id       = hcloud_network_subnet.control_plane[pool_index].id
+      ip_range = hcloud_network_subnet.control_plane[pool_index].ip_range
+    }
+  }
+  agent_subnets_by_nodepool = local.use_multi_networks ? {
+    for pool_index, nodepool_obj in var.agent_nodepools :
+    nodepool_obj.name => {
+      id       = hcloud_network_subnet.agent_multi[tostring(pool_index)].id
+      ip_range = hcloud_network_subnet.agent_multi[tostring(pool_index)].ip_range
+    }
+    } : {
+    for pool_index, nodepool_obj in var.agent_nodepools :
+    nodepool_obj.name => {
+      id       = hcloud_network_subnet.agent[pool_index].id
+      ip_range = hcloud_network_subnet.agent[pool_index].ip_range
+    }
+  }
+  primary_cluster_subnet = length(var.agent_nodepools) > 0 ? local.agent_subnets_by_nodepool[var.agent_nodepools[0].name] : local.control_plane_subnets_by_nodepool[var.control_plane_nodepools[0].name]
   # By convention the DNS service (usually core-dns) is assigned the 10th IP address in the service CIDR block
   cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : cidrhost(var.service_ipv4_cidr, 10)
 
   # The gateway's IP address is always the first IP address of the subnet's IP range
-  network_gw_ipv4 = cidrhost(var.network_ipv4_cidr, 1)
+  network_gw_ipv4 = cidrhost(local.network_ip_ranges[local.primary_network_key], 1)
 
   # if we are in a single cluster config, we use the default klipper lb instead of Hetzner LB
   control_plane_count    = sum([for v in var.control_plane_nodepools : v.count])

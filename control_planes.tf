@@ -22,7 +22,7 @@ module "control_planes" {
   location                         = each.value.location
   server_type                      = each.value.server_type
   backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].id
+  ipv4_subnet_id                   = local.control_plane_subnets_by_nodepool[each.value.nodepool_name].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
   k3s_registries_update_script     = local.k3s_registries_update_script
@@ -40,20 +40,21 @@ module "control_planes" {
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
   ssh_bastion                      = local.ssh_bastion
-  network_id                       = data.hcloud_network.k3s.id
+  network_id                       = local.network_ids[each.value.network_key]
 
   # We leave some room so 100 eventual Hetzner LBs that can be created perfectly safely
   # It leaves the subnet with 254 x 254 - 100 = 64416 IPs to use, so probably enough.
-  private_ipv4 = cidrhost(hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
+  private_ipv4 = cidrhost(local.control_plane_subnets_by_nodepool[each.value.nodepool_name].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
 
   labels = merge(local.labels, local.labels_control_plane_node, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
-  network_gw_ipv4 = local.network_gw_ipv4
+  network_gw_ipv4 = cidrhost(local.network_ip_ranges[each.value.network_key], 1)
 
   depends_on = [
     hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.control_plane_multi,
     hcloud_placement_group.control_plane,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
@@ -78,9 +79,9 @@ resource "hcloud_load_balancer_network" "control_plane" {
   count = var.use_control_plane_lb ? 1 : 0
 
   load_balancer_id        = hcloud_load_balancer.control_plane.*.id[0]
-  subnet_id               = hcloud_network_subnet.control_plane.*.id[0]
+  subnet_id               = local.primary_cluster_subnet.id
   enable_public_interface = var.control_plane_lb_enable_public_interface
-  ip                      = cidrhost(hcloud_network_subnet.control_plane.*.ip_range[0], -2)
+  ip                      = cidrhost(local.primary_cluster_subnet.ip_range, -2)
 
   # Keep existing LB IPs stable on upgrade.
   lifecycle {
@@ -283,7 +284,8 @@ resource "null_resource" "control_plane_config_rke2" {
 
   depends_on = [
     null_resource.first_control_plane_rke2,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.control_plane_multi
   ]
 }
 
@@ -321,7 +323,8 @@ resource "terraform_data" "control_plane_config" {
 
   depends_on = [
     terraform_data.first_control_plane,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.control_plane_multi
   ]
 }
 moved {
@@ -361,7 +364,8 @@ resource "terraform_data" "audit_policy" {
 
   depends_on = [
     terraform_data.first_control_plane,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.control_plane_multi
   ]
 }
 moved {
@@ -402,7 +406,8 @@ resource "terraform_data" "authentication_config" {
 
   depends_on = [
     terraform_data.first_control_plane,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.control_plane_multi
   ]
 }
 moved {
@@ -457,7 +462,8 @@ resource "null_resource" "control_planes_rke2" {
     null_resource.first_control_plane_rke2,
     null_resource.control_plane_config_rke2,
     terraform_data.authentication_config,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.control_plane_multi
   ]
 }
 
@@ -508,7 +514,8 @@ resource "terraform_data" "control_planes" {
     terraform_data.first_control_plane,
     terraform_data.control_plane_config,
     terraform_data.authentication_config,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.control_plane_multi
   ]
 }
 moved {

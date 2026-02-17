@@ -147,6 +147,17 @@ variable "existing_network_id" {
     error_message = "If you pass an existing_network_id, it must be enclosed in square brackets: [id]. This is necessary to be able to unambiguously distinguish between an empty network id (default) and a user-supplied network id."
   }
 }
+
+variable "networks" {
+  description = "Optional map of additional private networks keyed by name. When set, nodepool network_id selects by index in sorted keys."
+  type = map(object({
+    ip_range                 = string
+    network_zone             = optional(string, null)
+    expose_routes_to_vswitch = optional(bool, false)
+  }))
+  default = {}
+}
+
 variable "network_ipv4_cidr" {
   description = "The main network cidr that all subnets will be created upon."
   type        = string
@@ -367,6 +378,14 @@ variable "control_plane_nodepools" {
     condition     = length(var.control_plane_nodepools) == 0 || sum([for v in var.control_plane_nodepools : v.count]) >= 1
     error_message = "At least one control plane node is required (total count across all control_plane_nodepools must be >= 1)."
   }
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      control_plane_nodepool.network_id >= 0 &&
+      control_plane_nodepool.network_id < (length(var.networks) > 0 ? length(keys(var.networks)) : 1)
+    ])
+    error_message = "Each control_plane_nodepool.network_id must reference an existing network index. Use 0 for single-network deployments."
+  }
 }
 
 variable "agent_nodepools" {
@@ -496,6 +515,15 @@ variable "agent_nodepools" {
       )
     ]))
     error_message = "Each longhorn_mount_path must be a valid, absolute path within a subdirectory of '/var/', not contain '.' or '..' components, and not end with a slash. This applies to both nodepool-level and node-level settings."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      agent_nodepool.network_id >= 0 &&
+      agent_nodepool.network_id < (length(var.networks) > 0 ? length(keys(var.networks)) : 1)
+    ])
+    error_message = "Each agent_nodepool.network_id must reference an existing network index. Use 0 for single-network deployments."
   }
 
 }

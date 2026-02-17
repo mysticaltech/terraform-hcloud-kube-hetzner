@@ -11,52 +11,85 @@ resource "hcloud_ssh_key" "k3s" {
 }
 
 resource "hcloud_network" "k3s" {
-  count                    = local.use_existing_network ? 0 : 1
+  count                    = local.use_existing_network || local.use_multi_networks ? 0 : 1
   name                     = var.cluster_name
-  ip_range                 = var.network_ipv4_cidr
+  ip_range                 = local.network_ip_ranges[local.primary_network_key]
   labels                   = local.labels
-  expose_routes_to_vswitch = var.vswitch_id != null
+  expose_routes_to_vswitch = local.network_expose_routes_to_vswitch[local.primary_network_key]
+}
+
+resource "hcloud_network" "k3s_multi" {
+  for_each = local.use_multi_networks ? {
+    for network_key in local.network_keys :
+    network_key => {
+      ip_range                 = local.network_ip_ranges[network_key]
+      expose_routes_to_vswitch = local.network_expose_routes_to_vswitch[network_key]
+    }
+  } : {}
+
+  name                     = "${var.cluster_name}-${each.key}"
+  ip_range                 = each.value.ip_range
+  labels                   = local.labels
+  expose_routes_to_vswitch = each.value.expose_routes_to_vswitch
 }
 
 data "hcloud_network" "k3s" {
-  id = local.use_existing_network ? var.existing_network_id[0] : hcloud_network.k3s[0].id
+  id = local.primary_network_id
 }
 
 
 # We start from the end of the subnets cidr array,
 # as we would have fewer control plane nodepools, than agent ones.
 resource "hcloud_network_subnet" "control_plane" {
-  count        = length(var.control_plane_nodepools)
+  count        = local.use_multi_networks ? 0 : length(var.control_plane_nodepools)
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
-  network_zone = var.network_region
+  network_zone = local.network_zones[local.primary_network_key]
   ip_range     = local.network_ipv4_subnets[var.subnet_amount - 1 - count.index]
 }
 
 # Here we start at the beginning of the subnets cidr array
 resource "hcloud_network_subnet" "agent" {
-  count        = length(var.agent_nodepools)
+  count        = local.use_multi_networks ? 0 : length(var.agent_nodepools)
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
-  network_zone = var.network_region
+  network_zone = local.network_zones[local.primary_network_key]
   ip_range     = coalesce(var.agent_nodepools[count.index].subnet_ip_range, local.network_ipv4_subnets[count.index])
+}
+
+resource "hcloud_network_subnet" "control_plane_multi" {
+  for_each = local.control_plane_subnet_specs_multi
+
+  network_id   = local.network_ids[each.value.network_key]
+  type         = "cloud"
+  network_zone = each.value.network_zone
+  ip_range     = each.value.ip_range
+}
+
+resource "hcloud_network_subnet" "agent_multi" {
+  for_each = local.agent_subnet_specs_multi
+
+  network_id   = local.network_ids[each.value.network_key]
+  type         = "cloud"
+  network_zone = each.value.network_zone
+  ip_range     = each.value.ip_range
 }
 
 # Subnet for NAT router and other peripherals
 resource "hcloud_network_subnet" "nat_router" {
   count        = var.nat_router != null ? 1 : 0
-  network_id   = data.hcloud_network.k3s.id
+  network_id   = local.primary_network_id
   type         = "cloud"
-  network_zone = var.network_region
+  network_zone = local.network_zones[local.primary_network_key]
   ip_range     = local.network_ipv4_subnets[var.nat_router_subnet_index]
 }
 
 # Subnet for vSwitch
 resource "hcloud_network_subnet" "vswitch_subnet" {
   count        = var.vswitch_id != null ? 1 : 0
-  network_id   = data.hcloud_network.k3s.id
+  network_id   = local.primary_network_id
   type         = "vswitch"
-  network_zone = var.network_region
+  network_zone = local.network_zones[local.primary_network_key]
   ip_range     = local.network_ipv4_subnets[var.vswitch_subnet_index]
   vswitch_id   = var.vswitch_id
 }
