@@ -155,6 +155,10 @@ module "kube-hetzner" {
       # the instructions regarding this type of setup in README.md: "Use only private IPs in your cluster".
       # disable_ipv4 = true
       # disable_ipv6 = true
+
+      # Optionally pin this nodepool to pre-existing Primary IP IDs.
+      # primary_ipv4_id = 123456
+      # primary_ipv6_id = 123457
     },
     {
       name        = "control-plane-nbg1",
@@ -217,6 +221,10 @@ module "kube-hetzner" {
 
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
+
+      # Optionally pin this nodepool to pre-existing Primary IP IDs.
+      # primary_ipv4_id = 123456
+      # primary_ipv6_id = 123457
     },
     {
       name        = "agent-large",
@@ -516,6 +524,14 @@ module "kube-hetzner" {
   #   floating_ip   = true
   #   load_balancer = true
   #   volume        = true
+  # }
+
+  # Optional module-managed Primary IP pool for node public IP stability.
+  # When enabled, kube-hetzner creates one Primary IP per node (unless a nodepool already sets primary_ipv4_id/primary_ipv6_id).
+  # primary_ip_pool = {
+  #   enable_ipv4 = true
+  #   enable_ipv6 = false
+  #   auto_delete = false
   # }
 
   # Enable etcd snapshot backups to S3 storage.

@@ -316,6 +316,16 @@ variable "exclude_agents_from_external_load_balancers" {
   default     = false
 }
 
+variable "primary_ip_pool" {
+  type = object({
+    enable_ipv4 = optional(bool, false)
+    enable_ipv6 = optional(bool, false)
+    auto_delete = optional(bool, false)
+  })
+  default     = {}
+  description = "Module-managed Primary IP pool settings. When enabled, kube-hetzner creates and assigns one Primary IP per node for the selected IP families."
+}
+
 variable "control_plane_nodepools" {
   description = "Number of control plane nodes."
   type = list(object({
@@ -335,6 +345,8 @@ variable "control_plane_nodepools" {
     os                         = optional(string)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
+    primary_ipv4_id            = optional(number, null)
+    primary_ipv6_id            = optional(number, null)
     network_id                 = optional(number, 0)
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
@@ -393,6 +405,8 @@ variable "agent_nodepools" {
     count                      = optional(number, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
+    primary_ipv4_id            = optional(number, null)
+    primary_ipv6_id            = optional(number, null)
     network_id                 = optional(number, 0)
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
@@ -414,6 +428,8 @@ variable "agent_nodepools" {
       placement_group            = optional(string, null)
       append_index_to_node_name  = optional(bool, true)
       os                         = optional(string)
+      primary_ipv4_id            = optional(number, null)
+      primary_ipv6_id            = optional(number, null)
       extra_write_files          = optional(list(any), [])
       extra_runcmd               = optional(list(any), [])
     })))

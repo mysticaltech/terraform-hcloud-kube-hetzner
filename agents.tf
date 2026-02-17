@@ -1,3 +1,37 @@
+resource "hcloud_primary_ip" "agents_ipv4" {
+  for_each = var.primary_ip_pool.enable_ipv4 ? {
+    for key, value in local.agent_nodes : key => value
+    if !value.disable_ipv4 && value.primary_ipv4_id == null
+  } : {}
+
+  type          = "ipv4"
+  name          = "${var.cluster_name}-agent-${each.key}-ipv4"
+  location      = each.value.location
+  auto_delete   = var.primary_ip_pool.auto_delete
+  assignee_type = "server"
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
+resource "hcloud_primary_ip" "agents_ipv6" {
+  for_each = var.primary_ip_pool.enable_ipv6 ? {
+    for key, value in local.agent_nodes : key => value
+    if !value.disable_ipv6 && value.primary_ipv6_id == null
+  } : {}
+
+  type          = "ipv6"
+  name          = "${var.cluster_name}-agent-${each.key}-ipv6"
+  location      = each.value.location
+  auto_delete   = var.primary_ip_pool.auto_delete
+  assignee_type = "server"
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
 module "agents" {
   source = "./modules/host"
 
@@ -39,6 +73,8 @@ module "agents" {
   keep_disk_size                   = var.keep_disk_agents
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
+  primary_ipv4_id                  = coalesce(each.value.primary_ipv4_id, try(hcloud_primary_ip.agents_ipv4[each.key].id, null))
+  primary_ipv6_id                  = coalesce(each.value.primary_ipv6_id, try(hcloud_primary_ip.agents_ipv6[each.key].id, null))
   ssh_bastion                      = local.ssh_bastion
   network_id                       = data.hcloud_network.k3s.id
   private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
