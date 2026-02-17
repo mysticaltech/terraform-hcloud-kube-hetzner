@@ -280,7 +280,7 @@ moved {
 resource "hcloud_floating_ip" "agents" {
   for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
 
-  type              = "ipv4"
+  type              = local.agent_nodes[each.key].floating_ip_type
   labels            = local.labels
   home_location     = each.value.location
   delete_protection = var.enable_delete_protection.floating_ip
@@ -313,8 +313,9 @@ resource "terraform_data" "configure_floating_ip" {
   for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
 
   triggers_replace = {
-    agent_id       = module.agents[each.key].id
-    floating_ip_id = hcloud_floating_ip.agents[each.key].id
+    agent_id         = module.agents[each.key].id
+    floating_ip_id   = hcloud_floating_ip.agents[each.key].id
+    floating_ip_type = local.agent_nodes[each.key].floating_ip_type
   }
 
   provisioner "remote-exec" {
@@ -337,11 +338,19 @@ resource "terraform_data" "configure_floating_ip" {
           exit 1
       fi
 
-      nmcli connection modify "$NM_CONNECTION" \
-          ipv4.method manual \
-          ipv4.addresses ${hcloud_floating_ip.agents[each.key].ip_address}/32,${local.agent_ips[each.key]}/32 gw4 172.31.1.1 \
-          ipv4.route-metric 100 \
-      && nmcli connection up "$NM_CONNECTION"
+      if [ "${local.agent_nodes[each.key].floating_ip_type}" = "ipv6" ]; then
+          nmcli connection modify "$NM_CONNECTION" \
+              ipv6.method manual \
+              ipv6.addresses ${hcloud_floating_ip.agents[each.key].ip_address}/128,${module.agents[each.key].ipv6_address}/128 gw6 fe80::1 \
+              ipv6.route-metric 100 \
+          && nmcli connection up "$NM_CONNECTION"
+      else
+          nmcli connection modify "$NM_CONNECTION" \
+              ipv4.method manual \
+              ipv4.addresses ${hcloud_floating_ip.agents[each.key].ip_address}/32,${module.agents[each.key].ipv4_address}/32 gw4 172.31.1.1 \
+              ipv4.route-metric 100 \
+          && nmcli connection up "$NM_CONNECTION"
+      fi
       EOT
     ]
   }

@@ -62,6 +62,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 - **Custom Subnet Ranges** - Added `subnet_ip_range` to agent_nodepools for manual CIDR assignment (#1903)
 - **Autoscaler Swap/ZRAM** - Added `swap_size` and `zram_size` support for autoscaler node pools (#2008)
 - **Autoscaler Resources** - New `cluster_autoscaler_replicas`, `cluster_autoscaler_resource_limits`, `cluster_autoscaler_resource_values` (#2025)
+- **Agent Floating IP Family Selection** - Added `floating_ip_type` (`ipv4`/`ipv6`) to agent nodepools and node overrides, including IPv6-aware NetworkManager reconfiguration logic.
 - **Flannel Backend** - New `flannel_backend` variable to override flannel backend (wireguard-native, host-gw, etc.)
 - **Cilium XDP Acceleration** - New `cilium_loadbalancer_acceleration_mode` variable (native, best-effort, disabled)
 - **K3s v1.35 Support** - Added support for k3s v1.35 channel (#2029)

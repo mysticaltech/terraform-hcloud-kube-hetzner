@@ -377,6 +377,7 @@ variable "agent_nodepools" {
     location                   = string
     backups                    = optional(bool)
     floating_ip                = optional(bool)
+    floating_ip_type           = optional(string, "ipv4")
     floating_ip_rdns           = optional(string, null)
     labels                     = list(string)
     taints                     = list(string)
@@ -401,6 +402,7 @@ variable "agent_nodepools" {
       location                   = optional(string)
       backups                    = optional(bool)
       floating_ip                = optional(bool)
+      floating_ip_type           = optional(string, null)
       floating_ip_rdns           = optional(string, null)
       labels                     = optional(list(string))
       taints                     = optional(list(string))
@@ -457,6 +459,18 @@ variable "agent_nodepools" {
   }
 
   validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      contains(["ipv4", "ipv6"], coalesce(agent_nodepool.floating_ip_type, "ipv4")) &&
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.floating_ip_type == null || contains(["ipv4", "ipv6"], agent_node.floating_ip_type)
+      ])
+    ])
+    error_message = "floating_ip_type must be either \"ipv4\" or \"ipv6\" at nodepool and node level."
+  }
+
+  validation {
     condition     = alltrue([for agent_nodepool in var.agent_nodepools : (agent_nodepool.count == null) != (agent_nodepool.nodes == null)])
     error_message = "Set either nodes or count per agent_nodepool, not both."
   }
@@ -496,6 +510,26 @@ variable "agent_nodepools" {
       )
     ]))
     error_message = "Each longhorn_mount_path must be a valid, absolute path within a subdirectory of '/var/', not contain '.' or '..' components, and not end with a slash. This applies to both nodepool-level and node-level settings."
+  }
+
+  validation {
+    condition = alltrue([
+      for np in var.agent_nodepools : (
+        (
+          coalesce(np.floating_ip, false) ?
+          (coalesce(np.floating_ip_type, "ipv4") == "ipv4" ? !np.disable_ipv4 : !np.disable_ipv6)
+          : true
+        ) &&
+        alltrue([
+          for _, node in coalesce(np.nodes, {}) : (
+            coalesce(node.floating_ip, np.floating_ip, false) ?
+            (coalesce(node.floating_ip_type, np.floating_ip_type, "ipv4") == "ipv4" ? !np.disable_ipv4 : !np.disable_ipv6)
+            : true
+          )
+        ])
+      )
+    ])
+    error_message = "floating_ip_type requires the matching public IP family to be enabled on the nodepool (disable_ipv4/disable_ipv6 must not block it)."
   }
 
 }
