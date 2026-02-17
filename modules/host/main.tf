@@ -26,30 +26,36 @@ resource "hcloud_server" "server" {
   server_type        = var.server_type
   location           = var.location
   ssh_keys           = var.ssh_keys
-  firewall_ids       = var.firewall_ids
+  firewall_ids       = local.effective_firewall_ids
   placement_group_id = var.placement_group_id
   backups            = var.backups
   user_data          = data.cloudinit_config.config.rendered
   keep_disk          = var.keep_disk_size
   public_net {
     ipv4_enabled = !var.disable_ipv4
+    ipv4         = var.disable_ipv4 ? null : var.primary_ipv4_id
     ipv6_enabled = !var.disable_ipv6
+    ipv6         = var.disable_ipv6 ? null : var.primary_ipv6_id
   }
 
-  network {
-    network_id = var.network_id
-    ip         = var.private_ipv4
-    alias_ips  = []
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [1] : []
+    content {
+      network_id = var.network_id
+      alias_ips  = []
+    }
+  }
+
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [] : [1]
+    content {
+      network_id = var.network_id
+      ip         = var.private_ipv4
+      alias_ips  = []
+    }
   }
 
   labels = var.labels
-
-  dynamic "timeouts" {
-    for_each = var.timeouts.create != null ? [var.timeouts] : []
-    content {
-      create = timeouts.value.create
-    }
-  }
 
   # Prevent destroying the whole cluster if the user changes
   # any of the attributes that force to recreate the servers.
@@ -101,6 +107,49 @@ resource "hcloud_server" "server" {
     ]
   }
 
+}
+
+resource "terraform_data" "ssh_authorized_keys" {
+  triggers_replace = {
+    server_id           = hcloud_server.server.id
+    ssh_public_key      = sha1(var.ssh_public_key)
+    ssh_additional_keys = sha1(join("\n", var.ssh_additional_public_keys))
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.provisioner_connection_host
+    port           = var.ssh_port
+
+    bastion_host        = var.ssh_bastion.bastion_host
+    bastion_port        = var.ssh_bastion.bastion_port
+    bastion_user        = var.ssh_bastion.bastion_user
+    bastion_private_key = var.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "file" {
+    content = format(
+      "%s\n",
+      join("\n", distinct(compact(concat(
+        [trimspace(var.ssh_public_key)],
+        [for key in var.ssh_additional_public_keys : trimspace(key)]
+      ))))
+    )
+    destination = "/tmp/authorized_keys"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "install -d -m 0700 /root/.ssh",
+      "install -m 0600 /tmp/authorized_keys /root/.ssh/authorized_keys",
+      "chown root:root /root/.ssh /root/.ssh/authorized_keys",
+      "rm -f /tmp/authorized_keys",
+    ]
+  }
+
+  depends_on = [hcloud_server.server]
 }
 
 resource "terraform_data" "registries" {

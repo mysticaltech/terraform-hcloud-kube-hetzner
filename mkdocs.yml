@@ -1,0 +1,16 @@
+site_name: kube-hetzner
+site_description: Kubernetes on Hetzner Cloud documentation
+repo_url: https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner
+repo_name: kube-hetzner/terraform-hcloud-kube-hetzner
+docs_dir: site-docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.instant
+    - content.code.copy
+
+nav:
+  - Overview: index.md
+  - Configuration: configuration.md

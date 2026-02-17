@@ -15,6 +15,7 @@ crash.*.log
 # to change depending on the environment.
 *.tfvars
 *.tfvars.json
+!tests/presets/*.tfvars
 
 # Ignore override files as they are usually used to override resources locally and so
 # are not checked in
@@ -61,3 +62,13 @@ requirements/*
 # Local triage documentation
 issues/
 prs/
+
+# Local analysis/indexing artifacts
+.tldr/
+.tldrignore
+.colgrep/
+
+# Local backlog/planning scratch artifacts
+tasks/
+scripts/process_ideas_v3.py
+docs/ideas_v3_verification/
