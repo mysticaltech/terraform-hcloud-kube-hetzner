@@ -222,6 +222,18 @@ variable "nat_router_hcloud_token" {
   }
 }
 
+variable "egress_floating_ip_id" {
+  description = "Optional existing Floating IP ID to reuse for the egress node (agent node with floating_ip=true). When unset, the module creates a new Floating IP."
+  type        = number
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.egress_floating_ip_id == null || var.egress_floating_ip_id > 0
+    error_message = "egress_floating_ip_id must be null or a positive Floating IP ID."
+  }
+}
+
 variable "optional_bastion_host" {
   description = "Optional bastion host used to connect to cluster nodes. Useful when using a pre-existing NAT router."
   type = object({

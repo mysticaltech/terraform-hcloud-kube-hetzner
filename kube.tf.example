@@ -308,6 +308,10 @@ module "kube-hetzner" {
       }
     },
   ]
+
+  # Optional: reuse an existing Floating IP for the egress node instead of creating a new one.
+  # Requires exactly one agent node with floating_ip = true.
+  # egress_floating_ip_id = 1234567
   # Add additional configuration options for control planes here.
   # E.g to enable monitoring for etcd, proxy etc:
   # control_planes_custom_config = {

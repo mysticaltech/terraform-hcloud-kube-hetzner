@@ -1835,6 +1835,13 @@ check "nat_router_requires_control_plane_lb" {
   }
 }
 
+check "egress_floating_ip_requires_single_floating_node" {
+  assert {
+    condition     = var.egress_floating_ip_id == null || length([for _, v in local.agent_nodes : 1 if coalesce(lookup(v, "floating_ip"), false)]) == 1
+    error_message = "When egress_floating_ip_id is set, exactly one agent node must have floating_ip=true."
+  }
+}
+
 check "ccm_lb_has_eligible_targets" {
   assert {
     condition     = !(var.exclude_agents_from_external_load_balancers && !local.allow_loadbalancer_target_on_control_plane)

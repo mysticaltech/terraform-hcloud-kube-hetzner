@@ -479,6 +479,11 @@ Control outgoing traffic with static IPs:
 }
 ```
 
+Reuse an existing Floating IP instead of creating a new one:
+```tf
+egress_floating_ip_id = 1234567
+```
+
 Configure Cilium:
 ```tf
 locals {

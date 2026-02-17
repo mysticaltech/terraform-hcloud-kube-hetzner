@@ -58,6 +58,9 @@ module "agents" {
 }
 
 locals {
+  agent_nodes_with_floating_ip        = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
+  primary_egress_floating_ip_node_key = length(local.agent_nodes_with_floating_ip) > 0 ? sort(keys(local.agent_nodes_with_floating_ip))[0] : null
+
   k3s-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
@@ -277,8 +280,17 @@ moved {
   to   = terraform_data.configure_longhorn_volume
 }
 
+data "hcloud_floating_ip" "existing_egress" {
+  count = var.egress_floating_ip_id != null && length(local.agent_nodes_with_floating_ip) > 0 ? 1 : 0
+  id    = var.egress_floating_ip_id
+}
+
 resource "hcloud_floating_ip" "agents" {
-  for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
+  for_each = {
+    for k, v in local.agent_nodes_with_floating_ip :
+    k => v
+    if !(var.egress_floating_ip_id != null && k == local.primary_egress_floating_ip_node_key)
+  }
 
   type              = "ipv4"
   labels            = local.labels
@@ -287,9 +299,9 @@ resource "hcloud_floating_ip" "agents" {
 }
 
 resource "hcloud_floating_ip_assignment" "agents" {
-  for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
+  for_each = local.agent_nodes_with_floating_ip
 
-  floating_ip_id = hcloud_floating_ip.agents[each.key].id
+  floating_ip_id = var.egress_floating_ip_id != null && each.key == local.primary_egress_floating_ip_node_key ? var.egress_floating_ip_id : hcloud_floating_ip.agents[each.key].id
   server_id      = module.agents[each.key].id
 
   depends_on = [
@@ -298,10 +310,10 @@ resource "hcloud_floating_ip_assignment" "agents" {
 }
 
 resource "hcloud_rdns" "agents" {
-  for_each = { for k, v in local.agent_nodes : k => v if lookup(v, "floating_ip_rdns", null) != null }
+  for_each = { for k, v in local.agent_nodes_with_floating_ip : k => v if lookup(v, "floating_ip_rdns", null) != null }
 
-  floating_ip_id = hcloud_floating_ip.agents[each.key].id
-  ip_address     = hcloud_floating_ip.agents[each.key].ip_address
+  floating_ip_id = var.egress_floating_ip_id != null && each.key == local.primary_egress_floating_ip_node_key ? var.egress_floating_ip_id : hcloud_floating_ip.agents[each.key].id
+  ip_address     = var.egress_floating_ip_id != null && each.key == local.primary_egress_floating_ip_node_key ? data.hcloud_floating_ip.existing_egress[0].ip_address : hcloud_floating_ip.agents[each.key].ip_address
   dns_ptr        = local.agent_nodes[each.key].floating_ip_rdns
 
   depends_on = [
@@ -310,11 +322,11 @@ resource "hcloud_rdns" "agents" {
 }
 
 resource "terraform_data" "configure_floating_ip" {
-  for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
+  for_each = local.agent_nodes_with_floating_ip
 
   triggers_replace = {
     agent_id       = module.agents[each.key].id
-    floating_ip_id = hcloud_floating_ip.agents[each.key].id
+    floating_ip_id = var.egress_floating_ip_id != null && each.key == local.primary_egress_floating_ip_node_key ? var.egress_floating_ip_id : hcloud_floating_ip.agents[each.key].id
   }
 
   provisioner "remote-exec" {
@@ -339,7 +351,7 @@ resource "terraform_data" "configure_floating_ip" {
 
       nmcli connection modify "$NM_CONNECTION" \
           ipv4.method manual \
-          ipv4.addresses ${hcloud_floating_ip.agents[each.key].ip_address}/32,${local.agent_ips[each.key]}/32 gw4 172.31.1.1 \
+          ipv4.addresses ${(var.egress_floating_ip_id != null && each.key == local.primary_egress_floating_ip_node_key ? data.hcloud_floating_ip.existing_egress[0].ip_address : hcloud_floating_ip.agents[each.key].ip_address)}/32,${local.agent_ips[each.key]}/32 gw4 172.31.1.1 \
           ipv4.route-metric 100 \
       && nmcli connection up "$NM_CONNECTION"
       EOT
