@@ -58,3 +58,9 @@ requirements/*
 # Local triage documentation
 issues/
 prs/
+
+# Local analysis artifacts
+.tldr/
+.tldrignore
+scripts/process_ideas_v3.py
+tasks/
