@@ -207,6 +207,11 @@ resource "null_resource" "control_plane_setup_rke2" {
     agent_identity = local.ssh_agent_identity
     host           = local.first_control_plane_ip
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
   }
 
   # Create /var/lib/rancher/rke2/server/manifests directory
@@ -240,7 +245,15 @@ resource "null_resource" "control_plane_setup_rke2" {
           cni                         = "none"
         },
         var.use_control_plane_lb ? {
-          tls-san = concat([hcloud_load_balancer.control_plane.*.ipv4[0], hcloud_load_balancer_network.control_plane.*.ip[0]], var.additional_tls_sans)
+          tls-san = concat(
+            [
+              hcloud_load_balancer.control_plane.*.ipv4[0],
+              hcloud_load_balancer_network.control_plane.*.ip[0],
+              var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+              !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
+            ],
+            var.additional_tls_sans
+          )
           } : {
           tls-san = concat([local.first_control_plane_ip], var.additional_tls_sans)
         },
@@ -280,6 +293,11 @@ resource "null_resource" "first_control_plane_rke2" {
     agent_identity = local.ssh_agent_identity
     host           = local.first_control_plane_ip
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
   }
 
   # Install rke2 server

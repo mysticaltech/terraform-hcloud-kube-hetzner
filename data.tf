@@ -44,11 +44,11 @@ data "http" "my_ipv4" {
 }
 
 data "hcloud_servers" "existing_control_plane_nodes" {
-  with_selector = "provisioner=terraform,engine=k3s,cluster=${var.cluster_name},role=control_plane_node"
+  with_selector = "provisioner=terraform,engine=${local.kubernetes_distribution},cluster=${var.cluster_name},role=control_plane_node"
 }
 
 data "hcloud_servers" "existing_agent_nodes" {
-  with_selector = "provisioner=terraform,engine=k3s,cluster=${var.cluster_name},role=agent_node"
+  with_selector = "provisioner=terraform,engine=${local.kubernetes_distribution},cluster=${var.cluster_name},role=agent_node"
 }
 
 data "hcloud_image" "microos_x86_snapshot" {
