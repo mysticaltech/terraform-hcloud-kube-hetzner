@@ -133,7 +133,7 @@ locals {
       disable-cloud-controller    = true
       disable-kube-proxy          = var.disable_kube_proxy
       disable                     = local.disable_rke2_extras
-      kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
+      kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
       kube-apiserver-arg          = local.kube_apiserver_arg
       kube-controller-manager-arg = local.kube_controller_manager_arg
       node-ip                     = module.control_planes[k].private_ipv4_address
@@ -188,7 +188,7 @@ locals {
       disable-kube-proxy       = var.disable_kube_proxy
       disable                  = local.disable_extras
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_control_plane_kubelet_args
-      kubelet-arg                 = concat(local.kubelet_arg, v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
+      kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
       kube-apiserver-arg          = local.kube_apiserver_arg
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface

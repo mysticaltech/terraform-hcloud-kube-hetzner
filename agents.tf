@@ -66,6 +66,7 @@ locals {
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
       kubelet-arg = concat(
         local.kubelet_arg,
+        v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
         v.kubelet_args,
         var.k3s_global_kubelet_args,
         var.k3s_agent_kubelet_args
@@ -91,6 +92,7 @@ locals {
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
       kubelet-arg = concat(
         local.kubelet_arg,
+        v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
         v.kubelet_args,
         var.k3s_global_kubelet_args,
         var.k3s_agent_kubelet_args
