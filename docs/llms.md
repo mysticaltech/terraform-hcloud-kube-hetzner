@@ -1311,9 +1311,10 @@ Excellent! Let's continue our meticulous dissection.
   * **If `false`:** Traefik pods might run without specific requests/limits, relying on defaults or potentially being less predictable in resource consumption.
 
 ```terraform
-  # If you want to configure additional ports for traefik, enter them here as a list of objects with name, port, and exposedPort properties.
+  # If you want to configure additional ports for traefik, enter them here as a list of objects with
+  # name, port, exposedPort, and optional protocol (TCP or UDP; default TCP).
   # Example:
-  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234}]
+  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234, protocol = "TCP"}]
 ```
 
 * **`traefik_additional_ports` (List of Maps, Optional, specific to `ingress_controller = "traefik"`):**
@@ -1322,7 +1323,7 @@ Excellent! Let's continue our meticulous dissection.
     * `name` (String): A unique name for this entrypoint (e.g., "tcp-echo", "metrics").
     * `port` (Number): The port number Traefik will listen on internally for this entrypoint.
     * `exposedPort` (Number): The port number on the Traefik service (and thus on the Hetzner Load Balancer) that will map to the internal `port`. Often these are the same.
-    * You might also need to specify `protocol` (e.g., `TCP`, `UDP`) if not HTTP/S, depending on how the Traefik Helm chart handles this.
+    * `protocol` (String, Optional): `TCP` or `UDP`. Defaults to `TCP`.
   * **Use Case:** Exposing non-HTTP services (e.g., TCP or UDP applications, metrics endpoints on custom ports) through Traefik.
 
 ```terraform

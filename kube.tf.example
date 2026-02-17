@@ -661,9 +661,10 @@ module "kube-hetzner" {
   # The default is true.
   # traefik_resource_limits = false
 
-  # If you want to configure additional ports for traefik, enter them here as a list of objects with name, port, and exposedPort properties.
+  # If you want to configure additional ports for traefik, enter them here as a list of objects with
+  # name, port, exposedPort, and optional protocol (TCP or UDP; default TCP).
   # Example:
-  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234}]
+  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234, protocol = "TCP"}]
 
   # If you want to configure additional trusted IPs for traefik, enter them here as a list of IPs (strings).
   # Example for Cloudflare:
