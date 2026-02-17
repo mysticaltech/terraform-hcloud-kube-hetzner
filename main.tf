@@ -3,6 +3,12 @@ resource "random_password" "k3s_token" {
   special = false
 }
 
+resource "random_password" "secrets_encryption_key" {
+  count   = var.secrets_encryption ? 1 : 0
+  length  = 32
+  special = false
+}
+
 resource "hcloud_ssh_key" "k3s" {
   count      = var.hcloud_ssh_key_id == null ? 1 : 0
   name       = var.cluster_name

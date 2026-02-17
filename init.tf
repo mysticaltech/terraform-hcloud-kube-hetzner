@@ -104,6 +104,7 @@ resource "terraform_data" "first_control_plane" {
           disable-kube-proxy          = var.disable_kube_proxy
           disable                     = local.disable_extras
           kubelet-arg                 = local.kubelet_arg
+          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
           flannel-iface               = local.flannel_iface
           node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -136,6 +137,11 @@ resource "terraform_data" "first_control_plane" {
     )
 
     destination = "/tmp/config.yaml"
+  }
+
+  provisioner "file" {
+    content     = local.secrets_encryption_config
+    destination = "/tmp/encryption-config.yaml"
   }
 
   # Install k3s server
@@ -191,6 +197,7 @@ resource "null_resource" "control_plane_setup_rke2" {
     versions = join("\n", [
       coalesce(local.desired_cni_version, "N/A"),
     ])
+    encryption = sha1(local.secrets_encryption_config)
   }
 
   connection {
@@ -219,6 +226,7 @@ resource "null_resource" "control_plane_setup_rke2" {
           disable-kube-proxy          = var.disable_kube_proxy
           disable                     = local.disable_rke2_extras
           kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, local.control_plane_nodes[keys(module.control_planes)[0]].kubelet_args)
+          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
           node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -243,6 +251,11 @@ resource "null_resource" "control_plane_setup_rke2" {
     )
 
     destination = "/tmp/config.yaml"
+  }
+
+  provisioner "file" {
+    content     = local.secrets_encryption_config
+    destination = "/tmp/encryption-config.yaml"
   }
 
   # Upload the cilium install file
@@ -689,6 +702,7 @@ resource "terraform_data" "kustomization" {
   depends_on = [
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
+    helm_release.hcloud_ccm,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets
@@ -986,6 +1000,7 @@ resource "null_resource" "rke2_kustomization" {
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
     null_resource.control_planes_rke2,
+    helm_release.hcloud_ccm,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets
