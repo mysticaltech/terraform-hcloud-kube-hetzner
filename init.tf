@@ -677,6 +677,11 @@ resource "terraform_data" "kustomization" {
         "echo 'Uninstall helm ccm manifests if they exist'",
         "kubectl delete --ignore-not-found -n kube-system helmchart.helm.cattle.io/hcloud-cloud-controller-manager",
       ],
+      compact([
+        var.ingress_controller == "traefik" ? "" : "kubectl delete helmchart -n kube-system traefik --ignore-not-found",
+        var.ingress_controller == "nginx" ? "" : "kubectl delete helmchart -n kube-system nginx --ignore-not-found",
+        var.ingress_controller == "haproxy" ? "" : "kubectl delete helmchart -n kube-system haproxy --ignore-not-found",
+      ]),
       [
         # Ready, set, go for the kustomization
         "kubectl apply -k /var/post_install",
@@ -976,6 +981,11 @@ resource "null_resource" "rke2_kustomization" {
         "echo 'Uninstall helm ccm manifests if they exist'",
         "${local.kubectl_cli} delete --ignore-not-found -n kube-system helmchart.helm.cattle.io/hcloud-cloud-controller-manager",
       ],
+      compact([
+        var.ingress_controller == "traefik" ? "" : "${local.kubectl_cli} delete helmchart -n kube-system traefik --ignore-not-found",
+        var.ingress_controller == "nginx" ? "" : "${local.kubectl_cli} delete helmchart -n kube-system nginx --ignore-not-found",
+        var.ingress_controller == "haproxy" ? "" : "${local.kubectl_cli} delete helmchart -n kube-system haproxy --ignore-not-found",
+      ]),
       [
         # Ready, set, go for the kustomization
         "echo 'Deploying the kustomization.yaml...'",
