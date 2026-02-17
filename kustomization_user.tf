@@ -27,6 +27,7 @@ module "user_kustomizations" {
   }
 
   kustomizations_map = local.processed_kustomizes
+  kubectl_cli        = local.kubectl_cli
 
   depends_on = [
     terraform_data.kustomization,

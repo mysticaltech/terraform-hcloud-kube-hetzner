@@ -109,6 +109,15 @@ resource "hcloud_server" "server" {
 
 }
 
+resource "hcloud_server_network" "extra_networks" {
+  for_each = {
+    for network_id in local.extra_network_ids : tostring(network_id) => network_id
+  }
+
+  server_id  = hcloud_server.server.id
+  network_id = each.value
+}
+
 resource "terraform_data" "ssh_authorized_keys" {
   triggers_replace = {
     server_id           = hcloud_server.server.id

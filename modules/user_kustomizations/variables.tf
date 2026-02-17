@@ -33,3 +33,8 @@ variable "kustomizations_map" {
     error_message = "All keys in kustomizations_map must be numeric strings (e.g., '1', '2')."
   }
 }
+
+variable "kubectl_cli" {
+  type        = string
+  description = "Kubectl command used to apply user kustomizations (distribution-aware)."
+}

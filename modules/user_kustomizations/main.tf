@@ -57,7 +57,7 @@ resource "null_resource" "kustomization_user_deploy" {
 
           if [ -s "$dest_folder/kustomization.yaml" ] || [ -s "$dest_folder/kustomization.yml" ] || [ -s "$dest_folder/Kustomization" ]; then
             echo "Applying kustomization from $dest_folder"
-            kubectl apply -k "$dest_folder"
+            ${var.kubectl_cli} apply -k "$dest_folder"
           else
             echo "No valid kustomization file found in $dest_folder, skipping apply."
           fi

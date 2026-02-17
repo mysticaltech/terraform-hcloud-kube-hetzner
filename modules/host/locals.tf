@@ -18,7 +18,10 @@ locals {
   default_connection_host = coalesce(
     hcloud_server.server.ipv4_address,
     hcloud_server.server.ipv6_address,
-    try(one(hcloud_server.server.network).ip, null)
+    try(
+      [for network in hcloud_server.server.network : network.ip if var.network_id != null && network.network_id == var.network_id][0],
+      try([for network in hcloud_server.server.network : network.ip][0], null)
+    )
   )
 
   provisioner_connection_host = trimspace(var.connection_host) != "" ? var.connection_host : local.default_connection_host

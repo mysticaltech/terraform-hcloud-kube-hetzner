@@ -53,6 +53,8 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **SELinux Missing Rules** - Added rules for JuiceFS (sock_file write) and SigNoz (blk_file getattr)
 - **Kured Version Null** - Fixed potential null value issues with `kured_version` logic (#2032)
 - **Autoscaler Nodepool Parity/Validation** - Added autoscaler nodepool validation guards (unique names, integer min/max bounds, taint effect and swap/zram format checks) and aligned RKE2 autoscaled node labeling/taint rendering with the k3s autoscaler path.
+- **RKE2 User Kustomizations** - Switched user kustomization apply path to distribution-aware `kubectl_cli`, fixing apply failures in RKE2 clusters.
+- **extra_network_ids Attachment** - Wired `extra_network_ids` into host provisioning so additional Hetzner networks are actually attached to control-plane and agent nodes.
 
 ### 🔧 Changes
 
