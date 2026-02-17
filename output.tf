@@ -99,6 +99,16 @@ output "agent_nodes" {
   value       = [for node in module.agents : node]
 }
 
+output "control_planes" {
+  description = "Full control plane module map keyed by node identifier."
+  value       = module.control_planes
+}
+
+output "agents" {
+  description = "Full agent module map keyed by node identifier."
+  value       = module.agents
+}
+
 output "domain_assignments" {
   description = "Assignments of domains to IPs based on reverse DNS"
   value = concat(
