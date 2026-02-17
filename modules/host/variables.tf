@@ -81,6 +81,7 @@ variable "ipv4_subnet_id" {
 variable "private_ipv4" {
   description = "Private IP for the server"
   type        = string
+  default     = null
 }
 
 variable "server_type" {

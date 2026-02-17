@@ -36,10 +36,21 @@ resource "hcloud_server" "server" {
     ipv6_enabled = !var.disable_ipv6
   }
 
-  network {
-    network_id = var.network_id
-    ip         = var.private_ipv4
-    alias_ips  = []
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [1] : []
+    content {
+      network_id = var.network_id
+      alias_ips  = []
+    }
+  }
+
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [] : [1]
+    content {
+      network_id = var.network_id
+      ip         = var.private_ipv4
+      alias_ips  = []
+    }
   }
 
   labels = var.labels

@@ -78,12 +78,11 @@ module "kube-hetzner" {
 
   # If you must change the network CIDR you can do so below, but it is highly advised against.
   # network_ipv4_cidr = "10.0.0.0/8"
+  # Nodes use auto-assigned private IPs from a shared cluster subnet by default.
 
-  # Using the default configuration you can only create a maximum of 42 agent-nodepools.
-  # This is due to the creation of a subnet for each nodepool with CIDRs being in the shape of 10.[nodepool-index].0.0/16 which collides with k3s' cluster and service IP ranges (defaults below).
-  # To create additional ones (or if you want to use different ranges for other reasons), set the `subnet_ip_range` explicitly for a node pool.
-  # Furthermore the maximum number of nodepools (controlplane and agent) is 50, due to a hard limit of 50 subnets per network, see https://docs.hetzner.com/cloud/networks/faq/.
-  # So to be able to create a maximum of 50 nodepools in total, the values below have to be changed to something outside that range, e.g. `10.200.0.0/16` and `10.201.0.0/16` for cluster and service respectively.
+  # Nodepool private IPs are auto-assigned from one shared subnet.
+  # The older per-nodepool subnet planning limits no longer apply.
+  # Keep subnet_amount large enough for additional module-created subnets (for example NAT router and vSwitch).
 
   # If you must change the cluster CIDR you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!

@@ -22,7 +22,7 @@ module "agents" {
   location                         = each.value.location
   server_type                      = each.value.server_type
   backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id
+  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
   k3s_registries_update_script     = local.k3s_registries_update_script
@@ -41,7 +41,7 @@ module "agents" {
   disable_ipv6                     = each.value.disable_ipv6
   ssh_bastion                      = local.ssh_bastion
   network_id                       = data.hcloud_network.k3s.id
-  private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
+  private_ipv4                     = null
 
   labels = merge(local.labels, local.labels_agent_node, { "kube-hetzner/os" = each.value.os })
 
@@ -50,7 +50,7 @@ module "agents" {
   network_gw_ipv4 = local.network_gw_ipv4
 
   depends_on = [
-    hcloud_network_subnet.agent,
+    hcloud_network_subnet.control_plane,
     hcloud_placement_group.agent,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
@@ -210,7 +210,7 @@ resource "terraform_data" "agents" {
   depends_on = [
     terraform_data.first_control_plane,
     terraform_data.agent_config,
-    hcloud_network_subnet.agent
+    hcloud_network_subnet.control_plane
   ]
 }
 moved {
