@@ -2,6 +2,13 @@ variable "name" {
   description = "Host name"
   type        = string
 }
+
+variable "append_random_suffix" {
+  description = "Whether to append a random suffix to the server name."
+  type        = bool
+  default     = true
+}
+
 variable "connection_host" {
   description = "Optional SSH host override used for Terraform provisioners."
   type        = string
@@ -56,6 +63,12 @@ variable "firewall_ids" {
   nullable    = true
 }
 
+variable "extra_firewall_ids" {
+  description = "Additional firewall IDs to attach to the server."
+  type        = list(number)
+  default     = []
+}
+
 variable "placement_group_id" {
   description = "Placement group ID"
   type        = number
@@ -81,6 +94,7 @@ variable "ipv4_subnet_id" {
 variable "private_ipv4" {
   description = "Private IP for the server"
   type        = string
+  default     = null
 }
 
 variable "server_type" {
@@ -200,10 +214,28 @@ variable "disable_ipv6" {
   description = "Whether to disable ipv4 on the server. If you disable ipv4 and ipv6 make sure you have an access to your private network."
 }
 
+variable "primary_ipv4_id" {
+  type        = number
+  default     = null
+  description = "Optional existing or module-managed Primary IPv4 ID to assign to the server."
+}
+
+variable "primary_ipv6_id" {
+  type        = number
+  default     = null
+  description = "Optional existing or module-managed Primary IPv6 ID to assign to the server."
+}
+
 variable "network_id" {
   type        = number
   default     = null
   description = "The network id to attach the server to."
+}
+
+variable "extra_network_ids" {
+  type        = list(number)
+  default     = []
+  description = "Additional network IDs to attach to the server."
 }
 
 variable "ssh_bastion" {

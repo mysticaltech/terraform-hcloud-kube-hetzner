@@ -76,7 +76,7 @@ module "kube-hetzner" {
   # version = "2.15.3"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
-  # 3. If you want to use the latest master branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
+  # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
   # source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"
 ```
 
@@ -496,6 +496,7 @@ The example shows three control plane nodepools, each with one node, in differen
         "node.kubernetes.io/role=egress:NoSchedule" # Ensures only egress gateway pods run here
       ],
       floating_ip = true # Special attribute for this module
+      # floating_ip_type = "ipv6" # Optional: "ipv4" (default) or "ipv6"
       # Optionally associate a reverse DNS entry with the floating IP(s).
       # floating_ip_rns = "my.domain.com"
       count = 1
@@ -554,6 +555,10 @@ The example shows three control plane nodepools, each with one node, in differen
       * If `true`, the module will provision a Hetzner Floating IP and associate it with the node(s) in this pool. If `count > 1`, how the floating IP is managed across multiple nodes needs clarification from module docs (e.g., active/passive, or one FIP per node).
       * **Use Case (Egress Gateway):** As shown in the "egress" nodepool example, this is used with Cilium's Egress Gateway feature. This allows you to have a stable, predictable public IP address for outbound traffic originating from your cluster, which can be useful for whitelisting with external services.
       * The `labels` and `taints` on the "egress" pool ensure that only specific egress gateway pods (which would have tolerations for the taint) are scheduled there.
+    * **`floating_ip_type` (String, Optional):**
+      * Default: `"ipv4"`.
+      * Allowed values: `"ipv4"`, `"ipv6"`.
+      * **Purpose:** Chooses which floating IP family to allocate and configure on the node.
     * **`floating_ip_rns` (String, Optional):**
       * If `floating_ip = true`, this allows you to set a reverse DNS (PTR record) for the provisioned floating IP.
       * Use Case: Email servers or services where reverse DNS is important for reputation.
@@ -861,6 +866,10 @@ The example shows three control plane nodepools, each with one node, in differen
     * **Purpose:** Whether to apply resource requests/limits to the autoscaler pod.
   * **`cluster_autoscaler_resource_values` (Map, Optional):**
     * **Purpose:** Customizes the specific CPU and memory requests/limits for the autoscaler pod.
+  * **`cluster_autoscaler_metrics_firewall_source` (List of Strings, Optional):**
+    * **Default:** `[]`.
+    * **Purpose:** Optional CIDR allowlist for external scraping of autoscaler metrics.
+    * **Details:** Enables an HCloud firewall rule to port `30085` (autoscaler metrics `NodePort`), which forwards to autoscaler container port `8085`.
 
 ```terraform
   # Additional Cluster Autoscaler binary configuration
@@ -973,20 +982,9 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Default:** The module likely picks the latest stable version of the driver.
   * **Purpose:** Allows you to pin the `csi-driver-smb` to a specific version. Useful for stability or if you need a particular feature/fix from a specific version. The GitHub releases link provides available versions.
 
-```terraform
-  # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
-  # you install your own version of longhorn outside of this module.
-  # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
-  # enable_iscsid = true
-```
-
-* **`enable_iscsid` (Boolean, Optional):**
-  * **Default:** `false`.
-  * **Purpose:** Ensures that the iSCSI daemon (`iscsid` or `open-iscsi`) and related tools are installed and running on your cluster nodes.
-  * **Relevance:** iSCSI is a protocol used by some storage solutions (like Longhorn, and potentially others you might install manually) to connect to block storage devices over a network.
-  * **Logic:**
-    * If `enable_longhorn = true` (a global module setting for Longhorn), `iscsid` is automatically enabled by the module because Longhorn requires it. This `enable_iscsid` variable is then ignored.
-    * If you are *not* using the module's Longhorn integration (`enable_longhorn = false`) but plan to install Longhorn (or another iSCSI-dependent storage solution) *manually*, you would set `enable_iscsid = true` here to ensure the necessary OS-level iSCSI support is present.
+* **iSCSI daemon behavior:**
+  * kube-hetzner always enables `iscsid` on all nodes.
+  * This avoids post-reboot storage failures for iSCSI-backed workloads (including Longhorn and manual storage setups).
 
 ```terraform
   # To use local storage on the nodes, you can enable Longhorn, default is "false".
@@ -2028,16 +2026,17 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Interaction with Nodepool `placement_group`:** If a nodepool definition has its own `placement_group = "group_name"` attribute, that would likely take precedence for that specific nodepool, allowing for more granular control even if global placement groups are enabled.
 
 ```terraform
-  # By default, we allow ICMP ping in to the nodes, to check for liveness for instance. If you do not want to allow that, you can. Just set this flag to true (false by default).
-  # block_icmp_ping_in = true
+  # By default, incoming ICMP ping is blocked.
+  # Set this to false only if you explicitly want external ping-based liveness checks.
+  # block_icmp_ping_in = false
 ```
 
 * **`block_icmp_ping_in` (Boolean, Optional):**
-  * **Default:** `false` (meaning ICMP ping requests *are allowed* to the nodes by the Hetzner Firewall).
+  * **Default:** `true` (meaning ICMP ping requests are blocked by the Hetzner Firewall).
   * **Purpose:** Controls whether the Hetzner Firewall rule for ICMP (specifically echo-request, "ping") is configured to allow or block incoming pings to your cluster nodes.
-    * `false`: Nodes will respond to pings. Useful for basic liveness checks and network troubleshooting.
     * `true`: Nodes will not respond to pings from external sources (blocked at the Hetzner Firewall level).
-  * **Security Consideration:** Blocking ICMP can make it slightly harder for attackers to discover live hosts (though there are other methods). However, it also hinders legitimate network diagnostics. The security benefit is often considered minor compared to the operational inconvenience.
+    * `false`: Nodes will respond to pings. Useful for basic liveness checks and network troubleshooting.
+  * **Security Consideration:** Keeping this enabled by default reduces unnecessary network surface while still allowing users to opt in to ping-based diagnostics when needed.
 
 ```terraform
   # You can enable cert-manager (installed by Helm behind the scenes) with the following flag, the default is "true".
@@ -2698,7 +2697,7 @@ controller:
 ```terraform
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
-  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
+  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/locals.tf
   /*   haproxy_values = <<-EOT
   EOT */
 ```
