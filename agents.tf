@@ -487,11 +487,9 @@ resource "terraform_data" "configure_floating_ip" {
 
   provisioner "remote-exec" {
     inline = [
-      # Reconfigure eth0:
-      #  - add floating_ip as first and other IP as second address
-      #  - add 172.31.1.1 as default gateway (In the Hetzner Cloud, the
-      #    special private IP address 172.31.1.1 is the default
-      #    gateway for the public network)
+      # Reconfigure the public interface for floating IP takeover.
+      # - IPv4 floating IPs: assign floating + node public IPv4 and set gw4.
+      # - IPv6 floating IPs: assign floating + node public IPv6 addresses.
       # The configuration is stored in file /etc/NetworkManager/system-connections/cloud-init-eth0.nmconnection
       <<-EOT
       ETH=eth1
@@ -505,11 +503,29 @@ resource "terraform_data" "configure_floating_ip" {
           exit 1
       fi
 
-      nmcli connection modify "$NM_CONNECTION" \
-          ipv4.method manual \
-          ipv4.addresses ${local.agent_external_ipv4_by_node[each.key]}/32,${local.agent_ips[each.key]}/32 gw4 172.31.1.1 \
-          ipv4.route-metric 100 \
-      && nmcli connection up "$NM_CONNECTION"
+      if [ "${local.agent_nodes[each.key].floating_ip_type}" = "ipv6" ]; then
+          if [ -z "${module.agents[each.key].ipv6_address}" ]; then
+              echo "ERROR: Floating IPv6 is enabled but node has no public IPv6 address" >&2
+              exit 1
+          fi
+
+          nmcli connection modify "$NM_CONNECTION" \
+              ipv6.method manual \
+              ipv6.addresses ${local.agent_external_ipv4_by_node[each.key]}/128,${module.agents[each.key].ipv6_address}/64 \
+              ipv6.route-metric 100 \
+          && nmcli connection up "$NM_CONNECTION"
+      else
+          if [ -z "${module.agents[each.key].ipv4_address}" ]; then
+              echo "ERROR: Floating IPv4 is enabled but node has no public IPv4 address" >&2
+              exit 1
+          fi
+
+          nmcli connection modify "$NM_CONNECTION" \
+              ipv4.method manual \
+              ipv4.addresses ${local.agent_external_ipv4_by_node[each.key]}/32,${module.agents[each.key].ipv4_address}/32 gw4 172.31.1.1 \
+              ipv4.route-metric 100 \
+          && nmcli connection up "$NM_CONNECTION"
+      fi
       EOT
     ]
   }
