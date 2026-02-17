@@ -1468,6 +1468,7 @@ kured_options = merge({
   "period" : "5m",
   "reboot-sentinel" : "/sentinel/reboot-required"
 }, var.kured_options)
+kured_reboot_sentinel = lookup(local.kured_options, "reboot-sentinel", "/sentinel/reboot-required")
 
 k3s_registries_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
@@ -1581,6 +1582,19 @@ EOF
 
 k3s_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+
+restart_or_signal_update() {
+  local SERVICE_NAME="$1"
+  if ${var.k8s_config_updates_use_kured_sentinel}; then
+    SENTINEL="${local.kured_reboot_sentinel}"
+    mkdir -p "$(dirname "$SENTINEL")"
+    touch "$SENTINEL"
+    echo "Triggered Kured reboot sentinel at $SENTINEL instead of restarting $SERVICE_NAME"
+    return 0
+  fi
+  systemctl restart "$SERVICE_NAME"
+}
+
 if cmp -s /tmp/config.yaml /etc/rancher/k3s/config.yaml; then
   echo "No update required to the config.yaml file"
 else
@@ -1595,9 +1609,9 @@ else
     chmod 0600 /etc/rancher/k3s/encryption-config.yaml
   fi
   if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s)
+    restart_or_signal_update k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && restart_or_signal_update k3s)
   elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s-agent)
+    restart_or_signal_update k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && restart_or_signal_update k3s-agent)
   else
     echo "No active k3s or k3s-agent service found"
   fi
@@ -1696,6 +1710,19 @@ EOF
 
 rke2_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+
+restart_or_signal_update() {
+  local SERVICE_NAME="$1"
+  if ${var.k8s_config_updates_use_kured_sentinel}; then
+    SENTINEL="${local.kured_reboot_sentinel}"
+    mkdir -p "$(dirname "$SENTINEL")"
+    touch "$SENTINEL"
+    echo "Triggered Kured reboot sentinel at $SENTINEL instead of restarting $SERVICE_NAME"
+    return 0
+  fi
+  systemctl restart "$SERVICE_NAME"
+}
+
 if cmp -s /tmp/config.yaml /etc/rancher/rke2/config.yaml; then
   echo "No update required to the config.yaml file"
 else
@@ -1710,9 +1737,9 @@ else
     chmod 0600 /etc/rancher/rke2/encryption-config.yaml
   fi
   if systemctl is-active --quiet rke2-server; then
-    systemctl restart rke2-server || (echo "Error: Failed to restart rke2-server. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && systemctl restart rke2-server)
+    restart_or_signal_update rke2-server || (echo "Error: Failed to restart rke2-server. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && restart_or_signal_update rke2-server)
   elif systemctl is-active --quiet rke2-agent; then
-    systemctl restart rke2-agent || (echo "Error: Failed to restart rke2-agent. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && systemctl restart rke2-agent)
+    restart_or_signal_update rke2-agent || (echo "Error: Failed to restart rke2-agent. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && restart_or_signal_update rke2-agent)
   else
     echo "No active rke2-server or rke2-agent service found"
   fi

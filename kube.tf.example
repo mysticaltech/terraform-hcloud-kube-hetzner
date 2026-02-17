@@ -806,6 +806,8 @@ module "kube-hetzner" {
   #   "time-zone": "Local",
   #   "lock-ttl" : "30m",
   # }
+  # Trigger k3s/rke2 config updates through Kured's reboot sentinel instead of immediate service restarts.
+  # k8s_config_updates_use_kured_sentinel = true
 
   # Allows you to specify the k3s version. If defined, supersedes initial_k3s_channel.
   # See https://github.com/k3s-io/k3s/releases for the available versions.
