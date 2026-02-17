@@ -12,6 +12,29 @@ locals {
 
   kubernetes_distribution = var.kubernetes_distribution_type
 
+  k3s_encryption_config_path  = "/etc/rancher/k3s/encryption-config.yaml"
+  k3s_encryption_provider_key = base64sha256(local.k3s_token)
+  k3s_encryption_config       = <<-EOT
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: kube-hetzner
+              secret: ${local.k3s_encryption_provider_key}
+      - identity: {}
+EOT
+  k3s_encryption_write_files = var.k3s_encryption_at_rest && local.kubernetes_distribution == "k3s" ? [
+    {
+      path        = local.k3s_encryption_config_path
+      permissions = "0600"
+      content     = local.k3s_encryption_config
+    }
+  ] : []
+
   # k3s endpoint used for agent registration, respects control_plane_endpoint override
   k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
 

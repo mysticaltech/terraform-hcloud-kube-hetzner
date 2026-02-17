@@ -863,6 +863,10 @@ module "kube-hetzner" {
   # Additional flags to pass to the k3s server command (the control plane).
   # k3s_exec_server_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
 
+  # Enable Kubernetes Secrets encryption at rest for k3s control planes.
+  # kube-hetzner will generate /etc/rancher/k3s/encryption-config.yaml and configure kube-apiserver accordingly.
+  # k3s_encryption_at_rest = true
+
   # Additional flags to pass to the k3s agent command (every agents nodes, including autoscaler nodepools).
   # k3s_exec_agent_args = "--kubelet-arg kube-reserved=cpu=100m,memory=200Mi,ephemeral-storage=1Gi"
 
