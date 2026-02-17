@@ -778,9 +778,18 @@ variable "traefik_additional_ports" {
     name        = string
     port        = number
     exposedPort = number
+    protocol    = optional(string, "TCP")
   }))
   default     = []
   description = "Additional ports to pass to Traefik. These are the ones that go into the ports section of the Traefik helm values file."
+
+  validation {
+    condition = alltrue([
+      for option in var.traefik_additional_ports :
+      contains(["TCP", "UDP"], upper(option.protocol))
+    ])
+    error_message = "Each traefik_additional_ports item must set protocol to either TCP or UDP."
+  }
 }
 
 variable "traefik_additional_options" {

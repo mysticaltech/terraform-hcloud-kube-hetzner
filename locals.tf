@@ -1244,7 +1244,7 @@ ports:
     expose:
       default: true
     exposedPort: ${option.exposedPort}
-    protocol: TCP
+    protocol: ${upper(option.protocol)}
     observability:
       metrics: false
       accessLogs: false
