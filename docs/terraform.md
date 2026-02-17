@@ -21,6 +21,7 @@
 | <a name="provider_hcloud"></a> [hcloud](#provider\_hcloud) | >= 1.59.0 |
 | <a name="provider_http"></a> [http](#provider\_http) | >= 3.4.0 |
 | <a name="provider_local"></a> [local](#provider\_local) | >= 2.5.2 |
+| <a name="provider_null"></a> [null](#provider\_null) | n/a |
 | <a name="provider_random"></a> [random](#provider\_random) | n/a |
 | <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
@@ -81,6 +82,11 @@
 | [local_file.nginx_values](https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/file) | resource |
 | [local_file.traefik_values](https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/file) | resource |
 | [local_sensitive_file.kubeconfig](https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/sensitive_file) | resource |
+| [null_resource.control_plane_config_rke2](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
+| [null_resource.control_plane_setup_rke2](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
+| [null_resource.control_planes_rke2](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
+| [null_resource.first_control_plane_rke2](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
+| [null_resource.rke2_kustomization](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
 | [random_password.k3s_token](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [random_password.nat_router_vip_auth_pass](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [random_password.rancher_bootstrap](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
@@ -102,6 +108,7 @@
 | [terraform_data.kustomization](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.nat_router_await_cloud_init](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [cloudinit_config.autoscaler_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
+| [cloudinit_config.autoscaler_config_rke2](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
 | [cloudinit_config.autoscaler_legacy_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
 | [cloudinit_config.nat_router_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
 | [github_release.calico](https://registry.terraform.io/providers/integrations/github/latest/docs/data-sources/release) | data source |
@@ -220,7 +227,9 @@
 | <a name="input_ingress_replica_count"></a> [ingress\_replica\_count](#input\_ingress\_replica\_count) | Number of replicas per ingress controller. 0 means autodetect based on the number of agent nodes. | `number` | `0` | no |
 | <a name="input_ingress_target_namespace"></a> [ingress\_target\_namespace](#input\_ingress\_target\_namespace) | The namespace to deploy the ingress controller to. Defaults to ingress name. | `string` | `""` | no |
 | <a name="input_initial_k3s_channel"></a> [initial\_k3s\_channel](#input\_initial\_k3s\_channel) | Allows you to specify an initial k3s channel. See https://update.k3s.io/v1-release/channels for available channels. | `string` | `"v1.33"` | no |
+| <a name="input_initial_rke2_channel"></a> [initial\_rke2\_channel](#input\_initial\_rke2\_channel) | Allows you to specify an initial rke2 channel. See https://update.rke2.io/v1-release/channels for available channels. | `string` | `"v1.32"` | no |
 | <a name="input_install_k3s_version"></a> [install\_k3s\_version](#input\_install\_k3s\_version) | Allows you to specify the k3s version (Example: v1.29.6+k3s2). Supersedes initial\_k3s\_channel. See https://github.com/k3s-io/k3s/releases for available versions. | `string` | `""` | no |
+| <a name="input_install_rke2_version"></a> [install\_rke2\_version](#input\_install\_rke2\_version) | Allows you to specify the rke2 version (Example: v1.32.5+rke2r1). Supersedes initial\_rke2\_channel. See https://github.com/rancher/rke2/releases for available versions. | `string` | `"v1.32.5+rke2r1"` | no |
 | <a name="input_k3s_agent_kubelet_args"></a> [k3s\_agent\_kubelet\_args](#input\_k3s\_agent\_kubelet\_args) | Kubelet args for agent nodes. | `list(string)` | `[]` | no |
 | <a name="input_k3s_audit_log_maxage"></a> [k3s\_audit\_log\_maxage](#input\_k3s\_audit\_log\_maxage) | Maximum number of days to retain audit log files | `number` | `30` | no |
 | <a name="input_k3s_audit_log_maxbackup"></a> [k3s\_audit\_log\_maxbackup](#input\_k3s\_audit\_log\_maxbackup) | Maximum number of audit log files to retain | `number` | `10` | no |
@@ -239,6 +248,7 @@
 | <a name="input_keep_disk_agents"></a> [keep\_disk\_agents](#input\_keep\_disk\_agents) | Whether to keep OS disks of nodes the same size when upgrading an agent node | `bool` | `false` | no |
 | <a name="input_keep_disk_cp"></a> [keep\_disk\_cp](#input\_keep\_disk\_cp) | Whether to keep OS disks of nodes the same size when upgrading a control-plane node | `bool` | `false` | no |
 | <a name="input_kubeconfig_server_address"></a> [kubeconfig\_server\_address](#input\_kubeconfig\_server\_address) | The hostname used for kubeconfig. | `string` | `""` | no |
+| <a name="input_kubernetes_distribution_type"></a> [kubernetes\_distribution\_type](#input\_kubernetes\_distribution\_type) | Kubernetes distribution type. Can be either k3s or rke2. | `string` | `"k3s"` | no |
 | <a name="input_kured_options"></a> [kured\_options](#input\_kured\_options) | n/a | `map(string)` | `{}` | no |
 | <a name="input_kured_version"></a> [kured\_version](#input\_kured\_version) | Version of Kured. See https://github.com/kubereboot/kured/releases for the available versions. | `string` | `null` | no |
 | <a name="input_lb_hostname"></a> [lb\_hostname](#input\_lb\_hostname) | The Hetzner Load Balancer hostname, for either Traefik, HAProxy or Ingress-Nginx. | `string` | `""` | no |
