@@ -80,6 +80,14 @@ variable "ssh_port" {
 variable "ssh_public_key" {
   description = "SSH public Key."
   type        = string
+
+  validation {
+    condition = can(regex(
+      "^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)\\s+",
+      trimspace(var.ssh_public_key)
+    ))
+    error_message = "ssh_public_key must be a valid OpenSSH public key starting with a supported key type (for example: ssh-ed25519, ssh-rsa, or ecdsa-sha2-nistp256)."
+  }
 }
 
 variable "ssh_private_key" {
