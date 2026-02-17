@@ -784,13 +784,13 @@ module "kube-hetzner" {
   # you would have to connect to any control plane node via SSH, as you can run kubectl from within these.
   # Please be advised that this setting has no effect on the load balancer when the use_control_plane_lb variable is set to true. This is
   # because firewall rules cannot be applied to load balancers yet.
-  # Note: You can use the string "myipv4" as an IP address in the array and it will be replaced with the CIDR/32 of your IP as reported by myip.opendns.com. Use of "myipv4" requires `dig` to be available.
+  # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
   # firewall_kube_api_source = null
 
   # Allow SSH access from the specified networks. Default: ["0.0.0.0/0", "::/0"]
   # Allowed values: null (disable SSH rule entirely) or a list of allowed networks with CIDR notation.
   # Ideally you would set your IP there. And if it changes after cluster deploy, you can always update this variable and apply again.
-  # Note: You can use the string "myipv4" as an IP address in the array and it will be replaced with the CIDR/32 of your IP as reported by myip.opendns.com. Use of "myipv4" requires `dig` to be available.
+  # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
   # firewall_ssh_source = ["myipv4", "1.2.3.4/32"]
 
   # By default, SELinux is enabled in enforcing mode on all nodes. For container-specific SELinux issues,
@@ -800,7 +800,7 @@ module "kube-hetzner" {
 
   # Adding extra firewall rules, like opening a port
   # More info on the format here https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/resources/firewall
-  # Note: You can use the string "myipv4" as an IP address in the `source_ips` or `destination_ips` arrays and it will be replaced with the CIDR/32 of your IP as reported by myip.opendns.com. Use of "myipv4" requires `dig` to be available.
+  # You can also use "myipv4" in source_ips or destination_ips to resolve your current public IPv4/32.
   # extra_firewall_rules = [
   #   {
   #     description = "For Postgres"

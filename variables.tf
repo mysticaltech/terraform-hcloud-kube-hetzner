@@ -667,29 +667,9 @@ variable "automatically_upgrade_os" {
 }
 
 variable "extra_firewall_rules" {
-  type = list(object({
-    description     = optional(string, "")
-    direction       = string
-    protocol        = optional(string, "tcp")
-    port            = optional(string, null)
-    source_ips      = optional(list(string), [])
-    destination_ips = optional(list(string), [])
-  }))
-
+  type        = list(any)
   default     = []
   description = "Additional firewall rules to apply to the cluster."
-
-  validation {
-    condition = alltrue([
-      for rule in var.extra_firewall_rules : (
-        contains(["in", "out"], rule.direction) &&
-        (rule.direction == "in" ? length(rule.source_ips) > 0 : true) &&
-        (rule.direction == "out" ? length(rule.destination_ips) > 0 : true) &&
-        (contains(["tcp", "udp"], rule.protocol) ? rule.port != null && rule.port != "" : true)
-      )
-    ])
-    error_message = "Invalid firewall rule configuration: direction must be 'in' or 'out'; source_ips must be defined (non-empty) for 'in' rules; destination_ips must be defined (non-empty) for 'out' rules; for 'tcp' or 'udp' protocols, port must be defined (non-null and non-empty)."
-  }
 }
 
 variable "firewall_kube_api_source" {
@@ -707,7 +687,7 @@ variable "firewall_ssh_source" {
 variable "myipv4_ref" {
   type        = string
   default     = "myipv4"
-  description = "Name to be used in firewall rules as a substitute for your own IPv4 address."
+  description = "Placeholder string that can be used in firewall source/destination IP lists and will be replaced by the apply runner's public IPv4 /32."
 }
 
 variable "use_cluster_name_in_node_name" {

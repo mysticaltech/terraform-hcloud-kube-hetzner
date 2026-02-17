@@ -82,7 +82,7 @@ resource "hcloud_firewall" "k3s" {
   lifecycle {
     precondition {
       condition     = !local.is_ref_myipv4_used || local.my_public_ipv4_cidr != null
-      error_message = "Failed to retrieve public IPv4 address for 'myipv4' replacement. Please check your internet connection and ensure 'dig' is installed."
+      error_message = "Unable to resolve 'myipv4' to a valid public IPv4 address from https://ipv4.icanhazip.com."
     }
   }
 }
