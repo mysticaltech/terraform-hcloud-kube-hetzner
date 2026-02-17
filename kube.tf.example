@@ -538,6 +538,16 @@ module "kube-hetzner" {
   # See https://github.com/kubernetes-csi/csi-driver-smb/releases for the available versions.
   # csi_driver_smb_version = "v1.16.0"
 
+  # Enable ExternalDNS (default: false).
+  # Supported providers: "hetzner", "cloudflare".
+  # enable_external_dns = true
+  # external_dns_provider = "hetzner"
+  # external_dns_version = "*"
+  # external_dns_domain_filters = ["example.com"]
+  # external_dns_txt_owner_id = "my-cluster"
+  # external_dns_hcloud_token = var.hcloud_token
+  # external_dns_cloudflare_api_token = ""
+
   # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
   # you install your own version of longhorn outside of this module.
   # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
@@ -1201,6 +1211,21 @@ encryption:
   enabled: true
   type: wireguard
   EOT */
+
+  # ExternalDNS, all Helm values can be found at https://github.com/kubernetes-sigs/external-dns/tree/master/charts/external-dns
+  # If you want to merge extra values into defaults (or external_dns_values), use external_dns_merge_values.
+  /*   external_dns_values = <<-EOT
+sources:
+  - service
+  - ingress
+policy: upsert-only
+registry: txt
+txtOwnerId: "my-cluster"
+EOT */
+
+  /*   external_dns_merge_values = <<-EOT
+logLevel: debug
+EOT */
 
   # If you want to use a specific cert-manager helm chart version, set it below; otherwise, leave them as-is for the latest versions.
   # cert_manager_version = ""

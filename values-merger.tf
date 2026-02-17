@@ -53,3 +53,10 @@ module "values_merger_cert_manager" {
   override_values = var.cert_manager_values
   merge_values    = var.cert_manager_merge_values
 }
+
+module "values_merger_external_dns" {
+  source          = "./modules/values_merger"
+  default_values  = local.external_dns_values_default
+  override_values = var.external_dns_values
+  merge_values    = var.external_dns_merge_values
+}

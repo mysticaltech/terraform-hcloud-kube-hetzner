@@ -592,6 +592,19 @@ resource "terraform_data" "kustomization" {
     destination = "/var/post_install/csi-driver-smb.yaml"
   }
 
+  # Upload the ExternalDNS config
+  provisioner "file" {
+    content = var.enable_external_dns ? templatefile(
+      "${path.module}/templates/external_dns.yaml.tpl",
+      {
+        version   = var.external_dns_version
+        bootstrap = var.external_dns_helmchart_bootstrap
+        values    = indent(4, local.external_dns_values)
+      }
+    ) : ""
+    destination = "/var/post_install/external_dns.yaml"
+  }
+
   # Upload the cert-manager config
   provisioner "file" {
     content = templatefile(
@@ -877,6 +890,19 @@ resource "null_resource" "rke2_kustomization" {
         values    = indent(4, local.csi_driver_smb_values)
     })
     destination = "/var/post_install/csi-driver-smb.yaml"
+  }
+
+  # Upload the ExternalDNS config
+  provisioner "file" {
+    content = var.enable_external_dns ? templatefile(
+      "${path.module}/templates/external_dns.yaml.tpl",
+      {
+        version   = var.external_dns_version
+        bootstrap = var.external_dns_helmchart_bootstrap
+        values    = indent(4, local.external_dns_values)
+      }
+    ) : ""
+    destination = "/var/post_install/external_dns.yaml"
   }
 
   # Upload the cert-manager config

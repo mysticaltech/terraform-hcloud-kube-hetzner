@@ -1283,6 +1283,90 @@ variable "csi_driver_smb_values" {
   description = "Additional helm values file to pass to csi-driver-smb as 'valuesContent' at the HelmChart."
 }
 
+variable "enable_external_dns" {
+  type        = bool
+  default     = false
+  description = "Whether or not to enable ExternalDNS."
+}
+
+variable "external_dns_provider" {
+  type        = string
+  default     = "hetzner"
+  description = "ExternalDNS provider. Supported values: hetzner, cloudflare."
+
+  validation {
+    condition     = contains(["hetzner", "cloudflare"], var.external_dns_provider)
+    error_message = "external_dns_provider must be either 'hetzner' or 'cloudflare'."
+  }
+}
+
+variable "external_dns_version" {
+  type        = string
+  default     = "*"
+  description = "Version of ExternalDNS Helm chart."
+}
+
+variable "external_dns_helmchart_bootstrap" {
+  type        = bool
+  default     = false
+  description = "Whether the ExternalDNS HelmChart shall be run on control-plane nodes."
+}
+
+variable "external_dns_domain_filters" {
+  type        = list(string)
+  default     = []
+  description = "Optional list of domain filters for ExternalDNS."
+}
+
+variable "external_dns_txt_owner_id" {
+  type        = string
+  default     = ""
+  description = "TXT owner ID used by ExternalDNS. Defaults to cluster_name when empty."
+}
+
+variable "external_dns_hcloud_token" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Hetzner API token for ExternalDNS when provider is 'hetzner'. Defaults to hcloud_token when empty."
+}
+
+variable "external_dns_cloudflare_api_token" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Cloudflare API token for ExternalDNS when provider is 'cloudflare'."
+
+  validation {
+    condition     = !var.enable_external_dns || var.external_dns_provider != "cloudflare" || var.external_dns_values != "" || var.external_dns_cloudflare_api_token != ""
+    error_message = "When enable_external_dns=true and external_dns_provider=cloudflare, set external_dns_cloudflare_api_token or provide custom external_dns_values."
+  }
+}
+
+variable "external_dns_values" {
+  type        = string
+  default     = ""
+  description = "Additional helm values file to pass to ExternalDNS as 'valuesContent' at the HelmChart."
+}
+
+variable "external_dns_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or external_dns_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.external_dns_merge_values == "" || can(yamldecode(var.external_dns_merge_values))
+    error_message = "external_dns_merge_values must be valid YAML format or empty string."
+  }
+}
+
+check "external_dns_hetzner_token_required" {
+  assert {
+    condition     = !var.enable_external_dns || var.external_dns_provider != "hetzner" || var.external_dns_values != "" || var.external_dns_hcloud_token != "" || var.hcloud_token != ""
+    error_message = "When enable_external_dns=true and external_dns_provider=hetzner, set external_dns_hcloud_token (or hcloud_token) or provide custom external_dns_values."
+  }
+}
+
 variable "enable_cert_manager" {
   type        = bool
   default     = true

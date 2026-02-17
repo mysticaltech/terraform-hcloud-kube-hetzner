@@ -255,6 +255,7 @@ locals {
       var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
       var.enable_longhorn ? ["longhorn.yaml"] : [],
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
+      var.enable_external_dns ? ["external_dns.yaml"] : [],
       var.enable_cert_manager || var.enable_rancher ? ["cert_manager.yaml"] : [],
       var.enable_rancher ? ["rancher.yaml"] : [],
       var.rancher_registration_manifest_url != "" ? [var.rancher_registration_manifest_url] : []
@@ -1339,6 +1340,34 @@ extraArgs:
   EOT
 
 cert_manager_values = module.values_merger_cert_manager.values
+
+external_dns_values_default = <<EOT
+provider: ${var.external_dns_provider}
+sources:
+  - service
+  - ingress
+policy: upsert-only
+registry: txt
+txtOwnerId: "${var.external_dns_txt_owner_id != "" ? var.external_dns_txt_owner_id : var.cluster_name}"
+%{if length(var.external_dns_domain_filters) > 0~}
+domainFilters:
+%{for domain in var.external_dns_domain_filters~}
+  - "${domain}"
+%{endfor~}
+%{endif~}
+%{if var.external_dns_provider == "hetzner"~}
+env:
+  - name: HCLOUD_TOKEN
+    value: "${var.external_dns_hcloud_token != "" ? var.external_dns_hcloud_token : var.hcloud_token}"
+%{endif~}
+%{if var.external_dns_provider == "cloudflare"~}
+env:
+  - name: CF_API_TOKEN
+    value: "${var.external_dns_cloudflare_api_token}"
+%{endif~}
+EOT
+
+external_dns_values = module.values_merger_external_dns.values
 
 kured_options = merge({
   "reboot-command" : "/usr/bin/systemctl reboot",
