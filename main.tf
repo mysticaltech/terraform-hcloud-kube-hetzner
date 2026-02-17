@@ -37,6 +37,13 @@ data "hcloud_network" "k3s" {
   id = local.primary_network_id
 }
 
+check "public_join_endpoint_requires_public_control_plane_lb" {
+  assert {
+    condition     = !local.any_public_join_endpoint || (var.use_control_plane_lb && var.control_plane_lb_enable_public_interface)
+    error_message = "join_endpoint_type=\"public\" requires use_control_plane_lb=true and control_plane_lb_enable_public_interface=true."
+  }
+}
+
 
 # We start from the end of the subnets cidr array,
 # as we would have fewer control plane nodepools, than agent ones.

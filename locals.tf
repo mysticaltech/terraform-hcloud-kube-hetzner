@@ -12,8 +12,19 @@ locals {
 
   kubernetes_distribution = var.kubernetes_distribution_type
 
-  # k3s endpoint used for agent registration, respects control_plane_endpoint override
-  k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
+  control_plane_lb_private_ipv4 = var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : null
+  control_plane_lb_public_ipv4  = var.use_control_plane_lb ? hcloud_load_balancer.control_plane.*.ipv4[0] : null
+
+  # Default private registration endpoints.
+  k3s_endpoint_private  = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? local.control_plane_lb_private_ipv4 : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
+  rke2_endpoint_private = "https://${var.use_control_plane_lb ? local.control_plane_lb_private_ipv4 : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345"
+
+  # Public registration endpoints used when join_endpoint_type == "public".
+  k3s_endpoint_public  = local.control_plane_lb_public_ipv4 != null ? "https://${local.control_plane_lb_public_ipv4}:6443" : null
+  rke2_endpoint_public = local.control_plane_lb_public_ipv4 != null ? "https://${local.control_plane_lb_public_ipv4}:9345" : null
+
+  # Keep output behavior stable: default endpoint remains private unless explicitly overridden.
+  k3s_endpoint = local.k3s_endpoint_private
 
   ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : data.github_release.hetzner_ccm[0].release_tag
   csi_version    = length(data.github_release.hetzner_csi) == 0 ? var.hetzner_csi_version : data.github_release.hetzner_csi[0].release_tag
@@ -24,6 +35,7 @@ locals {
   kured_yaml_suffix = provider::semvers::compare(local.kured_version, "1.20.0") >= 0 ? "combined" : "dockerhub"
 
   cilium_ipv4_native_routing_cidr = coalesce(var.cilium_ipv4_native_routing_cidr, var.cluster_ipv4_cidr)
+  cilium_routing_mode_effective   = local.any_public_join_endpoint ? "tunnel" : var.cilium_routing_mode
 
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
@@ -541,6 +553,7 @@ EOT
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
         network_key : local.control_plane_nodepool_network_keys[pool_index],
+        join_endpoint_type : nodepool_obj.join_endpoint_type,
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
       }
@@ -574,6 +587,7 @@ EOT
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
         network_key : local.agent_nodepool_network_keys[pool_index],
+        join_endpoint_type : nodepool_obj.join_endpoint_type,
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
       }
@@ -608,6 +622,7 @@ EOT
           disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
           network_id : nodepool_obj.network_id,
           network_key : local.agent_nodepool_network_keys[pool_index],
+          join_endpoint_type : nodepool_obj.join_endpoint_type,
           extra_write_files : nodepool_obj.extra_write_files,
           extra_runcmd : nodepool_obj.extra_runcmd,
         },
@@ -630,6 +645,11 @@ EOT
     local.agent_nodes_from_integer_counts,
     local.agent_nodes_from_maps_for_counts,
   )
+
+  any_public_join_endpoint = anytrue(concat(
+    [for node in values(local.control_plane_nodes) : node.join_endpoint_type == "public"],
+    [for node in values(local.agent_nodes) : node.join_endpoint_type == "public"]
+  ))
 
   default_autoscaler_os = length(local.existing_servers_info) == 0 ? "leapmicro" : (
     length(local.existing_cluster_os_labels) == 1 ? local.existing_cluster_os_labels[0] : "microos"
@@ -846,6 +866,15 @@ EOT
         source_ips  = var.firewall_kube_api_source
       }
     ],
+    local.any_public_join_endpoint ? [
+      {
+        description = "Allow Incoming K3s/RKE2 Join Traffic from Primary Private Network"
+        direction   = "in"
+        protocol    = "tcp"
+        port        = "9345"
+        source_ips  = [local.network_ip_ranges[local.primary_network_key]]
+      }
+    ] : [],
     !var.restrict_outbound_traffic ? [] : [
       # Allow basic out traffic
       # ICMP to ping outside services
@@ -1048,8 +1077,8 @@ k8sServiceHost: "127.0.0.1"
 k8sServicePort: "${local.kubernetes_distribution == "rke2" ? "6443" : "6444"}"
 
 # Set Tunnel Mode or Native Routing Mode (supported by Hetzner CCM Route Controller)
-routingMode: "${var.cilium_routing_mode}"
-%{if var.cilium_routing_mode == "native"~}
+routingMode: "${local.cilium_routing_mode_effective}"
+%{if local.cilium_routing_mode_effective == "native"~}
 # Set the native routable CIDR
 ipv4NativeRoutingCIDR: "${local.cilium_ipv4_native_routing_cidr}"
 

@@ -109,6 +109,15 @@ resource "hcloud_load_balancer_service" "control_plane" {
   listen_port      = "6443"
 }
 
+resource "hcloud_load_balancer_service" "control_plane_registration" {
+  count = var.use_control_plane_lb ? 1 : 0
+
+  load_balancer_id = hcloud_load_balancer.control_plane.*.id[0]
+  protocol         = "tcp"
+  destination_port = "9345"
+  listen_port      = "9345"
+}
+
 locals {
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
 
@@ -128,7 +137,7 @@ locals {
       server = (
         length(module.control_planes) == 1 ? null :
         module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ? null :
-        "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345"
+        (v.join_endpoint_type == "public" && local.rke2_endpoint_public != null ? local.rke2_endpoint_public : local.rke2_endpoint_private)
       )
       token                       = local.k3s_token
       disable-cloud-controller    = true
@@ -150,6 +159,13 @@ locals {
       write-kubeconfig-mode = "0644" # needed for import into rancher
       cni                   = "none"
     },
+    v.join_endpoint_type == "public" ? {
+      "node-external-ip"    = module.control_planes[k].ipv4_address
+      "flannel-external-ip" = true
+    } : {},
+    v.join_endpoint_type == "public" && var.cni_plugin == "flannel" ? {
+      "flannel-backend" = "wireguard-native"
+    } : {},
     var.use_control_plane_lb ? {
       tls-san = concat([
         hcloud_load_balancer.control_plane.*.ipv4[0],
@@ -173,16 +189,17 @@ locals {
   k3s-config = { for k, v in local.control_plane_nodes : k => merge(
     {
       node-name = module.control_planes[k].name
-      server = length(module.control_planes) == 1 ? null : coalesce(
-        var.control_plane_endpoint,
-        "https://${
-          var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] :
-          (
-            module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ?
-            module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
-            module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
-          )
-        }:6443"
+      server = length(module.control_planes) == 1 ? null : (
+        var.control_plane_endpoint != null ? var.control_plane_endpoint :
+        (v.join_endpoint_type == "public" && local.k3s_endpoint_public != null ? local.k3s_endpoint_public :
+          "https://${
+            var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] :
+            (
+              module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ?
+              module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
+              module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+            )
+        }:6443")
       )
       token                    = local.k3s_token
       disable-cloud-controller = true
@@ -203,6 +220,13 @@ locals {
       cluster-dns                 = local.cluster_dns_ipv4
       write-kubeconfig-mode       = "0644" # needed for import into rancher
     },
+    v.join_endpoint_type == "public" ? {
+      "node-external-ip"    = module.control_planes[k].ipv4_address
+      "flannel-external-ip" = true
+    } : {},
+    v.join_endpoint_type == "public" && var.cni_plugin == "flannel" ? {
+      "flannel-backend" = "wireguard-native"
+    } : {},
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
     var.use_control_plane_lb ? {
       tls-san = concat(

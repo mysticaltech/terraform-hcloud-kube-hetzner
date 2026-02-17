@@ -347,6 +347,7 @@ variable "control_plane_nodepools" {
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
+    join_endpoint_type         = optional(string, "private")
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
   }))
@@ -373,6 +374,13 @@ variable "control_plane_nodepools" {
   validation {
     condition     = length(var.control_plane_nodepools) > 0
     error_message = "At least one control plane nodepool is required. Kubernetes cannot run without control plane nodes."
+  }
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      contains(["private", "public"], control_plane_nodepool.join_endpoint_type)
+    ])
+    error_message = "control_plane_nodepools.join_endpoint_type must be either \"private\" or \"public\"."
   }
   validation {
     condition     = length(var.control_plane_nodepools) == 0 || sum([for v in var.control_plane_nodepools : v.count]) >= 1
@@ -413,6 +421,7 @@ variable "agent_nodepools" {
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
+    join_endpoint_type         = optional(string, "private")
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
     nodes = optional(map(object({
@@ -433,6 +442,7 @@ variable "agent_nodepools" {
       placement_group            = optional(string, null)
       append_index_to_node_name  = optional(bool, true)
       os                         = optional(string)
+      join_endpoint_type         = optional(string, null)
       extra_write_files          = optional(list(any), [])
       extra_runcmd               = optional(list(any), [])
     })))
@@ -473,6 +483,25 @@ variable "agent_nodepools" {
     Invalid 'os' value at the node level. Each node's 'os' within a nodepool must be either 'microos', 'leapmicro', or unset.
     Please correct any invalid node 'os' values.
     EOF
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      contains(["private", "public"], agent_nodepool.join_endpoint_type)
+    ])
+    error_message = "agent_nodepools.join_endpoint_type must be either \"private\" or \"public\"."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.join_endpoint_type == null || contains(["private", "public"], agent_node.join_endpoint_type)
+      ])
+    ])
+    error_message = "Node-level join_endpoint_type must be either \"private\", \"public\", or null."
   }
 
   validation {

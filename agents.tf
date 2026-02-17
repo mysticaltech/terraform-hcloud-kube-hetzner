@@ -62,7 +62,7 @@ locals {
   k3s-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
-      server    = local.k3s_endpoint
+      server    = v.join_endpoint_type == "public" && local.k3s_endpoint_public != null ? local.k3s_endpoint_public : local.k3s_endpoint_private
       token     = local.k3s_token
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
       kubelet-arg = concat(
@@ -76,6 +76,8 @@ locals {
       node-label    = v.labels
       node-taint    = v.taints
     },
+    v.join_endpoint_type == "public" ? { "node-external-ip" = module.agents[k].ipv4_address } : {},
+    v.join_endpoint_type == "public" && var.cni_plugin == "flannel" ? { "flannel-backend" = "wireguard-native" } : {},
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
     # Force selinux=false if disable_selinux = true.
@@ -87,7 +89,7 @@ locals {
   rke2-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
-      server    = "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345"
+      server    = v.join_endpoint_type == "public" && local.rke2_endpoint_public != null ? local.rke2_endpoint_public : local.rke2_endpoint_private
       token     = local.k3s_token
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
       kubelet-arg = concat(
@@ -100,6 +102,8 @@ locals {
       node-label = v.labels
       node-taint = v.taints
     },
+    v.join_endpoint_type == "public" ? { "node-external-ip" = module.agents[k].ipv4_address } : {},
+    v.join_endpoint_type == "public" && var.cni_plugin == "flannel" ? { "flannel-backend" = "wireguard-native" } : {},
     var.agent_nodes_custom_config,
     # Force selinux=false if disable_selinux = true.
     var.disable_selinux
