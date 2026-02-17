@@ -391,7 +391,7 @@ variable "control_plane_nodepools" {
     hcloud_labels              = optional(map(string), {})
     labels                     = list(string)
     taints                     = list(string)
-    count                      = number
+    count                      = optional(number, null)
     swap_size                  = optional(string, "")
     zram_size                  = optional(string, "")
     kubelet_args               = optional(list(string), ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
@@ -407,6 +407,25 @@ variable "control_plane_nodepools" {
     keep_disk                  = optional(bool)
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
+    nodes = optional(map(object({
+      server_type                = optional(string)
+      location                   = optional(string)
+      backups                    = optional(bool)
+      labels                     = optional(list(string))
+      taints                     = optional(list(string))
+      swap_size                  = optional(string, "")
+      zram_size                  = optional(string, "")
+      kubelet_args               = optional(list(string), ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+      selinux                    = optional(bool, true)
+      placement_group_compat_idx = optional(number, 0)
+      placement_group            = optional(string, null)
+      os                         = optional(string)
+      disable_ipv4               = optional(bool, false)
+      disable_ipv6               = optional(bool, false)
+      network_id                 = optional(number, 0)
+      extra_write_files          = optional(list(any), [])
+      extra_runcmd               = optional(list(any), [])
+    })))
   }))
   default = []
   validation {
@@ -429,11 +448,35 @@ variable "control_plane_nodepools" {
   }
 
   validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      alltrue([
+        for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+        control_plane_node.os == null || control_plane_node.os == "microos" || control_plane_node.os == "leapmicro"
+      ])
+    ])
+    error_message = "The node os must be either 'microos' or 'leapmicro'."
+  }
+
+  validation {
+    condition     = alltrue([for control_plane_nodepool in var.control_plane_nodepools : (control_plane_nodepool.count == null) != (control_plane_nodepool.nodes == null)])
+    error_message = "Set either nodes or count per control_plane_nodepool, not both."
+  }
+
+  validation {
+    condition = alltrue([for control_plane_nodepool in var.control_plane_nodepools :
+      alltrue([for control_plane_key, _ in coalesce(control_plane_nodepool.nodes, {}) : can(tonumber(control_plane_key)) && tonumber(control_plane_key) == floor(tonumber(control_plane_key)) && 0 <= tonumber(control_plane_key) && tonumber(control_plane_key) < 154])
+    ])
+    # 154 because the private ip is derived from tonumber(key) + 101. See private_ipv4 in control_planes.tf
+    error_message = "The key for each individual control plane node in a nodepool must be a stable integer in the range [0, 153] cast as a string."
+  }
+
+  validation {
     condition     = length(var.control_plane_nodepools) > 0
     error_message = "At least one control plane nodepool is required. Kubernetes cannot run without control plane nodes."
   }
   validation {
-    condition     = length(var.control_plane_nodepools) == 0 || sum([for v in var.control_plane_nodepools : v.count]) >= 1
+    condition     = length(var.control_plane_nodepools) == 0 || sum([for v in var.control_plane_nodepools : length(coalesce(v.nodes, {})) + coalesce(v.count, 0)]) >= 1
     error_message = "At least one control plane node is required (total count across all control_plane_nodepools must be >= 1)."
   }
 }

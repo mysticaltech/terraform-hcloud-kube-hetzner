@@ -492,9 +492,9 @@ EOT
     )
   }
 
-  control_plane_nodes = merge([
+  control_plane_nodes_from_integer_counts = merge([
     for pool_index, nodepool_obj in var.control_plane_nodepools : {
-      for node_index in range(nodepool_obj.count) :
+      for node_index in range(coalesce(nodepool_obj.count, 0)) :
       format("%s-%s-%s", pool_index, node_index, nodepool_obj.name) => {
         nodepool_name : nodepool_obj.name,
         server_type : nodepool_obj.server_type,
@@ -522,6 +522,47 @@ EOT
       }
     }
   ]...)
+
+  control_plane_nodes_from_maps_for_counts = merge([
+    for pool_index, nodepool_obj in var.control_plane_nodepools : {
+      for node_key, node_obj in coalesce(nodepool_obj.nodes, {}) :
+      format("%s-%s-%s", pool_index, node_key, nodepool_obj.name) => merge(
+        {
+          nodepool_name : nodepool_obj.name,
+          server_type : nodepool_obj.server_type,
+          location : nodepool_obj.location,
+          labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+          taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints)),
+          kubelet_args : nodepool_obj.kubelet_args,
+          backups : nodepool_obj.backups,
+          swap_size : nodepool_obj.swap_size,
+          zram_size : nodepool_obj.zram_size,
+          selinux : nodepool_obj.selinux,
+          os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name]),
+          placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
+          placement_group : nodepool_obj.placement_group,
+          index : floor(tonumber(node_key)),
+          disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
+          disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+          network_id : nodepool_obj.network_id,
+          extra_write_files : nodepool_obj.extra_write_files,
+          extra_runcmd : nodepool_obj.extra_runcmd,
+        },
+        { for key, value in node_obj : key => value if value != null },
+        {
+          labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
+          taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
+          extra_write_files : concat(nodepool_obj.extra_write_files, coalesce(node_obj.extra_write_files, [])),
+          extra_runcmd : concat(nodepool_obj.extra_runcmd, coalesce(node_obj.extra_runcmd, [])),
+        }
+      )
+    }
+  ]...)
+
+  control_plane_nodes = merge(
+    local.control_plane_nodes_from_integer_counts,
+    local.control_plane_nodes_from_maps_for_counts,
+  )
 
   agent_nodes_from_integer_counts = merge([
     for pool_index, nodepool_obj in var.agent_nodepools : {
@@ -713,7 +754,7 @@ EOT
   network_gw_ipv4 = cidrhost(var.network_ipv4_cidr, 1)
 
   # if we are in a single cluster config, we use the default klipper lb instead of Hetzner LB
-  control_plane_count    = sum([for v in var.control_plane_nodepools : v.count])
+  control_plane_count    = length(var.control_plane_nodepools) > 0 ? sum([for v in var.control_plane_nodepools : length(coalesce(v.nodes, {})) + coalesce(v.count, 0)]) : 0
   agent_count            = length(var.agent_nodepools) > 0 ? sum([for v in var.agent_nodepools : length(coalesce(v.nodes, {})) + coalesce(v.count, 0)]) : 0
   autoscaler_max_count   = length(var.autoscaler_nodepools) > 0 ? sum([for v in var.autoscaler_nodepools : v.max_nodes]) : 0
   is_single_node_cluster = (local.control_plane_count + local.agent_count + local.autoscaler_max_count) == 1
