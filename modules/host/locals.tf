@@ -24,5 +24,14 @@ locals {
     )
   )
 
-  provisioner_connection_host = trimspace(var.connection_host) != "" ? var.connection_host : local.default_connection_host
+  map_connection_host = coalesce(
+    trimspace(lookup(var.node_connection_overrides, local.name, "")) != "" ? trimspace(lookup(var.node_connection_overrides, local.name, "")) : null,
+    trimspace(lookup(var.node_connection_overrides, var.name, "")) != "" ? trimspace(lookup(var.node_connection_overrides, var.name, "")) : null
+  )
+
+  provisioner_connection_host = coalesce(
+    trimspace(var.connection_host) != "" ? trimspace(var.connection_host) : null,
+    local.map_connection_host,
+    local.default_connection_host
+  )
 }

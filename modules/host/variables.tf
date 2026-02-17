@@ -15,6 +15,12 @@ variable "connection_host" {
   default     = ""
 }
 
+variable "node_connection_overrides" {
+  description = "Optional SSH host overrides keyed by node name (final or base name)."
+  type        = map(string)
+  default     = {}
+}
+
 variable "os_snapshot_id" {
   description = "OS snapshot ID to be used."
   type        = string
