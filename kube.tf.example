@@ -136,6 +136,8 @@ module "kube-hetzner" {
       server_type = "cx23",
       location    = "nbg1",
       labels      = [],
+      # Optional Hetzner Cloud labels attached to server resources.
+      # hcloud_labels = { "environment" = "production" }
       taints      = [],
       count       = 1
       # os          = "leapmicro" # valid: "leapmicro" | "microos"
@@ -164,6 +166,8 @@ module "kube-hetzner" {
       server_type = "cx23",
       location    = "nbg1",
       labels      = [],
+      # Optional Hetzner Cloud labels attached to server resources.
+      # hcloud_labels = { "workload" = "general" }
       taints      = [],
       count       = 1
 

@@ -79,7 +79,7 @@ module "agents" {
   network_id                       = data.hcloud_network.k3s.id
   private_ipv4                     = null
 
-  labels = merge(local.labels, local.labels_agent_node, { "kube-hetzner/os" = each.value.os })
+  labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
