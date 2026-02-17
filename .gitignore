@@ -61,3 +61,12 @@ requirements/*
 # Local triage documentation
 issues/
 prs/
+
+# Local analysis/indexing artifacts
+.tldr/
+.tldrignore
+.colgrep/
+
+# Local backlog/planning scratch artifacts
+tasks/
+scripts/process_ideas_v3.py
