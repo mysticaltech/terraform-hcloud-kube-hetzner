@@ -165,14 +165,9 @@ module "kube-hetzner" {
       # disable_ipv4 = true
       # disable_ipv6 = true
 
-      # Optional: attach one or more Hetzner Volumes to every node in this nodepool.
-      # attached_volumes = [
-      #   {
-      #     size       = 20
-      #     mount_path = "/var/lib/control-plane-data"
-      #     filesystem = "ext4" # ext4 or xfs
-      #   }
-      # ]
+      # Optional Floating IP support for stable external node addressing:
+      # floating_ip    = true         # Create and assign a new Floating IP
+      # floating_ip_id = 1234567      # Assign an existing Floating IP instead of creating one
     },
     {
       name        = "control-plane-nbg1",
@@ -307,8 +302,7 @@ module "kube-hetzner" {
         "node.kubernetes.io/role=egress:NoSchedule"
       ],
       floating_ip = true
-      # Optional: choose floating IP family ("ipv4" default, or "ipv6").
-      # floating_ip_type = "ipv6"
+      # floating_ip_id = 1234567 # Assign an existing Floating IP instead of creating a new one
       # Optionally associate a reverse DNS entry with the floating IP(s).
       # This is useful in combination with the Egress Gateway feature for hosting certain services in the cluster, such as email servers.
       # floating_ip_rns = "my.domain.com"
