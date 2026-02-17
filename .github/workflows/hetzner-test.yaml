@@ -1,0 +1,71 @@
+name: Test in Hetzner
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hetzner-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+  HCLOUD_CONTEXT: ${{ secrets.HCLOUD_CONTEXT }}
+  SNAPSHOT_ID_ARM: ${{ secrets.SNAPSHOT_ID_ARM }}
+  SNAPSHOT_ID_X86: ${{ secrets.SNAPSHOT_ID_X86 }}
+
+jobs:
+  tests:
+    name: Run Hetzner Tests
+    runs-on: ubuntu-latest
+    environment: hetzner-test
+    if: ${{ vars.TEST_IN_HETZNER == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+
+    steps:
+      - name: Add env mask
+        run: |
+          echo "::add-mask::${{ secrets.HCLOUD_TOKEN }}"
+          echo "::add-mask::${{ secrets.HCLOUD_CONTEXT }}"
+          echo "::add-mask::${{ secrets.SNAPSHOT_ID_ARM }}"
+          echo "::add-mask::${{ secrets.SNAPSHOT_ID_X86 }}"
+
+      - name: Check prerequisites
+        id: prerequisites
+        run: |
+          if [ -z "$SNAPSHOT_ID_ARM" ] || [ -z "$SNAPSHOT_ID_X86" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Snapshots are not configured, skipping workflow."
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.prerequisites.outputs.enabled == 'true'
+        uses: actions/checkout@v6
+
+      - name: Install Terraform
+        if: steps.prerequisites.outputs.enabled == 'true'
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Create SSH keys
+        if: steps.prerequisites.outputs.enabled == 'true'
+        run: ssh-keygen -f ~/.ssh/id_ed25519 -N ""
+
+      - name: Apply base example
+        if: steps.prerequisites.outputs.enabled == 'true'
+        timeout-minutes: 20
+        run: |
+          cp kube.tf.example kube.tf
+          terraform init
+          terraform validate
+          terraform apply -auto-approve
+
+      - name: Destroy cluster
+        if: steps.prerequisites.outputs.enabled == 'true' && always()
+        run: terraform destroy -auto-approve
