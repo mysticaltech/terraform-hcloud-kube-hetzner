@@ -148,7 +148,7 @@ variable "subnet_amount" {
     error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_amount or use a larger network."
   }
   validation {
-    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : 1)
+    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : (var.nat_router.enable_redundancy == false ? 1 : 2))
     error_message = "Subnet amount must be large enough so that a subnet for each agent pool, each control plane pool and (if enabled) the nat router can be created in the network."
   }
 }
@@ -177,11 +177,30 @@ variable "nat_router" {
   nullable    = true
   default     = null
   type = object({
-    server_type = string
-    location    = string
-    labels      = optional(map(string), {})
-    enable_sudo = optional(bool, false)
+    server_type       = string
+    location          = string
+    labels            = optional(map(string), {})
+    enable_sudo       = optional(bool, false)
+    enable_redundancy = optional(bool, false)
+    standby_location  = optional(string, "")
   })
+
+  validation {
+    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router.standby_location != ""
+    error_message = "When nat_router.enable_redundancy is true, standby_location must be provided."
+  }
+}
+
+variable "nat_router_hcloud_token" {
+  description = "API Token used by the nat-router to change ip assignment when nat_router.enable_redundancy is true."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router_hcloud_token != ""
+    error_message = "When nat_router.enable_redundancy is true, nat_router_hcloud_token must be provided."
+  }
 }
 
 variable "nat_router_subnet_index" {
@@ -885,6 +904,53 @@ variable "automatically_upgrade_k3s" {
   type        = bool
   default     = true
   description = "Whether to automatically upgrade k3s based on the selected channel."
+}
+
+variable "system_upgrade_schedule_window" {
+  type = object({
+    days      = optional(list(string), [])
+    startTime = optional(string, "")
+    endTime   = optional(string, "")
+    timeZone  = optional(string, "UTC")
+  })
+  default     = null
+  description = "Schedule window for k3s automated upgrades (system-upgrade-controller v0.15.0+). When set, upgrade jobs will only be created within the specified time window. 'days' accepts lowercase day names (e.g. [\"monday\",\"tuesday\"]). 'startTime'/'endTime' use HH:MM format. 'timeZone' defaults to UTC. See https://docs.k3s.io/upgrades/automated#scheduling-upgrades"
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      length(try(var.system_upgrade_schedule_window.days, [])) > 0 ||
+      coalesce(try(var.system_upgrade_schedule_window.startTime, ""), "") != "" ||
+      coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "") != ""
+    )
+    error_message = "system_upgrade_schedule_window must have at least one of 'days', 'startTime', or 'endTime' set when not null."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : alltrue([
+      for day in try(var.system_upgrade_schedule_window.days, []) :
+      can(regex("^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$", day))
+    ])
+    error_message = "system_upgrade_schedule_window.days must contain lowercase day names (monday-sunday)."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : alltrue([
+      for time_value in [
+        coalesce(try(var.system_upgrade_schedule_window.startTime, ""), ""),
+        coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "")
+      ] :
+      time_value == "" || can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", time_value))
+    ])
+    error_message = "system_upgrade_schedule_window.startTime and endTime must use 24-hour HH:MM format when set."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "") == "" ||
+      can(regex("^[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)*$", coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "")))
+    )
+    error_message = "system_upgrade_schedule_window.timeZone must be a valid IANA timezone name (for example, UTC or Europe/Budapest)."
+  }
 }
 
 variable "automatically_upgrade_os" {
