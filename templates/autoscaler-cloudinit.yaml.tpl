@@ -56,7 +56,6 @@ ${cloudinit_write_files_common}
     After=local-fs.target
     Before=k3s.service rke2-server.service rke2-agent.service network-pre.target
     ConditionSecurity=selinux
-    ConditionPathExists=!/var/lib/kube-hetzner/k8s-selinux-policy.applied
 
     [Service]
     Type=oneshot
@@ -72,9 +71,9 @@ ${cloudinit_write_files_common}
   path: /tmp/config.yaml
 
 # TODO: Extend this for rke2
-- content: ${base64encode(install_k3s_agent_script)}
+- content: ${base64encode(install_k8s_agent_script)}
   encoding: base64
-  path: /var/pre_install/install-k3s-agent.sh
+  path: /var/pre_install/install-k8s-agent.sh
 
 # Apply DNS config
 %{ if has_dns_servers ~}
@@ -230,5 +229,5 @@ ${cloudinit_runcmd_common}
   systemctl enable --now zram.service
 %{endif~}
 
-# Start the install-k3s-agent service
-- ['/bin/bash', '/var/pre_install/install-k3s-agent.sh']
+# Start the Kubernetes agent install script
+- ['/bin/bash', '/var/pre_install/install-k8s-agent.sh']

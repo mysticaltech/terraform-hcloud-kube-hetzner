@@ -75,8 +75,8 @@ module "control_planes" {
   keep_disk_size                   = coalesce(each.value.keep_disk, var.keep_disk_cp)
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
-  primary_ipv4_id                  = coalesce(each.value.primary_ipv4_id, try(hcloud_primary_ip.control_planes_ipv4[each.key].id, null))
-  primary_ipv6_id                  = coalesce(each.value.primary_ipv6_id, try(hcloud_primary_ip.control_planes_ipv6[each.key].id, null))
+  primary_ipv4_id                  = each.value.primary_ipv4_id != null ? each.value.primary_ipv4_id : try(hcloud_primary_ip.control_planes_ipv4[each.key].id, null)
+  primary_ipv6_id                  = each.value.primary_ipv6_id != null ? each.value.primary_ipv6_id : try(hcloud_primary_ip.control_planes_ipv6[each.key].id, null)
   ssh_bastion                      = local.ssh_bastion
   node_connection_overrides        = var.node_connection_overrides
   network_id                       = data.hcloud_network.k3s.id
@@ -162,7 +162,7 @@ resource "terraform_data" "configure_control_plane_floating_ip" {
 
       nmcli connection modify "$NM_CONNECTION" \
           ipv4.method manual \
-          ipv4.addresses ${local.control_plane_external_ipv4_by_node[each.key]}/32,${local.control_plane_ips[each.key]}/32 gw4 172.31.1.1 \
+          ipv4.addresses ${local.control_plane_external_ipv4_by_node[each.key]}/32,${module.control_planes[each.key].ipv4_address != null && module.control_planes[each.key].ipv4_address != "" ? module.control_planes[each.key].ipv4_address : module.control_planes[each.key].private_ipv4_address}/32 gw4 172.31.1.1 \
           ipv4.route-metric 100 \
       && nmcli connection up "$NM_CONNECTION"
       EOT
@@ -278,6 +278,11 @@ locals {
     k => "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${v.nodepool_name}"
   }
 
+  rke2_join_endpoint = coalesce(
+    var.control_plane_endpoint != null ? "https://${can(ipv6(local.control_plane_endpoint_host)) ? "[${local.control_plane_endpoint_host}]" : local.control_plane_endpoint_host}:9345" : null,
+    "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345",
+  )
+
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
 
   control_plane_ips = {
@@ -315,7 +320,7 @@ locals {
       server = (
         length(module.control_planes) == 1 ? null :
         module.control_planes[k].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ? null :
-        "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345"
+        local.rke2_join_endpoint
       )
       token                       = local.k3s_token
       disable-cloud-controller    = true
@@ -343,7 +348,9 @@ locals {
         compact([
           hcloud_load_balancer.control_plane.*.ipv4[0],
           hcloud_load_balancer_network.control_plane.*.ip[0],
-          local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null
+          local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
+          local.control_plane_endpoint_host,
+          !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
         ]),
         var.additional_tls_sans
       )

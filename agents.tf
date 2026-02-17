@@ -75,8 +75,8 @@ module "agents" {
   keep_disk_size                   = coalesce(each.value.keep_disk, var.keep_disk_agents)
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
-  primary_ipv4_id                  = coalesce(each.value.primary_ipv4_id, try(hcloud_primary_ip.agents_ipv4[each.key].id, null))
-  primary_ipv6_id                  = coalesce(each.value.primary_ipv6_id, try(hcloud_primary_ip.agents_ipv6[each.key].id, null))
+  primary_ipv4_id                  = each.value.primary_ipv4_id != null ? each.value.primary_ipv4_id : try(hcloud_primary_ip.agents_ipv4[each.key].id, null)
+  primary_ipv6_id                  = each.value.primary_ipv6_id != null ? each.value.primary_ipv6_id : try(hcloud_primary_ip.agents_ipv6[each.key].id, null)
   ssh_bastion                      = local.ssh_bastion
   node_connection_overrides        = var.node_connection_overrides
   network_id                       = data.hcloud_network.k3s.id
@@ -154,7 +154,7 @@ locals {
   rke2-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
-      server    = "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345"
+      server    = local.rke2_join_endpoint
       token     = local.k3s_token
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
       kubelet-arg = concat(
@@ -172,6 +172,7 @@ locals {
       node-external-ip = local.agent_external_ipv4_by_node[k]
     } : {},
     var.agent_nodes_custom_config,
+    local.prefer_bundled_bin_config,
     # Force selinux=false if disable_selinux = true.
     var.disable_selinux
     ? { selinux = false }

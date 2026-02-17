@@ -343,6 +343,13 @@ if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm 
   else
     echo "k3s SELinux policy file not found at /usr/share/selinux/packages/k3s.pp; skipping"
   fi
+
+  if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = "Enforcing" ]; then
+    if ! semodule -l 2>/dev/null | awk '{print $1}' | grep -qx "k3s"; then
+      echo "ERROR: SELinux is enforcing but k3s module is not loaded"
+      exit 1
+    fi
+  fi
 else
   echo "k3s-selinux package or semodule not available; skipping"
 fi

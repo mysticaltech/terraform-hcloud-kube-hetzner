@@ -149,9 +149,12 @@ data "cloudinit_config" "autoscaler_config" {
             selinux       = !var.disable_selinux
           },
           var.agent_nodes_custom_config,
-          local.prefer_bundled_bin_config
+          local.prefer_bundled_bin_config,
+          var.disable_selinux
+          ? { selinux = false }
+          : {}
         ))
-        install_k3s_agent_script = join("\n", concat(
+        install_k8s_agent_script = join("\n", concat(
           local.install_k8s_agent,
           local.kubernetes_distribution == "rke2" ? ["systemctl start rke2-agent", "systemctl enable rke2-agent"] : ["systemctl start k3s-agent"]
         ))
@@ -184,16 +187,23 @@ data "cloudinit_config" "autoscaler_config_rke2" {
         swap_size         = var.autoscaler_nodepools[count.index].swap_size
         zram_size         = var.autoscaler_nodepools[count.index].zram_size
         os                = local.autoscaler_nodepools_os[count.index]
-        k3s_config = yamlencode({
-          server = "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345"
-          token  = local.k3s_token
-          # Kubelet arg precedence (last wins): local.kubelet_arg > nodepool.kubelet_args > k3s_global_kubelet_args > k3s_autoscaler_kubelet_args
-          kubelet-arg = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? ["fail-swap-on=false"] : [], var.autoscaler_nodepools[count.index].kubelet_args, var.k3s_global_kubelet_args, var.k3s_autoscaler_kubelet_args)
-          node-label  = concat(local.default_agent_labels, [for k, v in var.autoscaler_nodepools[count.index].labels : "${k}=${v}"], var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? local.swap_node_label : [])
-          node-taint  = compact(concat(local.default_agent_taints, [for taint in var.autoscaler_nodepools[count.index].taints : "${taint.key}=${tostring(taint.value)}:${taint.effect}"]))
-          selinux     = !var.disable_selinux
-        })
-        install_k3s_agent_script     = join("\n", concat(local.install_k8s_agent, ["systemctl start rke2-agent", "systemctl enable rke2-agent"]))
+        k3s_config = yamlencode(merge(
+          {
+            server = local.rke2_join_endpoint
+            token  = local.k3s_token
+            # Kubelet arg precedence (last wins): local.kubelet_arg > nodepool.kubelet_args > k3s_global_kubelet_args > k3s_autoscaler_kubelet_args
+            kubelet-arg = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? ["fail-swap-on=false"] : [], var.autoscaler_nodepools[count.index].kubelet_args, var.k3s_global_kubelet_args, var.k3s_autoscaler_kubelet_args)
+            node-label  = concat(local.default_agent_labels, [for k, v in var.autoscaler_nodepools[count.index].labels : "${k}=${v}"], var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? local.swap_node_label : [])
+            node-taint  = compact(concat(local.default_agent_taints, [for taint in var.autoscaler_nodepools[count.index].taints : "${taint.key}=${tostring(taint.value)}:${taint.effect}"]))
+            selinux     = !var.disable_selinux
+          },
+          var.agent_nodes_custom_config,
+          local.prefer_bundled_bin_config,
+          var.disable_selinux
+          ? { selinux = false }
+          : {}
+        ))
+        install_k8s_agent_script     = join("\n", concat(local.install_k8s_agent, ["systemctl start rke2-agent", "systemctl enable rke2-agent"]))
         cloudinit_write_files_common = local.cloudinit_write_files_common
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
@@ -225,7 +235,7 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         os                = local.first_nodepool_os
         k3s_config = yamlencode(merge(
           {
-            server        = local.kubernetes_distribution == "rke2" ? "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345" : local.k3s_endpoint
+            server        = local.kubernetes_distribution == "rke2" ? local.rke2_join_endpoint : local.k3s_endpoint
             token         = local.k3s_token
             kubelet-arg   = local.kubelet_arg
             flannel-iface = local.flannel_iface
@@ -234,9 +244,12 @@ data "cloudinit_config" "autoscaler_legacy_config" {
             selinux       = !var.disable_selinux
           },
           var.agent_nodes_custom_config,
-          local.prefer_bundled_bin_config
+          local.prefer_bundled_bin_config,
+          var.disable_selinux
+          ? { selinux = false }
+          : {}
         ))
-        install_k3s_agent_script = join("\n", concat(
+        install_k8s_agent_script = join("\n", concat(
           local.install_k8s_agent,
           local.kubernetes_distribution == "rke2" ? ["systemctl start rke2-agent", "systemctl enable rke2-agent"] : ["systemctl start k3s-agent"]
         ))
