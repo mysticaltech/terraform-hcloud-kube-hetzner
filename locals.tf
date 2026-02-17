@@ -254,6 +254,7 @@ locals {
       local.kubernetes_distribution == "k3s" ? lookup(local.cni_install_resources, var.cni_plugin, []) : [],
       var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
       var.enable_longhorn ? ["longhorn.yaml"] : [],
+      var.enable_velero ? ["velero.yaml"] : [],
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
       var.enable_cert_manager || var.enable_rancher ? ["cert_manager.yaml"] : [],
       var.enable_rancher ? ["rancher.yaml"] : [],
@@ -1037,6 +1038,30 @@ persistence:
   EOT
 
   longhorn_values = module.values_merger_longhorn.values
+
+  velero_values_default = <<-EOT
+configuration:
+  backupStorageLocation:
+    - name: default
+      provider: aws
+      bucket: ${var.velero_s3_bucket}
+      default: true
+      config:
+        region: ${var.velero_s3_region}
+        s3Url: ${var.velero_s3_endpoint}
+        s3ForcePathStyle: true
+credentials:
+  useSecret: true
+  secretContents:
+    cloud: |
+      [default]
+      aws_access_key_id=${var.velero_s3_access_key}
+      aws_secret_access_key=${var.velero_s3_secret_key}
+snapshotsEnabled: false
+deployNodeAgent: true
+EOT
+
+  velero_values = module.values_merger_velero.values
 
   csi_driver_smb_values = var.csi_driver_smb_values != "" ? var.csi_driver_smb_values : <<EOT
   EOT
@@ -1832,6 +1857,17 @@ check "nat_router_requires_control_plane_lb" {
   assert {
     condition     = var.nat_router == null || var.use_control_plane_lb
     error_message = "When nat_router is enabled, use_control_plane_lb must be set to true."
+  }
+}
+
+check "velero_s3_credentials_required_when_enabled" {
+  assert {
+    condition = !var.enable_velero || (
+      var.velero_s3_bucket != "" &&
+      var.velero_s3_access_key != "" &&
+      var.velero_s3_secret_key != ""
+    )
+    error_message = "When enable_velero=true, velero_s3_bucket, velero_s3_access_key, and velero_s3_secret_key must be set."
   }
 }
 

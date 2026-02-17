@@ -532,6 +532,16 @@ module "kube-hetzner" {
   #   etcd-s3-region          = "<your-s3-bucket-region|usually required for aws>"
   # }
 
+  # Enable Velero backups to S3-compatible object storage (for example Hetzner Object Storage).
+  # enable_velero = true
+  # velero_s3_bucket = "k8s-backups"
+  # velero_s3_region = "eu-central"
+  # velero_s3_endpoint = "https://fsn1.your-objectstorage.com"
+  # velero_s3_access_key = "<access-key>"
+  # velero_s3_secret_key = "<secret-key>"
+  # velero_namespace = "velero"
+  # velero_version = "*"
+
   # To enable Hetzner Storage Box support, you can enable csi-driver-smb, default is "false".
   # enable_csi_driver_smb = true
   # If you want to specify the version for csi-driver-smb, set it below - otherwise it'll use the latest version available.

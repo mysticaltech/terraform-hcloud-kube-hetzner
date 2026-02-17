@@ -396,6 +396,7 @@ resource "terraform_data" "kustomization" {
       local.calico_values,
       local.cilium_values,
       local.longhorn_values,
+      local.velero_values,
       local.csi_driver_smb_values,
       local.cert_manager_values,
       local.rancher_values,
@@ -419,6 +420,7 @@ resource "terraform_data" "kustomization" {
       coalesce(var.cert_manager_version, "N/A"),
       coalesce(var.csi_driver_smb_version, "N/A"),
       coalesce(var.longhorn_version, "N/A"),
+      coalesce(var.velero_version, "N/A"),
       coalesce(var.rancher_version, "N/A"),
       coalesce(var.sys_upgrade_controller_version, "N/A"),
     ])
@@ -568,6 +570,19 @@ resource "terraform_data" "kustomization" {
     destination = "/var/post_install/longhorn.yaml"
   }
 
+  # Upload the Velero config
+  provisioner "file" {
+    content = templatefile(
+      "${path.module}/templates/velero.yaml.tpl",
+      {
+        velero_namespace = var.velero_namespace
+        version          = var.velero_version
+        bootstrap        = var.velero_helmchart_bootstrap
+        values           = indent(4, local.velero_values)
+    })
+    destination = "/var/post_install/velero.yaml"
+  }
+
   # Upload the csi-driver config (ignored if csi is disabled)
   provisioner "file" {
     content = var.disable_hetzner_csi ? "" : templatefile(
@@ -670,7 +685,7 @@ resource "terraform_data" "kustomization" {
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml",
         # Wait for system namespace deployments to become available
-        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
+        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${var.enable_velero ? var.velero_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
         # Wait for helm install jobs to complete (only in namespaces that have jobs)
         "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns get job -o name 2>/dev/null | grep -q . && kubectl -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
       ],
@@ -705,6 +720,7 @@ resource "null_resource" "rke2_kustomization" {
       local.calico_values,
       local.cilium_values,
       local.longhorn_values,
+      local.velero_values,
       local.csi_driver_smb_values,
       local.cert_manager_values,
       local.rancher_values,
@@ -726,6 +742,7 @@ resource "null_resource" "rke2_kustomization" {
       coalesce(var.cert_manager_version, "N/A"),
       coalesce(var.csi_driver_smb_version, "N/A"),
       coalesce(var.longhorn_version, "N/A"),
+      coalesce(var.velero_version, "N/A"),
       coalesce(var.rancher_version, "N/A"),
       coalesce(var.sys_upgrade_controller_version, "N/A"),
     ])
@@ -853,6 +870,19 @@ resource "null_resource" "rke2_kustomization" {
         values              = indent(4, local.longhorn_values)
     })
     destination = "/var/post_install/longhorn.yaml"
+  }
+
+  # Upload the Velero config
+  provisioner "file" {
+    content = templatefile(
+      "${path.module}/templates/velero.yaml.tpl",
+      {
+        velero_namespace = var.velero_namespace
+        version          = var.velero_version
+        bootstrap        = var.velero_helmchart_bootstrap
+        values           = indent(4, local.velero_values)
+    })
+    destination = "/var/post_install/velero.yaml"
   }
 
   # Upload the csi-driver config (ignored if csi is disabled)

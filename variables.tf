@@ -694,6 +694,79 @@ variable "etcd_s3_backup" {
   default     = {}
 }
 
+variable "enable_velero" {
+  type        = bool
+  default     = false
+  description = "Whether or not to enable Velero backups."
+}
+
+variable "velero_version" {
+  type        = string
+  default     = "*"
+  description = "Version of Velero. See https://github.com/vmware-tanzu/velero/releases for the available versions."
+}
+
+variable "velero_namespace" {
+  type        = string
+  default     = "velero"
+  description = "Namespace for Velero deployment."
+}
+
+variable "velero_helmchart_bootstrap" {
+  type        = bool
+  default     = false
+  description = "Whether the HelmChart Velero shall be run on control-plane nodes."
+}
+
+variable "velero_s3_bucket" {
+  type        = string
+  default     = ""
+  description = "S3 bucket name used by Velero for backups."
+}
+
+variable "velero_s3_region" {
+  type        = string
+  default     = "eu-central"
+  description = "S3 region used by Velero."
+}
+
+variable "velero_s3_endpoint" {
+  type        = string
+  default     = "https://fsn1.your-objectstorage.com"
+  description = "S3 endpoint URL used by Velero (for example, Hetzner Object Storage endpoint)."
+}
+
+variable "velero_s3_access_key" {
+  type        = string
+  default     = ""
+  description = "S3 access key used by Velero."
+  sensitive   = true
+}
+
+variable "velero_s3_secret_key" {
+  type        = string
+  default     = ""
+  description = "S3 secret key used by Velero."
+  sensitive   = true
+}
+
+variable "velero_values" {
+  type        = string
+  default     = ""
+  description = "Additional helm values file to pass to Velero as 'valuesContent' at the HelmChart."
+}
+
+variable "velero_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or velero_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.velero_merge_values == "" || can(yamldecode(var.velero_merge_values))
+    error_message = "velero_merge_values must be valid YAML format or empty string."
+  }
+}
+
 variable "ingress_controller" {
   type        = string
   default     = "traefik"

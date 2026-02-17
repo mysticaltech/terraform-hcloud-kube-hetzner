@@ -12,6 +12,13 @@ module "values_merger_longhorn" {
   merge_values    = var.longhorn_merge_values
 }
 
+module "values_merger_velero" {
+  source          = "./modules/values_merger"
+  default_values  = local.velero_values_default
+  override_values = var.velero_values
+  merge_values    = var.velero_merge_values
+}
+
 module "values_merger_nginx" {
   source          = "./modules/values_merger"
   default_values  = local.nginx_values_default
