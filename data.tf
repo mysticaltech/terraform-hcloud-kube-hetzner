@@ -67,14 +67,14 @@ data "hcloud_image" "microos_arm_snapshot" {
 
 data "hcloud_image" "leapmicro_x86_snapshot" {
   count             = var.enable_x86 && local.os_arch_requirements.leapmicro.x86 && var.leapmicro_x86_snapshot_id == "" ? 1 : 0
-  with_selector     = "leapmicro-snapshot=yes"
+  with_selector     = "leapmicro-snapshot=yes,kube-hetzner/os=leapmicro,kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
   with_architecture = "x86"
   most_recent       = true
 }
 
 data "hcloud_image" "leapmicro_arm_snapshot" {
   count             = var.enable_arm && local.os_arch_requirements.leapmicro.arm && var.leapmicro_arm_snapshot_id == "" ? 1 : 0
-  with_selector     = "leapmicro-snapshot=yes"
+  with_selector     = "leapmicro-snapshot=yes,kube-hetzner/os=leapmicro,kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
   with_architecture = "arm"
   most_recent       = true
 }

@@ -255,7 +255,9 @@ curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-he
 curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
 export HCLOUD_TOKEN="your_hcloud_token"
 packer init hcloud-leapmicro-snapshots.pkr.hcl
-packer build hcloud-leapmicro-snapshots.pkr.hcl
+for distro in k3s rke2; do
+  packer build -var "selinux_package_to_install=${distro}" hcloud-leapmicro-snapshots.pkr.hcl
+done
 # (optional legacy)
 # packer init hcloud-microos-snapshots.pkr.hcl
 # packer build hcloud-microos-snapshots.pkr.hcl
@@ -617,7 +619,9 @@ spec:
 **Create (recommended):**
 ```sh
 export HCLOUD_TOKEN=<your-token>
-packer build ./packer-template/hcloud-leapmicro-snapshots.pkr.hcl
+for distro in k3s rke2; do
+  packer build -var "selinux_package_to_install=${distro}" ./packer-template/hcloud-leapmicro-snapshots.pkr.hcl
+done
 ```
 
 **Create (legacy MicroOS):**
@@ -1180,7 +1184,7 @@ Update `version` in your kube.tf and run `terraform apply`.
 4. Useful commands:
 	   ```sh
 	   ../kube-hetzner/scripts/cleanup.sh
-	   packer build ../kube-hetzner/packer-template/hcloud-leapmicro-snapshots.pkr.hcl
+	   for distro in k3s rke2; do packer build -var "selinux_package_to_install=${distro}" ../kube-hetzner/packer-template/hcloud-leapmicro-snapshots.pkr.hcl; done
 	   # (legacy)
 	   # packer build ../kube-hetzner/packer-template/hcloud-microos-snapshots.pkr.hcl
 	   ```

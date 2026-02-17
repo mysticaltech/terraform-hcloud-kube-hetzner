@@ -95,23 +95,30 @@ fi
 
 case "$create_snapshots" in
     leapmicro)
-        echo "Running packer build for hcloud-leapmicro-snapshots.pkr.hcl"
-        cd "${folder_path}" && packer init hcloud-leapmicro-snapshots.pkr.hcl && packer build hcloud-leapmicro-snapshots.pkr.hcl
+        echo "Running packer build matrix for hcloud-leapmicro-snapshots.pkr.hcl (k3s + rke2, x86 + ARM)"
+        cd "${folder_path}" && packer init hcloud-leapmicro-snapshots.pkr.hcl
+        for distro in k3s rke2; do
+          echo "Building Leap Micro snapshots for distro: ${distro}"
+          packer build -var "selinux_package_to_install=${distro}" hcloud-leapmicro-snapshots.pkr.hcl
+        done
         ;;
     microos)
         echo "Running packer build for hcloud-microos-snapshots.pkr.hcl"
         cd "${folder_path}" && packer init hcloud-microos-snapshots.pkr.hcl && packer build hcloud-microos-snapshots.pkr.hcl
         ;;
     both)
-        echo "Running packer build for both Leap Micro and MicroOS snapshots"
-        cd "${folder_path}" && \
-          packer init hcloud-leapmicro-snapshots.pkr.hcl && packer build hcloud-leapmicro-snapshots.pkr.hcl && \
-          packer init hcloud-microos-snapshots.pkr.hcl && packer build hcloud-microos-snapshots.pkr.hcl
+        echo "Running packer build for both Leap Micro (k3s + rke2 matrix) and MicroOS snapshots"
+        cd "${folder_path}" && packer init hcloud-leapmicro-snapshots.pkr.hcl
+        for distro in k3s rke2; do
+          echo "Building Leap Micro snapshots for distro: ${distro}"
+          packer build -var "selinux_package_to_install=${distro}" hcloud-leapmicro-snapshots.pkr.hcl
+        done
+        packer init hcloud-microos-snapshots.pkr.hcl && packer build hcloud-microos-snapshots.pkr.hcl
         ;;
     none)
         echo " "
         echo "You can create the snapshots later by running:"
-        echo "  packer build hcloud-leapmicro-snapshots.pkr.hcl"
+        echo "  for distro in k3s rke2; do packer build -var \"selinux_package_to_install=\${distro}\" hcloud-leapmicro-snapshots.pkr.hcl; done"
         echo "  packer build hcloud-microos-snapshots.pkr.hcl"
         ;;
     *)

@@ -1261,8 +1261,9 @@ module "kube-hetzner" {
   # The default is false.
   # export_values = true
 
-  # Leap Micro snapshot IDs to be used (recommended). Per default empty, the most recent image created using createkh will be used.
-  # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'leapmicro-snapshot=yes'" command.
+  # Leap Micro snapshot IDs to be used (recommended). Per default empty, the most recent image matching kubernetes_distribution_type is used.
+  # You can fetch IDs with:
+  # hcloud image list --selector 'leapmicro-snapshot=yes,kube-hetzner/k8s-distro=<k3s-or-rke2>'
   # leapmicro_x86_snapshot_id = "1234567"
   # leapmicro_arm_snapshot_id = "1234567"
 

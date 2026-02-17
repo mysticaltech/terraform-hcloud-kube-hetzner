@@ -18,14 +18,38 @@ variable "hcloud_token" {
 
 variable "leap_micro_version" {
   type        = string
-  default     = "6.1"
+  default     = "6.2"
   description = "OpenSUSE Leap Micro version."
 }
 
 variable "k3s_selinux_version" {
   type        = string
   default     = "v1.6.stable.1"
-  description = "k3s-selinux version to install."
+  description = "k3s-selinux release tag to install."
+}
+
+variable "k3s_selinux_package_name" {
+  type        = string
+  default     = ""
+  description = "Optional k3s-selinux RPM filename override. If empty, derived from tag using slemicro package form."
+}
+
+variable "rke2_selinux_version" {
+  type        = string
+  default     = "v0.22.stable.1"
+  description = "rke2-selinux release tag to install."
+}
+
+variable "rke2_selinux_package_name" {
+  type        = string
+  default     = ""
+  description = "Optional rke2-selinux RPM filename override. If empty, derived from tag using slemicro package form."
+}
+
+variable "selinux_package_to_install" {
+  type        = string
+  default     = "k3s"
+  description = "Which Kubernetes SELinux package variant to preinstall in the snapshot: k3s or rke2."
 }
 
 # We download the OpenSUSE Leap Micro x86 image from an automatically selected mirror.
@@ -94,17 +118,63 @@ locals {
     setenforce 0 || true
     rpm --import https://rpm.rancher.io/public.key
 
-    # k3s-selinux tag "v1.6.stable.1" => RPM "k3s-selinux-1.6-1.sle.noarch.rpm"
-    K3S_TAG="${var.k3s_selinux_version}"
-    K3S_RPM_VERSION="$(echo "$K3S_TAG" | sed -E 's/^v//; s/\.stable\..*$//')"
-    if [ -z "$K3S_RPM_VERSION" ]; then
-      echo "ERROR: failed to derive k3s-selinux RPM version from tag '$K3S_TAG'" >&2
-      exit 1
-    fi
+    derive_rpm_version() {
+      local tag="$1"
+      echo "$tag" | sed -E 's/^v//; s/\.(stable|latest|testing)\..*$//'
+    }
 
-    zypper --non-interactive install -y "https://github.com/k3s-io/k3s-selinux/releases/download/${var.k3s_selinux_version}/k3s-selinux-$K3S_RPM_VERSION-1.sle.noarch.rpm"
-    rpm -q k3s-selinux
-    zypper addlock k3s-selinux
+    install_k3s_selinux() {
+      # k3s-selinux tag "v1.6.stable.1" => RPM "k3s-selinux-1.6-1.slemicro.noarch.rpm"
+      K3S_TAG="${var.k3s_selinux_version}"
+      K3S_RPM_VERSION="$(derive_rpm_version "$K3S_TAG")"
+      if [ -z "$K3S_RPM_VERSION" ]; then
+        echo "ERROR: failed to derive k3s-selinux RPM version from tag '$K3S_TAG'" >&2
+        exit 1
+      fi
+
+      K3S_PACKAGE="${var.k3s_selinux_package_name}"
+      if [ -z "$K3S_PACKAGE" ]; then
+        K3S_PACKAGE="k3s-selinux-$K3S_RPM_VERSION-1.slemicro.noarch.rpm"
+      fi
+
+      K3S_URL="https://github.com/k3s-io/k3s-selinux/releases/download/$K3S_TAG/$K3S_PACKAGE"
+      zypper --non-interactive install -y "$K3S_URL"
+      rpm -q k3s-selinux
+      zypper addlock k3s-selinux
+    }
+
+    install_rke2_selinux() {
+      # rke2-selinux tag "v0.22.stable.1" => RPM "rke2-selinux-0.22-1.slemicro.noarch.rpm"
+      RKE2_TAG="${var.rke2_selinux_version}"
+      RKE2_RPM_VERSION="$(derive_rpm_version "$RKE2_TAG")"
+      if [ -z "$RKE2_RPM_VERSION" ]; then
+        echo "ERROR: failed to derive rke2-selinux RPM version from tag '$RKE2_TAG'" >&2
+        exit 1
+      fi
+
+      RKE2_PACKAGE="${var.rke2_selinux_package_name}"
+      if [ -z "$RKE2_PACKAGE" ]; then
+        RKE2_PACKAGE="rke2-selinux-$RKE2_RPM_VERSION-1.slemicro.noarch.rpm"
+      fi
+
+      RKE2_URL="https://github.com/rancher/rke2-selinux/releases/download/$RKE2_TAG/$RKE2_PACKAGE"
+      zypper --non-interactive install -y "$RKE2_URL"
+      rpm -q rke2-selinux
+      zypper addlock rke2-selinux
+    }
+
+    case "${var.selinux_package_to_install}" in
+      k3s)
+        install_k3s_selinux
+        ;;
+      rke2)
+        install_rke2_selinux
+        ;;
+      *)
+        echo "ERROR: invalid selinux_package_to_install='${var.selinux_package_to_install}', expected one of: k3s, rke2" >&2
+        exit 1
+        ;;
+    esac
 
     restorecon -Rv /etc/selinux/targeted/policy
     restorecon -Rv /var/lib
@@ -118,6 +188,18 @@ EOF
   clean_up = <<-EOT
     set -ex
     echo "Second reboot successful, cleaning-up..."
+    case "${var.selinux_package_to_install}" in
+      k3s)
+        rpm -q k3s-selinux
+        ;;
+      rke2)
+        rpm -q rke2-selinux
+        ;;
+      *)
+        echo "ERROR: invalid selinux_package_to_install='${var.selinux_package_to_install}' during verification" >&2
+        exit 1
+        ;;
+    esac
     rm -rf /etc/ssh/ssh_host_*
     echo "Make sure to use NetworkManager"
     touch /etc/NetworkManager/NetworkManager.conf
@@ -136,10 +218,13 @@ source "hcloud" "leapmicro-x86-snapshot" {
   location    = "nbg1"
   server_type = "cx23" # disk size of >= 40GiB is needed to install the Leap Micro image
   snapshot_labels = {
-    leapmicro-snapshot = "yes"
-    creator            = "kube-hetzner"
+    leapmicro-snapshot        = "yes"
+    creator                   = "kube-hetzner"
+    "kube-hetzner/os"         = "leapmicro"
+    "kube-hetzner/arch"       = "x86"
+    "kube-hetzner/k8s-distro" = var.selinux_package_to_install
   }
-  snapshot_name = "OpenSUSE Leap Micro x86 by Kube-Hetzner"
+  snapshot_name = "OpenSUSE Leap Micro x86 ${upper(var.selinux_package_to_install)} by Kube-Hetzner"
   ssh_username  = "root"
   token         = var.hcloud_token
 }
@@ -151,10 +236,13 @@ source "hcloud" "leapmicro-arm-snapshot" {
   location    = "nbg1"
   server_type = "cax11" # disk size of >= 40GiB is needed to install the Leap Micro image
   snapshot_labels = {
-    leapmicro-snapshot = "yes"
-    creator            = "kube-hetzner"
+    leapmicro-snapshot        = "yes"
+    creator                   = "kube-hetzner"
+    "kube-hetzner/os"         = "leapmicro"
+    "kube-hetzner/arch"       = "arm"
+    "kube-hetzner/k8s-distro" = var.selinux_package_to_install
   }
-  snapshot_name = "OpenSUSE Leap Micro ARM by Kube-Hetzner"
+  snapshot_name = "OpenSUSE Leap Micro ARM ${upper(var.selinux_package_to_install)} by Kube-Hetzner"
   ssh_username  = "root"
   token         = var.hcloud_token
 }

@@ -49,13 +49,13 @@ variable "robot_ccm_enabled" {
 }
 
 variable "leapmicro_x86_snapshot_id" {
-  description = "Leap Micro x86 snapshot ID to be used. If empty, the most recent image created will be used."
+  description = "Leap Micro x86 snapshot ID to be used. If empty, the most recent leapmicro snapshot matching the selected kubernetes_distribution_type will be used."
   type        = string
   default     = ""
 }
 
 variable "leapmicro_arm_snapshot_id" {
-  description = "Leap Micro ARM snapshot ID to be used. If empty, the most recent image created will be used."
+  description = "Leap Micro ARM snapshot ID to be used. If empty, the most recent leapmicro snapshot matching the selected kubernetes_distribution_type will be used."
   type        = string
   default     = ""
 }
