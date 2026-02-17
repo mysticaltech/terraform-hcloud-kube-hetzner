@@ -7,41 +7,50 @@ module "agents" {
 
   for_each = local.agent_nodes
 
-  name                         = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
-  microos_snapshot_id          = substr(each.value.server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
-  base_domain                  = var.base_domain
-  ssh_keys                     = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
-  ssh_port                     = var.ssh_port
-  ssh_public_key               = var.ssh_public_key
-  ssh_private_key              = var.ssh_private_key
-  ssh_additional_public_keys   = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
-  firewall_ids                 = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
-  placement_group_id           = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_compat_idx].id : hcloud_placement_group.agent_named[each.value.placement_group].id)
-  location                     = each.value.location
-  server_type                  = each.value.server_type
-  backups                      = each.value.backups
-  ipv4_subnet_id               = hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id
-  dns_servers                  = var.dns_servers
-  k3s_registries               = var.k3s_registries
-  k3s_registries_update_script = local.k8s_registries_update_script
-  cloudinit_write_files_common = local.cloudinit_write_files_common
-  cloudinit_runcmd_common      = local.cloudinit_runcmd_common
-  swap_size                    = each.value.swap_size
-  zram_size                    = each.value.zram_size
-  keep_disk_size               = var.keep_disk_agents
-  disable_ipv4                 = each.value.disable_ipv4
-  disable_ipv6                 = each.value.disable_ipv6
-  network_id                   = length(var.existing_network_id) > 0 ? var.existing_network_id[0] : 0
+  name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
+  os_snapshot_id                   = local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
+  os                               = each.value.os
+  base_domain                      = var.base_domain
+  ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
+  ssh_port                         = var.ssh_port
+  ssh_public_key                   = var.ssh_public_key
+  ssh_private_key                  = var.ssh_private_key
+  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
+  firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
+  placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_compat_idx].id : hcloud_placement_group.agent_named[each.value.placement_group].id)
+  location                         = each.value.location
+  server_type                      = each.value.server_type
+  backups                          = each.value.backups
+  ipv4_subnet_id                   = hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id
+  dns_servers                      = var.dns_servers
+  k3s_registries                   = var.k3s_registries
+  k3s_registries_update_script     = local.k3s_registries_update_script
+  cloudinit_write_files_common     = local.cloudinit_write_files_common
+  k3s_kubelet_config               = var.k3s_kubelet_config
+  k3s_kubelet_config_update_script = local.k3s_kubelet_config_update_script
+  k3s_audit_policy_config          = ""
+  k3s_audit_policy_update_script   = ""
+  cloudinit_runcmd_common          = local.cloudinit_runcmd_common
+  swap_size                        = each.value.swap_size
+  zram_size                        = each.value.zram_size
+  keep_disk_size                   = var.keep_disk_agents
+  disable_ipv4                     = each.value.disable_ipv4
+  disable_ipv6                     = each.value.disable_ipv6
+  ssh_bastion                      = local.ssh_bastion
+  network_id                       = data.hcloud_network.k3s.id
+  private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
 
-  private_ipv4 = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + 101)
-
-  labels = merge(local.labels, local.labels_agent_node)
+  labels = merge(local.labels, local.labels_agent_node, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
+  network_gw_ipv4 = local.network_gw_ipv4
+
   depends_on = [
     hcloud_network_subnet.agent,
-    hcloud_placement_group.agent
+    hcloud_placement_group.agent,
+    hcloud_server.nat_router,
+    terraform_data.nat_router_await_cloud_init,
   ]
 }
 
@@ -49,7 +58,7 @@ locals {
   k3s-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
-      server    = "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443"
+      server    = local.k3s_endpoint
       token     = local.k3s_token
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
       kubelet-arg = concat(
@@ -103,10 +112,10 @@ locals {
   }
 }
 
-resource "null_resource" "agent_config" {
+resource "terraform_data" "agent_config" {
   for_each = local.agent_nodes
 
-  triggers = {
+  triggers_replace = {
     agent_id = module.agents[each.key].id
     config   = local.kubernetes_distribution == "rke2" ? sha1(yamlencode(local.rke2-agent-config[each.key])) : sha1(yamlencode(local.k3s-agent-config[each.key]))
   }
@@ -117,6 +126,12 @@ resource "null_resource" "agent_config" {
     agent_identity = local.ssh_agent_identity
     host           = local.agent_ips[each.key]
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+
   }
 
   # Generating k3s agent config file
@@ -129,11 +144,15 @@ resource "null_resource" "agent_config" {
     inline = [local.k8s_config_update_script]
   }
 }
+moved {
+  from = null_resource.agent_config
+  to   = terraform_data.agent_config
+}
 
-resource "null_resource" "agents" {
+resource "terraform_data" "agents" {
   for_each = local.agent_nodes
 
-  triggers = {
+  triggers_replace = {
     agent_id = module.agents[each.key].id
   }
 
@@ -143,6 +162,12 @@ resource "null_resource" "agents" {
     agent_identity = local.ssh_agent_identity
     host           = local.agent_ips[each.key]
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+
   }
 
   # Install k3s agent
@@ -153,7 +178,7 @@ resource "null_resource" "agents" {
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
     inline = concat(var.enable_longhorn || var.enable_iscsid ? ["systemctl enable --now iscsid"] : [], local.kubernetes_distribution == "rke2" ? [
-      "systemctl start rke2-agent 2> /dev/null",
+      "timeout 120 systemctl start rke2-agent 2> /dev/null",
       "systemctl enable rke2-agent",
       <<-EOT
       timeout 120 bash <<EOF
@@ -165,7 +190,7 @@ resource "null_resource" "agents" {
       EOF
       EOT
       ] : [
-      "systemctl start k3s-agent 2> /dev/null",
+      "timeout 120 systemctl start k3s-agent 2> /dev/null",
       <<-EOT
       timeout 120 bash <<EOF
         until systemctl status k3s-agent > /dev/null; do
@@ -179,10 +204,14 @@ resource "null_resource" "agents" {
   }
 
   depends_on = [
-    null_resource.first_control_plane,
-    null_resource.agent_config,
+    terraform_data.first_control_plane,
+    terraform_data.agent_config,
     hcloud_network_subnet.agent
   ]
+}
+moved {
+  from = null_resource.agents
+  to   = terraform_data.agents
 }
 
 resource "hcloud_volume" "longhorn_volume" {
@@ -201,20 +230,23 @@ resource "hcloud_volume" "longhorn_volume" {
   delete_protection = var.enable_delete_protection.volume
 }
 
-resource "null_resource" "configure_longhorn_volume" {
+resource "terraform_data" "configure_longhorn_volume" {
   for_each = { for k, v in local.agent_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
 
-  triggers = {
+  triggers_replace = {
     agent_id = module.agents[each.key].id
   }
 
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
     inline = [
-      "mkdir /var/longhorn >/dev/null 2>&1",
-      "mount -o discard,defaults ${hcloud_volume.longhorn_volume[each.key].linux_device} /var/longhorn",
+      "set -e",
+      "mkdir -p '${each.value.longhorn_mount_path}' >/dev/null",
+      "mountpoint -q '${each.value.longhorn_mount_path}' || mount -o discard,defaults ${hcloud_volume.longhorn_volume[each.key].linux_device} '${each.value.longhorn_mount_path}'",
       "${var.longhorn_fstype == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.longhorn_volume[each.key].linux_device}",
-      "echo '${hcloud_volume.longhorn_volume[each.key].linux_device} /var/longhorn ${var.longhorn_fstype} discard,nofail,defaults 0 0' >> /etc/fstab"
+      # Match any non-comment line (^[^#]) with any first field, followed by a space and your mount path in the second column.
+      # This prevents false positives like /data matching /data1.
+      "awk -v path='${each.value.longhorn_mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.longhorn_volume[each.key].linux_device} ${each.value.longhorn_mount_path} ${var.longhorn_fstype} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
     ]
   }
 
@@ -224,11 +256,21 @@ resource "null_resource" "configure_longhorn_volume" {
     agent_identity = local.ssh_agent_identity
     host           = local.agent_ips[each.key]
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+
   }
 
   depends_on = [
     hcloud_volume.longhorn_volume
   ]
+}
+moved {
+  from = null_resource.configure_longhorn_volume
+  to   = terraform_data.configure_longhorn_volume
 }
 
 resource "hcloud_floating_ip" "agents" {
@@ -247,7 +289,7 @@ resource "hcloud_floating_ip_assignment" "agents" {
   server_id      = module.agents[each.key].id
 
   depends_on = [
-    null_resource.agents
+    terraform_data.agents
   ]
 }
 
@@ -263,10 +305,10 @@ resource "hcloud_rdns" "agents" {
   ]
 }
 
-resource "null_resource" "configure_floating_ip" {
+resource "terraform_data" "configure_floating_ip" {
   for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
 
-  triggers = {
+  triggers_replace = {
     agent_id       = module.agents[each.key].id
     floating_ip_id = hcloud_floating_ip.agents[each.key].id
   }
@@ -306,9 +348,19 @@ resource "null_resource" "configure_floating_ip" {
     agent_identity = local.ssh_agent_identity
     host           = local.agent_ips[each.key]
     port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+
   }
 
   depends_on = [
     hcloud_floating_ip_assignment.agents
   ]
+}
+moved {
+  from = null_resource.configure_floating_ip
+  to   = terraform_data.configure_floating_ip
 }

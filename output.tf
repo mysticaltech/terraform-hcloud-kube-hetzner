@@ -61,10 +61,9 @@ output "lb_control_plane_ipv6" {
   value       = one(hcloud_load_balancer.control_plane[*].ipv6)
 }
 
-
 output "k3s_endpoint" {
   description = "A controller endpoint to register new nodes"
-  value       = "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443"
+  value       = local.k3s_endpoint
 }
 
 output "k3s_token" {
@@ -158,4 +157,34 @@ output "haproxy_values" {
   description = "Helm values.yaml used for HAProxy"
   value       = local.haproxy_values
   sensitive   = true
+}
+
+output "nat_router_public_ipv4" {
+  description = "The address of the nat router, if it exists."
+  value       = try(hcloud_server.nat_router[0].ipv4_address, null)
+}
+output "nat_router_public_ipv6" {
+  description = "The address of the nat router, if it exists."
+  value       = try(hcloud_server.nat_router[0].ipv6_address, null)
+}
+output "nat_router_public_ipv4_addresses" {
+  description = "The addresses of all nat routers, if they exist."
+  value       = [for nat_router in hcloud_server.nat_router : nat_router.ipv4_address]
+}
+output "nat_router_public_ipv6_addresses" {
+  description = "The addresses of all nat routers, if they exist."
+  value       = [for nat_router in hcloud_server.nat_router : nat_router.ipv6_address]
+}
+output "nat_router_username" {
+  description = "The non-root user as which you can ssh into the router."
+  value       = "nat-router" # hard-coded in cloud-init template.
+}
+output "nat_router_ssh_port" {
+  description = "The non-root user as which you can ssh into the router."
+  value       = var.ssh_port
+}
+
+output "vswitch_subnet" {
+  description = "Attributes of the vSwitch subnet."
+  value       = try(hcloud_network_subnet.vswitch_subnet[0], null)
 }

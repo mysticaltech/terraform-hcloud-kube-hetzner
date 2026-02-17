@@ -42,10 +42,22 @@ kustomization.yaml
 kube.tf
 .terraform.lock.hcl
 issue_fix.patch
+issues/
+prs/
+kube-hetzner-knowledge.jsondata
 
 # AI related files
 CLAUDE.md
+kube-hetzner-knowledge.jsondata
 
 # Misc
 .DS_Store
-.idea/
+
+requirements/*
+
+# Ignore IntelliJ related files
+.idea
+
+# Local triage documentation
+issues/
+prs/
