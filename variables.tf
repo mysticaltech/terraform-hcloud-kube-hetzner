@@ -202,9 +202,20 @@ variable "cluster_dns_ipv4" {
   default     = null
 }
 
+variable "kubeapi_port" {
+  description = "Kubernetes API server port used for control-plane listeners, load balancer listeners, firewall rules, and default join endpoints."
+  type        = number
+  default     = 6443
+
+  validation {
+    condition     = var.kubeapi_port >= 1 && var.kubeapi_port <= 65535
+    error_message = "kubeapi_port must be between 1 and 65535."
+  }
+}
+
 
 variable "nat_router" {
-  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled. Automatically forwards port 6443 to the control plane LB when control_plane_lb_enable_public_interface=false."
+  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled. Automatically forwards kubeapi_port to the control plane LB when control_plane_lb_enable_public_interface=false."
   nullable    = true
   default     = null
   type = object({
@@ -1589,7 +1600,7 @@ variable "block_icmp_ping_in" {
 variable "use_control_plane_lb" {
   type        = bool
   default     = false
-  description = "Creates a dedicated load balancer for the Kubernetes API (port 6443). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic."
+  description = "Creates a dedicated load balancer for the Kubernetes API (kubeapi_port). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic."
 }
 
 variable "control_plane_lb_type" {
@@ -1601,7 +1612,7 @@ variable "control_plane_lb_type" {
 variable "control_plane_lb_enable_public_interface" {
   type        = bool
   default     = true
-  description = "Enable or disable public interface for the control plane load balancer. Defaults to true. When disabled with nat_router enabled, the NAT router automatically forwards port 6443 to the private control plane LB."
+  description = "Enable or disable public interface for the control plane load balancer. Defaults to true. When disabled with nat_router enabled, the NAT router automatically forwards kubeapi_port to the private control plane LB."
 }
 
 variable "dns_servers" {
@@ -1894,11 +1905,11 @@ variable "hetzner_ccm_merge_values" {
 
 variable "control_plane_endpoint" {
   type        = string
-  description = "Optional external control plane endpoint URL (e.g. https://myapi.domain.com:6443). Used as the k3s 'server' value for agents and secondary control planes."
+  description = "Optional external control plane endpoint URL (e.g. https://myapi.domain.com:6443). Used as the k3s 'server' value for agents and secondary control planes. If kubeapi_port is overridden, use the same port in this URL."
   default     = null
   validation {
     condition     = var.control_plane_endpoint == null || can(regex("^https?://(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?|(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|\\[[0-9a-fA-F:]+\\])(?::[0-9]{1,5})?(?:/.*)?$", var.control_plane_endpoint))
-    error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443)."
+    error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443, or your configured kubeapi_port)."
   }
 }
 
