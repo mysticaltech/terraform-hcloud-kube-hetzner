@@ -25,8 +25,18 @@ resource "hcloud_load_balancer_network" "cluster" {
 
   load_balancer_id = hcloud_load_balancer.cluster.*.id[0]
   # Use -2 to get the last usable IP in the subnet
-  ip                      = cidrhost(local.primary_cluster_subnet.ip_range, -2)
-  subnet_id               = local.primary_cluster_subnet.id
+  ip = cidrhost(
+    (
+      length(hcloud_network_subnet.agent) > 0
+      ? hcloud_network_subnet.agent.*.ip_range[0]
+      : hcloud_network_subnet.control_plane.*.ip_range[0]
+    )
+  , -2)
+  subnet_id = (
+    length(hcloud_network_subnet.agent) > 0
+    ? hcloud_network_subnet.agent.*.id[0]
+    : hcloud_network_subnet.control_plane.*.id[0]
+  )
   enable_public_interface = true
 
   lifecycle {
@@ -168,8 +178,7 @@ resource "terraform_data" "first_control_plane" {
   }
 
   depends_on = [
-    hcloud_network_subnet.control_plane,
-    hcloud_network_subnet.control_plane_multi
+    hcloud_network_subnet.control_plane
   ]
 }
 moved {
@@ -309,7 +318,6 @@ resource "null_resource" "first_control_plane_rke2" {
 
   depends_on = [
     hcloud_network_subnet.control_plane,
-    hcloud_network_subnet.control_plane_multi,
     null_resource.control_plane_setup_rke2,
   ]
 }

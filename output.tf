@@ -8,11 +8,6 @@ output "network_id" {
   description = "The ID of the HCloud network."
 }
 
-output "network_ids" {
-  value       = local.network_ids
-  description = "The IDs of all configured HCloud networks keyed by network key."
-}
-
 output "ssh_key_id" {
   value       = local.hcloud_ssh_key_id
   description = "The ID of the HCloud SSH key."

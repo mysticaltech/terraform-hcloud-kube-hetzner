@@ -55,7 +55,7 @@ locals {
       cluster_autoscaler_stderr_threshold        = var.cluster_autoscaler_stderr_threshold
       cluster_autoscaler_server_creation_timeout = tostring(var.cluster_autoscaler_server_creation_timeout)
       ssh_key                                    = local.hcloud_ssh_key_id
-      ipv4_subnet_id                             = local.primary_network_id
+      ipv4_subnet_id                             = data.hcloud_network.k3s.id
       snapshot_id                                = local.first_nodepool_snapshot_id
       cluster_config                             = base64encode(jsonencode(local.desired_cluster_config))
       firewall_id                                = hcloud_firewall.k3s.id
