@@ -26,7 +26,7 @@ resource "hcloud_server" "server" {
   server_type        = var.server_type
   location           = var.location
   ssh_keys           = var.ssh_keys
-  firewall_ids       = var.firewall_ids
+  firewall_ids       = local.effective_firewall_ids
   placement_group_id = var.placement_group_id
   backups            = var.backups
   user_data          = data.cloudinit_config.config.rendered
@@ -94,6 +94,13 @@ resource "hcloud_server" "server" {
     ]
   }
 
+}
+
+resource "hcloud_server_network" "extra" {
+  for_each = local.extra_network_ids
+
+  server_id  = hcloud_server.server.id
+  network_id = each.value
 }
 
 resource "terraform_data" "registries" {

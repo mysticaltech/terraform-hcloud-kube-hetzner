@@ -56,6 +56,12 @@ variable "firewall_ids" {
   nullable    = true
 }
 
+variable "extra_firewall_ids" {
+  description = "Additional firewall IDs to attach to the server."
+  type        = list(number)
+  default     = []
+}
+
 variable "placement_group_id" {
   description = "Placement group ID"
   type        = number
@@ -204,6 +210,12 @@ variable "network_id" {
   type        = number
   default     = null
   description = "The network id to attach the server to."
+}
+
+variable "extra_network_ids" {
+  type        = list(number)
+  default     = []
+  description = "Additional network IDs to attach to the server."
 }
 
 variable "ssh_bastion" {
