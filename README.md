@@ -269,7 +269,7 @@ terraform output -json kubeconfig | jq
 ssh root@<control-plane-ip> -i /path/to/private_key -o StrictHostKeyChecking=no
 ```
 
-Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
+Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf (default is `["myipv4"]`). For CI/CD runners, override it with your runner CIDRs. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
 
 ### Connect via Kube API
 
