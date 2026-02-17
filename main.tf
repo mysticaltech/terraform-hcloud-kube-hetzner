@@ -29,23 +29,22 @@ data "hcloud_network" "k3s" {
 }
 
 
-# We start from the end of the subnets cidr array,
-# as we would have fewer control plane nodepools, than agent ones.
+# Shared cluster subnet used for auto-assigned node private IPv4 addresses.
 resource "hcloud_network_subnet" "control_plane" {
-  count        = length(var.control_plane_nodepools)
+  count        = 1
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
   network_zone = var.network_region
-  ip_range     = local.network_ipv4_subnets[var.subnet_amount - 1 - count.index]
+  ip_range     = local.network_ipv4_subnets[0]
 }
 
-# Here we start at the beginning of the subnets cidr array
+# Agent subnet allocation is consolidated into the shared control_plane subnet.
 resource "hcloud_network_subnet" "agent" {
-  count        = length(var.agent_nodepools)
+  count        = 0
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
   network_zone = var.network_region
-  ip_range     = coalesce(var.agent_nodepools[count.index].subnet_ip_range, local.network_ipv4_subnets[count.index])
+  ip_range     = local.network_ipv4_subnets[0]
 }
 
 # Subnet for NAT router and other peripherals

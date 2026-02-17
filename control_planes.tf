@@ -22,7 +22,7 @@ module "control_planes" {
   location                         = each.value.location
   server_type                      = each.value.server_type
   backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].id
+  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
   k3s_registries_update_script     = local.k3s_registries_update_script
@@ -44,7 +44,7 @@ module "control_planes" {
 
   # We leave some room so 100 eventual Hetzner LBs that can be created perfectly safely
   # It leaves the subnet with 254 x 254 - 100 = 64416 IPs to use, so probably enough.
-  private_ipv4 = cidrhost(hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
+  private_ipv4 = null
 
   labels = merge(local.labels, local.labels_control_plane_node, { "kube-hetzner/os" = each.value.os })
 
