@@ -76,7 +76,7 @@ module "kube-hetzner" {
   # version = "2.15.3"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
-  # 3. If you want to use the latest master branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
+  # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
   # source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"
 ```
 
@@ -2698,7 +2698,7 @@ controller:
 ```terraform
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
-  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
+  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/locals.tf
   /*   haproxy_values = <<-EOT
   EOT */
 ```
