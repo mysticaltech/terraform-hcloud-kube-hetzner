@@ -147,6 +147,13 @@ variable "existing_network_id" {
     error_message = "If you pass an existing_network_id, it must be enclosed in square brackets: [id]. This is necessary to be able to unambiguously distinguish between an empty network id (default) and a user-supplied network id."
   }
 }
+
+variable "extra_network_ids" {
+  description = "Additional network IDs to attach to every control plane and agent node."
+  type        = list(number)
+  default     = []
+}
+
 variable "network_ipv4_cidr" {
   description = "The main network cidr that all subnets will be created upon."
   type        = string
@@ -1208,6 +1215,12 @@ variable "firewall_ssh_source" {
   type        = list(string)
   default     = ["myipv4"]
   description = "Source networks that have SSH access to the servers."
+}
+
+variable "extra_firewall_ids" {
+  type        = list(number)
+  default     = []
+  description = "Additional firewall IDs to attach to every control plane and agent node."
 }
 
 variable "myipv4_ref" {

@@ -75,6 +75,9 @@ module "kube-hetzner" {
   # NOTE2: square brackets! This must be a list of length 1.
   #
   # existing_network_id = [hcloud_network.your_network.id]
+  #
+  # Optionally attach every control plane and agent node to additional existing Hetzner networks.
+  # extra_network_ids = [12345, 67890]
 
   # If you must change the network CIDR you can do so below, but it is highly advised against.
   # network_ipv4_cidr = "10.0.0.0/8"
@@ -997,6 +1000,9 @@ module "kube-hetzner" {
   # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
   # For CI/CD runners or dynamic office IP ranges, override this explicitly with the required CIDRs.
   # firewall_ssh_source = ["myipv4", "1.2.3.4/32"]
+
+  # Optionally attach additional existing Hetzner firewalls to all control plane and agent nodes.
+  # extra_firewall_ids = [123456]
 
   # By default, SELinux is enabled in enforcing mode on all nodes. For container-specific SELinux issues,
   # consider using the pre-installed 'udica' tool to create custom, targeted SELinux policies instead of

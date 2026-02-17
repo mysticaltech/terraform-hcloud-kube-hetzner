@@ -52,6 +52,7 @@ module "agents" {
   ssh_private_key                  = var.ssh_private_key
   ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
   firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
+  extra_firewall_ids               = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
   placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_compat_idx].id : hcloud_placement_group.agent_named[each.value.placement_group].id)
   location                         = each.value.location
   server_type                      = each.value.server_type
@@ -77,7 +78,8 @@ module "agents" {
   primary_ipv6_id                  = coalesce(each.value.primary_ipv6_id, try(hcloud_primary_ip.agents_ipv6[each.key].id, null))
   ssh_bastion                      = local.ssh_bastion
   network_id                       = data.hcloud_network.k3s.id
-  private_ipv4                     = null
+  extra_network_ids                = var.extra_network_ids
+  private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
 
   labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 

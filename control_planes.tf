@@ -52,6 +52,7 @@ module "control_planes" {
   ssh_private_key                  = var.ssh_private_key
   ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
   firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
+  extra_firewall_ids               = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
   placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.control_plane[each.value.placement_group_compat_idx].id : hcloud_placement_group.control_plane_named[each.value.placement_group].id)
   location                         = each.value.location
   server_type                      = each.value.server_type
@@ -77,6 +78,7 @@ module "control_planes" {
   primary_ipv6_id                  = coalesce(each.value.primary_ipv6_id, try(hcloud_primary_ip.control_planes_ipv6[each.key].id, null))
   ssh_bastion                      = local.ssh_bastion
   network_id                       = data.hcloud_network.k3s.id
+  extra_network_ids                = var.extra_network_ids
 
   # We leave some room so 100 eventual Hetzner LBs that can be created perfectly safely
   # It leaves the subnet with 254 x 254 - 100 = 64416 IPs to use, so probably enough.
