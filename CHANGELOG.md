@@ -55,6 +55,8 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **Autoscaler Nodepool Parity/Validation** - Added autoscaler nodepool validation guards (unique names, integer min/max bounds, taint effect and swap/zram format checks) and aligned RKE2 autoscaled node labeling/taint rendering with the k3s autoscaler path.
 - **RKE2 User Kustomizations** - Switched user kustomization apply path to distribution-aware `kubectl_cli`, fixing apply failures in RKE2 clusters.
 - **extra_network_ids Attachment** - Wired `extra_network_ids` into host provisioning so additional Hetzner networks are actually attached to control-plane and agent nodes.
+- **Connection Override Consistency** - Unified control-plane and agent `node_connection_overrides` resolution so provisioning and follow-up operations honor the same override key strategy (including suffixed node names).
+- **RKE2 TLS SAN Parity (No LB)** - Added kubeconfig/control-plane advertised endpoints to RKE2 non-LB TLS SAN generation to prevent certificate mismatch on custom kubeconfig server addresses.
 
 ### 🔧 Changes
 

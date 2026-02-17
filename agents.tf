@@ -43,7 +43,7 @@ module "agents" {
 
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
   append_random_suffix             = each.value.append_random_suffix
-  connection_host                  = lookup(var.node_connection_overrides, "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}", "")
+  connection_host                  = lookup(local.agent_connection_overrides, each.key, "")
   os_snapshot_id                   = local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                               = each.value.os
   base_domain                      = var.base_domain
@@ -97,6 +97,29 @@ module "agents" {
 }
 
 locals {
+  agent_override_base_names = {
+    for k, v in local.agent_nodes :
+    k => "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${v.nodepool_name}${try(v.node_name_suffix, "")}"
+  }
+
+  agent_connection_overrides = {
+    for k, base_name in local.agent_override_base_names :
+    k => coalesce(
+      lookup(var.node_connection_overrides, base_name, null),
+      try(
+        var.node_connection_overrides[
+          sort([
+            for override_key in keys(var.node_connection_overrides) :
+            override_key
+            if startswith(override_key, "${base_name}-") && length(override_key) == length(base_name) + 4
+          ])[0]
+        ],
+        null
+      ),
+      ""
+    )
+  }
+
   agent_floating_ip_id_by_node = {
     for k, v in local.agent_nodes :
     k => coalesce(
@@ -175,6 +198,7 @@ locals {
 
   agent_ips = {
     for k, v in module.agents : k => coalesce(
+      lookup(local.agent_connection_overrides, k, "") != "" ? local.agent_connection_overrides[k] : null,
       lookup(var.node_connection_overrides, v.name, null),
       v.ipv4_address,
       v.ipv6_address,

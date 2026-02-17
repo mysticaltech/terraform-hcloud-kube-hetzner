@@ -43,7 +43,7 @@ module "control_planes" {
 
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}"
   append_random_suffix             = each.value.append_random_suffix
-  connection_host                  = lookup(var.node_connection_overrides, "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}", "")
+  connection_host                  = lookup(local.control_plane_connection_overrides, each.key, "")
   os_snapshot_id                   = local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                               = each.value.os
   base_domain                      = var.base_domain
@@ -261,10 +261,34 @@ locals {
     if coalesce(lookup(v, "floating_ip"), false)
   }
 
+  control_plane_override_base_names = {
+    for k, v in local.control_plane_nodes :
+    k => "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${v.nodepool_name}"
+  }
+
+  control_plane_connection_overrides = {
+    for k, base_name in local.control_plane_override_base_names :
+    k => coalesce(
+      lookup(var.node_connection_overrides, base_name, null),
+      try(
+        var.node_connection_overrides[
+          sort([
+            for override_key in keys(var.node_connection_overrides) :
+            override_key
+            if startswith(override_key, "${base_name}-") && length(override_key) == length(base_name) + 4
+          ])[0]
+        ],
+        null
+      ),
+      ""
+    )
+  }
+
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
 
   control_plane_ips = {
     for k, v in module.control_planes : k => coalesce(
+      lookup(local.control_plane_connection_overrides, k, "") != "" ? local.control_plane_connection_overrides[k] : null,
       lookup(var.node_connection_overrides, v.name, null),
       v.ipv4_address,
       v.ipv6_address,
@@ -335,6 +359,8 @@ locals {
           module.control_planes[keys(module.control_planes)[0]].private_ipv4_address != "" ? module.control_planes[keys(module.control_planes)[0]].private_ipv4_address : null,
           module.control_planes[k].ipv4_address != "" ? module.control_planes[k].ipv4_address : null,
           module.control_planes[k].ipv6_address != "" ? module.control_planes[k].ipv6_address : null,
+          local.control_plane_endpoint_host,
+          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
           try(one(module.control_planes[k].network).ip, null)
         ]),
       var.additional_tls_sans)
