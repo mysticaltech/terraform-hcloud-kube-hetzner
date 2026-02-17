@@ -32,3 +32,13 @@ data "hcloud_ssh_keys" "keys_by_selector" {
   count         = length(var.ssh_hcloud_key_label) > 0 ? 1 : 0
   with_selector = var.ssh_hcloud_key_label
 }
+
+data "http" "my_ipv4" {
+  count = local.is_ref_myipv4_used ? 1 : 0
+
+  url = "https://ipv4.icanhazip.com"
+
+  request_headers = {
+    Accept = "text/plain"
+  }
+}

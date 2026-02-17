@@ -897,6 +897,12 @@ variable "firewall_ssh_source" {
   description = "Source networks that have SSH access to the servers."
 }
 
+variable "myipv4_ref" {
+  type        = string
+  default     = "myipv4"
+  description = "Placeholder string that can be used in firewall source/destination IP lists and will be replaced by the apply runner's public IPv4 /32."
+}
+
 variable "use_cluster_name_in_node_name" {
   type        = bool
   default     = true

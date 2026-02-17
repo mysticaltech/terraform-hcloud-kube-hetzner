@@ -88,4 +88,11 @@ resource "hcloud_firewall" "k3s" {
       source_ips      = lookup(rule.value, "source_ips", [])
     }
   }
+
+  lifecycle {
+    precondition {
+      condition     = !local.is_ref_myipv4_used || local.my_public_ipv4_cidr != null
+      error_message = "Unable to resolve 'myipv4' to a valid public IPv4 address from https://ipv4.icanhazip.com."
+    }
+  }
 }

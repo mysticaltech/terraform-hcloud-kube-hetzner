@@ -36,6 +36,16 @@ locals {
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
   dns_servers_ipv6 = [for ip in var.dns_servers : ip if provider::assert::ipv6(ip)]
 
+  is_ref_myipv4_used = (
+    contains(var.firewall_kube_api_source, var.myipv4_ref) ||
+    contains(var.firewall_ssh_source, var.myipv4_ref) ||
+    contains(flatten([
+      for rule in var.extra_firewall_rules : concat(lookup(rule, "source_ips", []), lookup(rule, "destination_ips", []))
+    ]), var.myipv4_ref)
+  )
+  my_public_ipv4      = try(trimspace(data.http.my_ipv4[0].response_body), null)
+  my_public_ipv4_cidr = can(cidrhost("${local.my_public_ipv4}/32", 0)) ? "${local.my_public_ipv4}/32" : null
+
   use_robot_ccm = var.robot_ccm_enabled && var.robot_user != "" && var.robot_password != ""
   # Key of the kube_system_secret-items is the name of the Secret. Values of those items are the key-value pairs of Secret.
   kube_system_secrets = {
@@ -546,8 +556,15 @@ locals {
   # merge the two lists
   firewall_rules_merged = merge(local.firewall_rules, local.extra_firewall_rules)
 
-  # convert the merged list back to a list
-  firewall_rules_list = values(local.firewall_rules_merged)
+  # convert the merged map back to a list and resolve the myipv4 placeholder
+  firewall_rules_list = [for _, rule in local.firewall_rules_merged : {
+    description     = rule.description
+    direction       = rule.direction
+    protocol        = rule.protocol
+    port            = lookup(rule, "port", null)
+    source_ips      = compact([for ip in lookup(rule, "source_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+    destination_ips = compact([for ip in lookup(rule, "destination_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+  }]
 
   labels = {
     "provisioner" = "terraform",
