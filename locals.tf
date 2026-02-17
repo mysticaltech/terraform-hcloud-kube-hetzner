@@ -743,13 +743,15 @@ EOT
 
   default_ingress_namespace_mapping = {
     "traefik" = "traefik"
-    "nginx"   = "nginx"
+    "nginx"   = "ingress-nginx"
     "haproxy" = "haproxy"
   }
 
-  ingress_controller_namespace = var.ingress_target_namespace != "" ? var.ingress_target_namespace : lookup(local.default_ingress_namespace_mapping, var.ingress_controller, "")
-  ingress_replica_count        = (var.ingress_replica_count > 0) ? var.ingress_replica_count : (local.agent_count > 2) ? 3 : (local.agent_count == 2) ? 2 : 1
-  ingress_max_replica_count    = (var.ingress_max_replica_count > local.ingress_replica_count) ? var.ingress_max_replica_count : local.ingress_replica_count
+  ingress_controller_namespace = var.ingress_target_namespace != "" ? var.ingress_target_namespace : (
+    var.ingress_controller_use_system_namespace ? "kube-system" : lookup(local.default_ingress_namespace_mapping, var.ingress_controller, "")
+  )
+  ingress_replica_count     = (var.ingress_replica_count > 0) ? var.ingress_replica_count : (local.agent_count > 2) ? 3 : (local.agent_count == 2) ? 2 : 1
+  ingress_max_replica_count = (var.ingress_max_replica_count > local.ingress_replica_count) ? var.ingress_max_replica_count : local.ingress_replica_count
 
   # disable k3s extras
   # TODO: Extend to work with rke2

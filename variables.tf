@@ -1781,6 +1781,12 @@ variable "ingress_target_namespace" {
   description = "The namespace to deploy the ingress controller to. Defaults to ingress name."
 }
 
+variable "ingress_controller_use_system_namespace" {
+  type        = bool
+  default     = false
+  description = "Deploy the selected ingress controller into kube-system unless ingress_target_namespace is explicitly set."
+}
+
 variable "enable_local_storage" {
   type        = bool
   default     = false
