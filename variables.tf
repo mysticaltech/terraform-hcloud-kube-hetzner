@@ -262,6 +262,49 @@ variable "vswitch_id" {
   default     = null
 }
 
+variable "extra_robot_nodes" {
+  description = "Optional existing Hetzner Robot nodes to configure as additional k3s agents through the vSwitch subnet."
+  type = list(object({
+    host            = string
+    private_ipv4    = string
+    vlan_id         = number
+    interface       = optional(string, "enp6s0")
+    mtu             = optional(number, 1350)
+    ssh_user        = optional(string, "root")
+    ssh_port        = optional(number, 22)
+    ssh_private_key = optional(string, null)
+    routes          = optional(list(string), ["10.0.0.0/8"])
+    labels          = optional(list(string), ["instance.hetzner.cloud/provided-by=robot"])
+    taints          = optional(list(string), [])
+    flannel_iface   = optional(string, null)
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for node in var.extra_robot_nodes :
+      trimspace(node.host) != "" && trimspace(node.private_ipv4) != ""
+    ])
+    error_message = "Each extra_robot_nodes entry requires non-empty host and private_ipv4 values."
+  }
+
+  validation {
+    condition = alltrue([
+      for node in var.extra_robot_nodes :
+      can(cidrhost("${node.private_ipv4}/32", 0))
+    ])
+    error_message = "Each extra_robot_nodes.private_ipv4 must be a valid IPv4 address."
+  }
+
+  validation {
+    condition = alltrue([
+      for node in var.extra_robot_nodes :
+      node.mtu >= 576 && node.mtu <= 9000
+    ])
+    error_message = "Each extra_robot_nodes.mtu must be between 576 and 9000."
+  }
+}
+
 variable "load_balancer_location" {
   description = "Default load balancer location."
   type        = string

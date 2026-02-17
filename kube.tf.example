@@ -616,6 +616,18 @@ module "kube-hetzner" {
   # Note that the VLAN ID is not the same as vSwitch ID. The vSwitch-subnet is assigned to 10.201.0.0/16 by default, can be changed via var.vswitch_subnet_index.
   # The vSwitch subnet is not created when the value is null. Default: null
   # vswitch_id = null
+  #
+  # Optionally bootstrap existing Robot servers as additional k3s agents.
+  # Each entry configures VLAN networking (MTU defaults to 1350), routes, and installs k3s agent.
+  # extra_robot_nodes = [
+  #   {
+  #     host         = "203.0.113.10"
+  #     private_ipv4 = "10.201.0.2"
+  #     vlan_id      = 4000
+  #     interface    = "enp6s0"
+  #     routes       = ["10.0.0.0/8"]
+  #   }
+  # ]
 
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
   # hetzner_csi_version = ""
