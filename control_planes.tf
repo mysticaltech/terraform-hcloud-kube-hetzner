@@ -494,6 +494,7 @@ resource "null_resource" "control_planes_rke2" {
   # Start the server and wait until it is ready.
   provisioner "remote-exec" {
     inline = [
+      "systemctl enable --now iscsid",
       "systemctl start rke2-server",
       "systemctl enable rke2-server",
       "mkdir -p /var/post_install /var/user_kustomize",
@@ -546,6 +547,7 @@ resource "terraform_data" "control_planes" {
   # Start the server and wait until it is ready.
   provisioner "remote-exec" {
     inline = [
+      "systemctl enable --now iscsid",
       "systemctl start k3s 2> /dev/null",
       "mkdir -p /var/post_install /var/user_kustomize",
       <<-EOT

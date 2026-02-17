@@ -1800,6 +1800,9 @@ cloudinit_runcmd_common = <<EOT
 # ensure that /var uses full available disk size, thanks to btrfs this is easy
 - [btrfs, 'filesystem', 'resize', 'max', '/var']
 
+# ensure iSCSI daemon is always enabled for storage workloads
+- [systemctl, enable, '--now', iscsid]
+
 # SELinux permission for the SSH alternative port
 %{if var.ssh_port != 22}
 # SELinux permission for the SSH alternative port.
