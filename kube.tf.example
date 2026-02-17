@@ -155,6 +155,10 @@ module "kube-hetzner" {
       # the instructions regarding this type of setup in README.md: "Use only private IPs in your cluster".
       # disable_ipv4 = true
       # disable_ipv6 = true
+
+      # Optional Floating IP support for stable external node addressing:
+      # floating_ip    = true         # Create and assign a new Floating IP
+      # floating_ip_id = 1234567      # Assign an existing Floating IP instead of creating one
     },
     {
       name        = "control-plane-nbg1",
@@ -269,6 +273,7 @@ module "kube-hetzner" {
         "node.kubernetes.io/role=egress:NoSchedule"
       ],
       floating_ip = true
+      # floating_ip_id = 1234567 # Assign an existing Floating IP instead of creating a new one
       # Optionally associate a reverse DNS entry with the floating IP(s).
       # This is useful in combination with the Egress Gateway feature for hosting certain services in the cluster, such as email servers.
       # floating_ip_rns = "my.domain.com"

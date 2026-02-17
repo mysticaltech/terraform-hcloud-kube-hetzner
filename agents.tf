@@ -58,6 +58,24 @@ module "agents" {
 }
 
 locals {
+  agent_floating_ip_id_by_node = {
+    for k, v in local.agent_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.agents_existing[k].id, null),
+      try(hcloud_floating_ip.agents[k].id, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  agent_external_ipv4_by_node = {
+    for k, v in local.agent_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.agents_existing[k].ip_address, null),
+      try(hcloud_floating_ip.agents[k].ip_address, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
   k3s-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
@@ -75,6 +93,10 @@ locals {
       node-label    = v.labels
       node-taint    = v.taints
     },
+    lookup(local.agent_external_ipv4_by_node, k, null) != null ? {
+      node-external-ip    = local.agent_external_ipv4_by_node[k]
+      flannel-external-ip = true
+    } : {},
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
     # Force selinux=false if disable_selinux = true.
@@ -99,6 +121,10 @@ locals {
       node-label = v.labels
       node-taint = v.taints
     },
+    lookup(local.agent_external_ipv4_by_node, k, null) != null ? {
+      node-external-ip    = local.agent_external_ipv4_by_node[k]
+      flannel-external-ip = true
+    } : {},
     var.agent_nodes_custom_config,
     # Force selinux=false if disable_selinux = true.
     var.disable_selinux
@@ -278,7 +304,10 @@ moved {
 }
 
 resource "hcloud_floating_ip" "agents" {
-  for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
+  for_each = {
+    for k, v in local.agent_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) == null
+  }
 
   type              = "ipv4"
   labels            = local.labels
@@ -286,10 +315,19 @@ resource "hcloud_floating_ip" "agents" {
   delete_protection = var.enable_delete_protection.floating_ip
 }
 
+data "hcloud_floating_ip" "agents_existing" {
+  for_each = {
+    for k, v in local.agent_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) != null
+  }
+
+  id = each.value.floating_ip_id
+}
+
 resource "hcloud_floating_ip_assignment" "agents" {
   for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
 
-  floating_ip_id = hcloud_floating_ip.agents[each.key].id
+  floating_ip_id = local.agent_floating_ip_id_by_node[each.key]
   server_id      = module.agents[each.key].id
 
   depends_on = [
@@ -298,14 +336,17 @@ resource "hcloud_floating_ip_assignment" "agents" {
 }
 
 resource "hcloud_rdns" "agents" {
-  for_each = { for k, v in local.agent_nodes : k => v if lookup(v, "floating_ip_rdns", null) != null }
+  for_each = {
+    for k, v in local.agent_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_rdns", null) != null
+  }
 
-  floating_ip_id = hcloud_floating_ip.agents[each.key].id
-  ip_address     = hcloud_floating_ip.agents[each.key].ip_address
+  floating_ip_id = local.agent_floating_ip_id_by_node[each.key]
+  ip_address     = local.agent_external_ipv4_by_node[each.key]
   dns_ptr        = local.agent_nodes[each.key].floating_ip_rdns
 
   depends_on = [
-    hcloud_floating_ip.agents
+    hcloud_floating_ip_assignment.agents
   ]
 }
 
@@ -314,7 +355,7 @@ resource "terraform_data" "configure_floating_ip" {
 
   triggers_replace = {
     agent_id       = module.agents[each.key].id
-    floating_ip_id = hcloud_floating_ip.agents[each.key].id
+    floating_ip_id = local.agent_floating_ip_id_by_node[each.key]
   }
 
   provisioner "remote-exec" {
@@ -339,7 +380,7 @@ resource "terraform_data" "configure_floating_ip" {
 
       nmcli connection modify "$NM_CONNECTION" \
           ipv4.method manual \
-          ipv4.addresses ${hcloud_floating_ip.agents[each.key].ip_address}/32,${local.agent_ips[each.key]}/32 gw4 172.31.1.1 \
+          ipv4.addresses ${local.agent_external_ipv4_by_node[each.key]}/32,${local.agent_ips[each.key]}/32 gw4 172.31.1.1 \
           ipv4.route-metric 100 \
       && nmcli connection up "$NM_CONNECTION"
       EOT

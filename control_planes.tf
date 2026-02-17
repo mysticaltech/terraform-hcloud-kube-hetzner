@@ -60,6 +60,93 @@ module "control_planes" {
   ]
 }
 
+resource "hcloud_floating_ip" "control_planes" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) == null
+  }
+
+  type              = "ipv4"
+  labels            = local.labels
+  home_location     = each.value.location
+  delete_protection = var.enable_delete_protection.floating_ip
+}
+
+data "hcloud_floating_ip" "control_planes_existing" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) != null
+  }
+
+  id = each.value.floating_ip_id
+}
+
+resource "hcloud_floating_ip_assignment" "control_planes" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  floating_ip_id = local.control_plane_floating_ip_id_by_node[each.key]
+  server_id      = module.control_planes[each.key].id
+
+  depends_on = [
+    terraform_data.first_control_plane,
+  ]
+}
+
+resource "terraform_data" "configure_control_plane_floating_ip" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  triggers_replace = {
+    control_plane_id = module.control_planes[each.key].id
+    floating_ip_id   = local.control_plane_floating_ip_id_by_node[each.key]
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      <<-EOT
+      ETH=eth1
+      if ip link show eth0 &>/dev/null; then
+          ETH=eth0
+      fi
+
+      NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null)
+      if [ -z "$NM_CONNECTION" ]; then
+          echo "ERROR: No NetworkManager connection found for $ETH" >&2
+          exit 1
+      fi
+
+      nmcli connection modify "$NM_CONNECTION" \
+          ipv4.method manual \
+          ipv4.addresses ${local.control_plane_external_ipv4_by_node[each.key]}/32,${local.control_plane_ips[each.key]}/32 gw4 172.31.1.1 \
+          ipv4.route-metric 100 \
+      && nmcli connection up "$NM_CONNECTION"
+      EOT
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.control_plane_ips[each.key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  depends_on = [
+    hcloud_floating_ip_assignment.control_planes
+  ]
+}
+
 resource "hcloud_load_balancer" "control_plane" {
   count = var.use_control_plane_lb ? 1 : 0
   name  = "${var.cluster_name}-control-plane"
@@ -109,6 +196,24 @@ resource "hcloud_load_balancer_service" "control_plane" {
 }
 
 locals {
+  control_plane_floating_ip_id_by_node = {
+    for k, v in local.control_plane_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.control_planes_existing[k].id, null),
+      try(hcloud_floating_ip.control_planes[k].id, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  control_plane_external_ipv4_by_node = {
+    for k, v in local.control_plane_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.control_planes_existing[k].ip_address, null),
+      try(hcloud_floating_ip.control_planes[k].ip_address, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
 
   control_plane_ips = {
@@ -149,6 +254,10 @@ locals {
       write-kubeconfig-mode = "0644" # needed for import into rancher
       cni                   = "none"
     },
+    lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
+      node-external-ip    = local.control_plane_external_ipv4_by_node[k]
+      flannel-external-ip = true
+    } : {},
     var.use_control_plane_lb ? {
       tls-san = concat([
         hcloud_load_balancer.control_plane.*.ipv4[0],
@@ -202,6 +311,10 @@ locals {
       cluster-dns                 = local.cluster_dns_ipv4
       write-kubeconfig-mode       = "0644" # needed for import into rancher
     },
+    lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
+      node-external-ip    = local.control_plane_external_ipv4_by_node[k]
+      flannel-external-ip = true
+    } : {},
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
     var.use_control_plane_lb ? {
       tls-san = concat(
