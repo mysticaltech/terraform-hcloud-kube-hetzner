@@ -124,6 +124,11 @@ module "kube-hetzner" {
 
   # Multi-architecture clusters are OK for most use cases, as container underlying images tend to be multi-architecture too.
 
+  # Node OS (immutable):
+  # - Default for new nodepools is openSUSE Leap Micro ("leapmicro", stable).
+  # - Existing nodepools keep their current OS on upgrade (MicroOS by default) unless you set `os`.
+  # Set `os` per nodepool (and optionally per node in `agent_nodepools[].nodes`).
+
   # * Example below:
 
   control_plane_nodepools = [
@@ -134,6 +139,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
+      # os          = "leapmicro" # valid: "leapmicro" | "microos"
       # swap_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
@@ -200,6 +206,7 @@ module "kube-hetzner" {
       labels      = [],
       taints      = [],
       count       = 1
+      # os          = "leapmicro" # valid: "leapmicro" | "microos"
       # subnet_ip_range = "10.0.0.0/16"  # Optional: override default subnet range
       # swap_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
@@ -288,6 +295,7 @@ module "kube-hetzner" {
       nodes = {
         "1" : {
           location                  = "fsn1"
+          # os                        = "microos" # optional per-node override
           labels = [
             "testing-labels=a1",
           ]
@@ -357,6 +365,7 @@ module "kube-hetzner" {
   # easier, as all public traffic passes through a single strongly secured node. It does
   # however also introduce a single point of failure, so if you need high-availability on your
   # egress, you should consider other configurations.
+  # If a simple failover mechanism is acceptable, you can set enable_redundancy = true to deploy two NAT routers running keepalived to provide a failover mechanism.
   #
   # Hetzner removed the DHCP Router option from private networks on 2025-08-11, so the module
   # now ensures each node attached to the private network persists a default route via the
@@ -364,11 +373,14 @@ module "kube-hetzner" {
   #
   #
   # nat_router = {
-  #   server_type = "cax21"
-  #   location    = "nbg1"
-  #   enable_sudo = false # optional, default to false. Set to true to add nat-router user to the sudo'ers. Note that ssh as root is disabled.
-  #   labels      = {} # optionally add labels.
+  #   server_type       = "cax21"
+  #   location          = "nbg1"
+  #   enable_sudo       = false   # optional, default to false. Set to true to add nat-router user to the sudo'ers. Note that ssh as root is disabled.
+  #   enable_redundancy = true    # optional, default to false. Enable failover for the NAT router.
+  #   standby_location  = "fsn1"  # optional, default to "". Must be set if enable_redundancy is true.
+  #   labels            = {}      # optionally add labels.
   # }
+  # nat_router_hcloud_token = ""  # optional, default to "". Must be set if enable_redundancy is true. This token needs read/write to change the private alias ip in the nat_router subnetwork for failover
 
 
   ### The following values are entirely optional (and can be removed from this if unused)
@@ -389,6 +401,7 @@ module "kube-hetzner" {
   #    name        = "autoscaled-small"
   #    server_type = "cx33"
   #    location    = "nbg1"
+  #    # os          = "leapmicro" # optional; must be the same for all autoscaler nodepools
   #    # Add the arg --enforce-node-group-min-size=true in the cluster_autoscaler_extra_args option below if you want min_nodes to be effective
   #    min_nodes   = 0
   #    max_nodes   = 5
@@ -756,6 +769,16 @@ module "kube-hetzner" {
   # See https://github.com/rancher/system-upgrade-controller/releases for the available versions.
   # sys_upgrade_controller_version = "v0.18.0"
 
+  # Schedule window for k3s automated upgrades (system-upgrade-controller v0.15.0+).
+  # Restricts upgrade job creation to the specified time window.
+  # See https://docs.k3s.io/upgrades/automated#scheduling-upgrades
+  # system_upgrade_schedule_window = {
+  #   days      = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+  #   startTime = "19:00"
+  #   endTime   = "21:00"
+  #   timeZone  = "UTC"
+  # }
+
   # The cluster name, by default "k3s"
   # cluster_name = ""
 
@@ -904,12 +927,14 @@ module "kube-hetzner" {
   # you would have to connect to any control plane node via SSH, as you can run kubectl from within these.
   # Please be advised that this setting has no effect on the load balancer when the use_control_plane_lb variable is set to true. This is
   # because firewall rules cannot be applied to load balancers yet.
+  # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
   # firewall_kube_api_source = null
 
   # Allow SSH access from the specified networks. Default: ["0.0.0.0/0", "::/0"]
   # Allowed values: null (disable SSH rule entirely) or a list of allowed networks with CIDR notation.
   # Ideally you would set your IP there. And if it changes after cluster deploy, you can always update this variable and apply again.
-  # firewall_ssh_source = ["1.2.3.4/32"]
+  # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
+  # firewall_ssh_source = ["myipv4", "1.2.3.4/32"]
 
   # By default, SELinux is enabled in enforcing mode on all nodes. For container-specific SELinux issues,
   # consider using the pre-installed 'udica' tool to create custom, targeted SELinux policies instead of
@@ -918,6 +943,7 @@ module "kube-hetzner" {
 
   # Adding extra firewall rules, like opening a port
   # More info on the format here https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/resources/firewall
+  # You can also use "myipv4" in source_ips or destination_ips to resolve your current public IPv4/32.
   # extra_firewall_rules = [
   #   {
   #     description = "For Postgres"
@@ -1087,12 +1113,27 @@ module "kube-hetzner" {
   # More information about the registration can be found here https://rancher.com/docs/rancher/v2.6/en/cluster-provisioning/registered-clusters/
   # rancher_registration_manifest_url = "https://rancher.xyz.dev/v3/import/xxxxxxxxxxxxxxxxxxYYYYYYYYYYYYYYYYYYYzzzzzzzzzzzzzzzzzzzzz.yaml"
 
-  # Extra commands to be executed after the `kubectl apply -k` (useful for post-install actions, e.g. wait for CRD, apply additional manifests, etc.).
-  # extra_kustomize_deployment_commands=""
-
-  # Extra values that will be passed to the `extra-manifests/kustomization.yaml.tpl` if its present.
-  # extra_kustomize_parameters={}
-
+  # You can add user kustomizations to be deployed in sequence by setting the `user_kustomizations` variable.
+  # The Kustomization "sets" are run in sequential order (by numeric key) so that you can for example install a CRD and wait for it to be deployed.
+  #
+  # Properties of each value:
+  # - source_folder: Sets the source folder for *.yaml.tpl and Kustomization.yaml.tpl
+  # - kustomize_parameters: Key-value map for passing variables into Kustomization. Applies only to the Kustomization-set in the object, but to all files defined in the source_folder of the "set". Defaults to {}.
+  # - pre_commands: Commands to be executed before applying the Kustomization ("kubectl apply -k"). Defaults to "".
+  # - post_commands: Commands to be executed after applying the Kustomization ("kubectl apply -k"). You can use it to wait for CRD deployment etc. Defaults to "".
+  # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
+  # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
+  # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
+  #
+  # An example:
+  # user_kustomizations = {
+  #   "1" = {
+  #     source_folder        = "extra-manifests"
+  #     kustomize_parameters = { myvar = "myvalue" }
+  #     pre_commands         = ""
+  #     post_commands        = "kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true"
+  #   }
+  # }
   # See working examples for extra manifests or a HelmChart in examples/kustomization_user_deploy/README.md
 
   # It is best practice to turn this off, but for backwards compatibility it is set to "true" by default.
@@ -1109,8 +1150,12 @@ module "kube-hetzner" {
   # The default is false.
   # export_values = true
 
-  # MicroOS snapshot IDs to be used. Per default empty, the most recent image created using createkh will be used.
-  # We recommend the default, but if you want to use specific IDs you can.
+  # Leap Micro snapshot IDs to be used (recommended). Per default empty, the most recent image created using createkh will be used.
+  # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'leapmicro-snapshot=yes'" command.
+  # leapmicro_x86_snapshot_id = "1234567"
+  # leapmicro_arm_snapshot_id = "1234567"
+
+  # MicroOS snapshot IDs to be used (legacy/upgrade). Per default empty, the most recent image created using createkh will be used.
   # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'microos-snapshot=yes'" command.
   # microos_x86_snapshot_id = "1234567"
   # microos_arm_snapshot_id = "1234567"

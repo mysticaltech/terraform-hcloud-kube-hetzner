@@ -31,14 +31,26 @@ variable "robot_ccm_enabled" {
   description = "Enables the integration of Hetzner Robot dedicated servers via the Cloud Controller Manager (CCM). If true, `robot_user` and `robot_password` must also be provided, otherwise the integration will not be activated."
 }
 
+variable "leapmicro_x86_snapshot_id" {
+  description = "Leap Micro x86 snapshot ID to be used. If empty, the most recent image created will be used."
+  type        = string
+  default     = ""
+}
+
+variable "leapmicro_arm_snapshot_id" {
+  description = "Leap Micro ARM snapshot ID to be used. If empty, the most recent image created will be used."
+  type        = string
+  default     = ""
+}
+
 variable "microos_x86_snapshot_id" {
-  description = "MicroOS x86 snapshot ID to be used. Per default empty, the most recent image created using createkh will be used"
+  description = "MicroOS x86 snapshot ID to be used. If empty, the most recent image created will be used."
   type        = string
   default     = ""
 }
 
 variable "microos_arm_snapshot_id" {
-  description = "MicroOS ARM snapshot ID to be used. Per default empty, the most recent image created using createkh will be used"
+  description = "MicroOS ARM snapshot ID to be used. If empty, the most recent image created will be used."
   type        = string
   default     = ""
 }
@@ -136,7 +148,7 @@ variable "subnet_amount" {
     error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_amount or use a larger network."
   }
   validation {
-    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : 1)
+    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : (var.nat_router.enable_redundancy == false ? 1 : 2))
     error_message = "Subnet amount must be large enough so that a subnet for each agent pool, each control plane pool and (if enabled) the nat router can be created in the network."
   }
 }
@@ -165,11 +177,42 @@ variable "nat_router" {
   nullable    = true
   default     = null
   type = object({
-    server_type = string
-    location    = string
-    labels      = optional(map(string), {})
-    enable_sudo = optional(bool, false)
+    server_type       = string
+    location          = string
+    labels            = optional(map(string), {})
+    enable_sudo       = optional(bool, false)
+    enable_redundancy = optional(bool, false)
+    standby_location  = optional(string, "")
   })
+
+  validation {
+    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router.standby_location != ""
+    error_message = "When nat_router.enable_redundancy is true, standby_location must be provided."
+  }
+}
+
+variable "nat_router_hcloud_token" {
+  description = "API Token used by the nat-router to change ip assignment when nat_router.enable_redundancy is true."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router_hcloud_token != ""
+    error_message = "When nat_router.enable_redundancy is true, nat_router_hcloud_token must be provided."
+  }
+}
+
+variable "optional_bastion_host" {
+  description = "Optional bastion host used to connect to cluster nodes. Useful when using a pre-existing NAT router."
+  type = object({
+    bastion_host        = string
+    bastion_port        = number
+    bastion_user        = string
+    bastion_private_key = string
+  })
+  sensitive = true
+  default   = null
 }
 
 variable "nat_router_subnet_index" {
@@ -270,6 +313,7 @@ variable "control_plane_nodepools" {
     selinux                    = optional(bool, true)
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
+    os                         = optional(string)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
@@ -285,6 +329,15 @@ variable "control_plane_nodepools" {
     )
     error_message = "Names in control_plane_nodepools must be unique."
   }
+
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      control_plane_nodepool.os == null || control_plane_nodepool.os == "microos" || control_plane_nodepool.os == "leapmicro"
+    ])
+    error_message = "The os must be either 'microos' or 'leapmicro'."
+  }
+
   validation {
     condition     = length(var.control_plane_nodepools) > 0
     error_message = "At least one control plane nodepool is required. Kubernetes cannot run without control plane nodes."
@@ -315,6 +368,7 @@ variable "agent_nodepools" {
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
     subnet_ip_range            = optional(string, null)
+    os                         = optional(string)
     count                      = optional(number, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
@@ -336,6 +390,7 @@ variable "agent_nodepools" {
       placement_group_compat_idx = optional(number, 0)
       placement_group            = optional(string, null)
       append_index_to_node_name  = optional(bool, true)
+      os                         = optional(string)
     })))
   }))
   default = []
@@ -349,6 +404,31 @@ variable "agent_nodepools" {
       )
     )
     error_message = "Names in agent_nodepools must be unique."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      agent_nodepool.os == null || agent_nodepool.os == "microos" || agent_nodepool.os == "leapmicro"
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the nodepool level. The 'os' for each 'agent_nodepool' must be either 'microos' or 'leapmicro'.
+    Please correct the nodepool 'os' value.
+    EOF
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.os == null || agent_node.os == "microos" || agent_node.os == "leapmicro"
+      ])
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the node level. Each node's 'os' within a nodepool must be either 'microos', 'leapmicro', or unset.
+    Please correct any invalid node 'os' values.
+    EOF
   }
 
   validation {
@@ -498,6 +578,7 @@ variable "autoscaler_nodepools" {
     max_nodes    = number
     labels       = optional(map(string), {})
     kubelet_args = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+    os           = optional(string)
     taints = optional(list(object({
       key    = string
       value  = string
@@ -507,6 +588,17 @@ variable "autoscaler_nodepools" {
     zram_size = optional(string, "")
   }))
   default = []
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      autoscaler_nodepool.os == null || autoscaler_nodepool.os == "microos" || autoscaler_nodepool.os == "leapmicro"
+    ])
+    error_message = <<-EOF
+    Invalid 'os' value at the autoscaler nodepool level. The 'os' for each 'autoscaler_nodepool' must be either 'microos' or 'leapmicro'.
+    Please correct the autoscaler nodepool 'os' value.
+    EOF
+  }
 }
 
 variable "autoscaler_labels" {
@@ -826,6 +918,53 @@ variable "automatically_upgrade_k3s" {
   description = "Whether to automatically upgrade k3s based on the selected channel."
 }
 
+variable "system_upgrade_schedule_window" {
+  type = object({
+    days      = optional(list(string), [])
+    startTime = optional(string, "")
+    endTime   = optional(string, "")
+    timeZone  = optional(string, "UTC")
+  })
+  default     = null
+  description = "Schedule window for k3s automated upgrades (system-upgrade-controller v0.15.0+). When set, upgrade jobs will only be created within the specified time window. 'days' accepts lowercase day names (e.g. [\"monday\",\"tuesday\"]). 'startTime'/'endTime' use HH:MM format. 'timeZone' defaults to UTC. See https://docs.k3s.io/upgrades/automated#scheduling-upgrades"
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      length(try(var.system_upgrade_schedule_window.days, [])) > 0 ||
+      coalesce(try(var.system_upgrade_schedule_window.startTime, ""), "") != "" ||
+      coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "") != ""
+    )
+    error_message = "system_upgrade_schedule_window must have at least one of 'days', 'startTime', or 'endTime' set when not null."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : alltrue([
+      for day in try(var.system_upgrade_schedule_window.days, []) :
+      can(regex("^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$", day))
+    ])
+    error_message = "system_upgrade_schedule_window.days must contain lowercase day names (monday-sunday)."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : alltrue([
+      for time_value in [
+        coalesce(try(var.system_upgrade_schedule_window.startTime, ""), ""),
+        coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "")
+      ] :
+      time_value == "" || can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", time_value))
+    ])
+    error_message = "system_upgrade_schedule_window.startTime and endTime must use 24-hour HH:MM format when set."
+  }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "") == "" ||
+      can(regex("^[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)*$", coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "")))
+    )
+    error_message = "system_upgrade_schedule_window.timeZone must be a valid IANA timezone name (for example, UTC or Europe/Budapest)."
+  }
+}
+
 variable "automatically_upgrade_os" {
   type        = bool
   default     = true
@@ -848,6 +987,12 @@ variable "firewall_ssh_source" {
   type        = list(string)
   default     = ["0.0.0.0/0", "::/0"]
   description = "Source networks that have SSH access to the servers."
+}
+
+variable "myipv4_ref" {
+  type        = string
+  default     = "myipv4"
+  description = "Placeholder string that can be used in firewall source/destination IP lists and will be replaced by the apply runner's public IPv4 /32."
 }
 
 variable "use_cluster_name_in_node_name" {
@@ -1295,23 +1440,30 @@ variable "postinstall_exec" {
   description = "Additional to execute after the install calls, for example restoring a backup."
 }
 
+variable "user_kustomizations" {
+  type = map(object({
+    source_folder        = optional(string, "")
+    kustomize_parameters = optional(map(any), {})
+    pre_commands         = optional(string, "")
+    post_commands        = optional(string, "")
+  }))
+  default = {
+    "1" = {
+      source_folder        = "extra-manifests"
+      kustomize_parameters = {}
+      pre_commands         = ""
+      post_commands        = ""
+    }
+  }
+  description = "Map of Kustomization-set entries, where key is the order number."
 
-variable "extra_kustomize_deployment_commands" {
-  type        = string
-  default     = ""
-  description = "Commands to be executed after the `kubectl apply -k <dir>` step."
-}
-
-variable "extra_kustomize_parameters" {
-  type        = any
-  default     = {}
-  description = "All values will be passed to the `kustomization.tmp.yml` template."
-}
-
-variable "extra_kustomize_folder" {
-  type        = string
-  default     = "extra-manifests"
-  description = "Folder from where to upload extra manifests"
+  validation {
+    condition = alltrue([
+      for key in keys(var.user_kustomizations) :
+      can(regex("^[0-9]+$", key)) && tonumber(key) > 0
+    ])
+    error_message = "All keys in user_kustomizations must be positive numeric strings (e.g., '1', '2')."
+  }
 }
 
 variable "create_kubeconfig" {

@@ -2,17 +2,22 @@ variable "name" {
   description = "Host name"
   type        = string
 }
-
 variable "connection_host" {
   description = "Optional SSH host override used for Terraform provisioners."
   type        = string
   default     = ""
 }
-variable "microos_snapshot_id" {
-  description = "MicroOS snapshot ID to be used. Per default empty, an initial snapshot will be created"
+
+variable "os_snapshot_id" {
+  description = "OS snapshot ID to be used."
   type        = string
-  default     = ""
 }
+
+variable "os" {
+  description = "Operating system used for the snapshot. Used to conditionally apply OS-specific cloud-init steps."
+  type        = string
+}
+
 variable "base_domain" {
   description = "Base domain used for reverse dns"
   type        = string

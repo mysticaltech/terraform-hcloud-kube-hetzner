@@ -3,18 +3,6 @@ resource "random_password" "k3s_token" {
   special = false
 }
 
-data "hcloud_image" "microos_x86_snapshot" {
-  with_selector     = "microos-snapshot=yes"
-  with_architecture = "x86"
-  most_recent       = true
-}
-
-data "hcloud_image" "microos_arm_snapshot" {
-  with_selector     = "microos-snapshot=yes"
-  with_architecture = "arm"
-  most_recent       = true
-}
-
 resource "hcloud_ssh_key" "k3s" {
   count      = var.hcloud_ssh_key_id == null ? 1 : 0
   name       = var.cluster_name
@@ -86,6 +74,13 @@ resource "hcloud_firewall" "k3s" {
       port            = lookup(rule.value, "port", null)
       destination_ips = lookup(rule.value, "destination_ips", [])
       source_ips      = lookup(rule.value, "source_ips", [])
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !local.is_ref_myipv4_used || local.my_public_ipv4_cidr != null
+      error_message = "Unable to resolve 'myipv4' to a valid public IPv4 address from https://ipv4.icanhazip.com."
     }
   }
 }

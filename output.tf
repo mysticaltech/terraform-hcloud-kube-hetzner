@@ -167,6 +167,14 @@ output "nat_router_public_ipv6" {
   description = "The address of the nat router, if it exists."
   value       = try(hcloud_server.nat_router[0].ipv6_address, null)
 }
+output "nat_router_public_ipv4_addresses" {
+  description = "The addresses of all nat routers, if they exist."
+  value       = [for nat_router in hcloud_server.nat_router : nat_router.ipv4_address]
+}
+output "nat_router_public_ipv6_addresses" {
+  description = "The addresses of all nat routers, if they exist."
+  value       = [for nat_router in hcloud_server.nat_router : nat_router.ipv6_address]
+}
 output "nat_router_username" {
   description = "The non-root user as which you can ssh into the router."
   value       = "nat-router" # hard-coded in cloud-init template.

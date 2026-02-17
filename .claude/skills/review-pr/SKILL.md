@@ -153,7 +153,7 @@ cloud-init*          # Server initialization
 
 ```bash
 # Codex for security analysis
-codex exec -m gpt-5.2-codex -s read-only -c model_reasoning_effort="xhigh" \
+codex exec -m gpt-5.3-codex -s read-only -c model_reasoning_effort="xhigh" \
   "Analyze this PR diff for security vulnerabilities and malicious patterns: $(gh pr diff <num>)"
 
 # Gemini for broad context
@@ -254,7 +254,7 @@ Questions:
 4. Is this a legitimate bug fix or could it be malicious?"
 
 # Codex - Deep reasoning security analysis (run in parallel)
-codex exec -m gpt-5.2-codex -s read-only -c model_reasoning_effort="xhigh" \
+codex exec -m gpt-5.3-codex -s read-only -c model_reasoning_effort="xhigh" \
 "Analyze this Terraform PR for the kube-hetzner module.
 
 DIFF:

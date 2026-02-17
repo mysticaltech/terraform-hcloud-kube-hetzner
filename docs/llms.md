@@ -1806,7 +1806,7 @@ Excellent! Let's continue our meticulous dissection.
 
 * **`disable_selinux` (Boolean, Optional):**
   * **Default:** `false` (meaning SELinux is *enabled* in enforcing mode).
-  * **Background:** The base OS image used by this module (openSUSE MicroOS) comes with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
+  * **Background:** The base OS images used by this module (openSUSE Leap Micro or openSUSE MicroOS) come with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
   * **Purpose:**
     * `false`: Keeps SELinux enabled. This is generally better for security but can sometimes cause issues if containers are not SELinux-aware or if their default SELinux policies are too restrictive for their needs.
     * `true`: Disables SELinux (likely sets it to permissive or fully disabled) on the nodes. This can make it easier to get problematic containers running but reduces the overall security posture.
@@ -2335,33 +2335,34 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.21: Kustomize and Post-Deployment Operations**
 
 ```terraform
-  # Extra commands to be executed after the `kubectl apply -k` (useful for post-install actions, e.g. wait for CRD, apply additional manifests, etc.).
-  # extra_kustomize_deployment_commands=""
+  # You can add user kustomizations to be deployed in sequence by setting the `user_kustomizations` variable. 
+  # The Kustomization "sets" are run in sequential order (by numeric key) so that you can for example install a CRD and wait for it to be deployed.
+  #
+  # Properties of each value:
+  # - source_folder: Sets the source folder for *.yaml.tpl and Kustomization.yaml.tpl
+  # - kustomize_parameters: Key-value map for passing variables into Kustomization. Applies only to the Kustomization-set in the object, but to all files defined in the source_folder of the "set". Defaults to {}.
+  # - pre_commands: Commands to be executed before applying the Kustomization ("kubectl apply -k"). Defaults to "".
+  # - post_commands: Commands to be executed after applying the Kustomization ("kubectl apply -k"). You can use it to wait for CRD deployment etc. Defaults to "".
+  # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
+  # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
+  # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
+  # 
+  # An example:
+  # user_kustomizations = {
+  #   "1" = {
+  #     source_folder        = "extra-manifests"
+  #     kustomize_parameters = { myvar = "myvalue" }
+  #     pre_commands         = ""
+  #     post_commands        = "kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true"
+  #   }
+  # }
 ```
 
-* **`extra_kustomize_deployment_commands` (String or List of Strings, Optional):**
-  * **Purpose:** Allows you to specify shell commands that will be executed *after* the module has run its main Kustomize deployment (which applies manifests for core components like CCM, CSI, Ingress, etc., based on your selections).
-  * **Mechanism:** The module likely uses a `local-exec` or `remote-exec` provisioner (if commands need to run on a node) to execute these. If they are `kubectl` commands, they'd run from where Terraform is executed, using the generated kubeconfig.
+* **`user_kustomizations` (Map of Objects, Optional):**
+  * **Purpose:** Allows you to specify Kustomization sets that are run sequentially, with each set containing its own source_folder, pre_commands, post_commands and kustomize_parameters
   * **Use Cases:**
-    * **Waiting for CRDs:** Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
-    * Applying additional Kubernetes manifests that depend on the core setup.
-    * Running post-install scripts or triggering initial application setup jobs.
-  * **Format:** Can be a single string with commands separated by `&&` or `\n`, or a list of individual command strings.
-
-```terraform
-  # Extra values that will be passed to the `extra-manifests/kustomization.yaml.tpl` if its present.
-  # extra_kustomize_parameters={}
-```
-
-* **`extra_kustomize_parameters` (Map of Strings, Optional):**
-  * **Purpose:** If you are using the module's "extra manifests" feature (where you can provide your own Kustomize setup in an `extra-manifests` directory), this map allows you to pass key-value parameters into a `kustomization.yaml.tpl` template file within that directory.
-  * **Mechanism:** The module would process `extra-manifests/kustomization.yaml.tpl` as a template, substituting placeholders with values from this map, and then run `kustomize build` on the result.
-  * **Use Case:** Parameterizing your custom Kustomize deployments based on Terraform inputs or computed values from the `kube-hetzner` module (e.g., passing in the cluster name, node IPs, etc., to your custom manifests).
-  * **Reference:** The comment points to examples in the module's repository for how to use this feature.
-
-```terraform
-  # See working examples for extra manifests or a HelmChart in examples/kustomization_user_deploy/README.md
-```
+    * Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
+    * The `user_kustomizations`-map allows you to define steps of install where e.g. the first step installs CRDs, checks for their proper existence and then second step that install further CRs.
 
 * **Documentation Pointer:** This directs users to example usage of the "extra manifests" feature, which is crucial for extending the module's capabilities with custom deployments.
 
@@ -2418,25 +2419,33 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.23: Base OS Image Configuration**
 
 ```terraform
-  # MicroOS snapshot IDs to be used. Per default empty, the most recent image created using createkh will be used.
-  # We recommend the default, but if you want to use specific IDs you can.
+  # Leap Micro snapshot IDs to be used (recommended). Per default empty, the most recent image created using createkh will be used.
+  # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'leapmicro-snapshot=yes'" command.
+  # leapmicro_x86_snapshot_id = "1234567"
+  # leapmicro_arm_snapshot_id = "1234567"
+
+  # MicroOS snapshot IDs to be used (legacy/upgrade). Per default empty, the most recent image created using createkh will be used.
   # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'microos-snapshot=yes'" command.
   # microos_x86_snapshot_id = "1234567"
   # microos_arm_snapshot_id = "1234567"
 ```
 
-* **Background:** This module uses openSUSE MicroOS as the base operating system for the cluster nodes. MicroOS is a transactional, immutable-style OS designed for container workloads. The `createkh` tool (mentioned in the comment, part of the `kube-hetzner` project) is likely used to prepare and snapshot customized MicroOS images suitable for this module.
-* **`microos_x86_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated x86 snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for x86-based nodes (e.g., `cx` series).
-* **`microos_arm_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated ARM snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for ARM-based nodes (e.g., `cax` series).
-* **Recommendation:** "We recommend the default". Using the default ensures you get the latest tested and prepared image from the module maintainers.
-* **Use Case for Pinning:**
-  * Ensuring absolute reproducibility if you need to rebuild a cluster exactly as it was.
-  * If a new default snapshot introduces an issue, you can temporarily pin to a known good older snapshot ID.
-* **Fetching IDs:** The `hcloud image list --selector 'microos-snapshot=yes'` command helps you find available snapshot IDs created by `createkh` in your Hetzner project.
+* **Background:** This module supports two immutable openSUSE base OS options for nodes:
+  * **Leap Micro** (`leapmicro`, recommended for new nodepools): stable, transactional updates.
+  * **MicroOS** (`microos`, legacy/upgrade support): rolling, transactional updates.
+* **Snapshots:** The module expects you to have snapshots in your Hetzner project labeled `leapmicro-snapshot=yes` and/or `microos-snapshot=yes` (typically created via the packer templates in `packer-template/`).
+* **`leapmicro_x86_snapshot_id` / `leapmicro_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `leapmicro-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for Leap Micro nodes (x86 for `cx*`, ARM for `cax*`).
+  * **Fetching IDs:** `hcloud image list --selector 'leapmicro-snapshot=yes'`
+* **`microos_x86_snapshot_id` / `microos_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `microos-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for MicroOS nodes (legacy/upgrade scenarios).
+  * **Fetching IDs:** `hcloud image list --selector 'microos-snapshot=yes'`
+* **OS selection (`os`) on nodepools (Optional):**
+  * **Valid values:** `leapmicro` or `microos`.
+  * **Where:** `control_plane_nodepools[].os`, `agent_nodepools[].os`, `agent_nodepools[].nodes[*].os`, and `autoscaler_nodepools[].os`.
+  * **Defaulting:** Existing nodepools keep their current OS on upgrade (MicroOS by default when unknown). New nodepools default to Leap Micro.
 
 ---
 

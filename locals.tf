@@ -36,6 +36,16 @@ locals {
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
   dns_servers_ipv6 = [for ip in var.dns_servers : ip if provider::assert::ipv6(ip)]
 
+  is_ref_myipv4_used = (
+    contains(coalesce(var.firewall_kube_api_source, []), var.myipv4_ref) ||
+    contains(coalesce(var.firewall_ssh_source, []), var.myipv4_ref) ||
+    contains(flatten([
+      for rule in var.extra_firewall_rules : concat(lookup(rule, "source_ips", []), lookup(rule, "destination_ips", []))
+    ]), var.myipv4_ref)
+  )
+  my_public_ipv4      = try(trimspace(data.http.my_ipv4[0].response_body), null)
+  my_public_ipv4_cidr = can(cidrhost("${local.my_public_ipv4}/32", 0)) ? "${local.my_public_ipv4}/32" : null
+
   use_robot_ccm = var.robot_ccm_enabled && var.robot_user != "" && var.robot_password != ""
   # Key of the kube_system_secret-items is the name of the Secret. Values of those items are the key-value pairs of Secret.
   kube_system_secrets = {
@@ -233,8 +243,21 @@ locals {
     )
   })
 
-  apply_k3s_selinux = ["/sbin/semodule -v -i /usr/share/selinux/packages/k3s.pp"]
-  swap_node_label   = ["node.kubernetes.io/server-swap=enabled"]
+  apply_k3s_selinux = [<<-EOT
+echo "Checking k3s SELinux policy status..."
+if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm -q k3s-selinux >/dev/null 2>&1; then
+  if [ -f /usr/share/selinux/packages/k3s.pp ]; then
+    echo "Applying k3s SELinux policy..."
+    semodule -v -i /usr/share/selinux/packages/k3s.pp || true
+  else
+    echo "k3s SELinux policy file not found at /usr/share/selinux/packages/k3s.pp; skipping"
+  fi
+else
+  echo "k3s-selinux package or semodule not available; skipping"
+fi
+EOT
+  ]
+  swap_node_label = ["node.kubernetes.io/server-swap=enabled"]
 
   k3s_install_command = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.install_k3s_version == ""}INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}%{else}INSTALL_K3S_VERSION=${var.install_k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
 
@@ -252,6 +275,149 @@ locals {
     local.common_post_install_k3s_commands
   )
 
+  # Used for mapping existing node names (which include the random suffix) back into nodepool names.
+  cluster_prefix_for_node_names = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+
+  configured_control_plane_nodepool_names = distinct([for np in var.control_plane_nodepools : np.name])
+  configured_agent_nodepool_names         = distinct([for np in var.agent_nodepools : np.name])
+
+  # Union for any cluster-wide checks.
+  configured_nodepool_names = distinct(concat(
+    local.configured_control_plane_nodepool_names,
+    local.configured_agent_nodepool_names,
+  ))
+
+  existing_control_plane_servers_info = [
+    for s in data.hcloud_servers.existing_control_plane_nodes.servers : {
+      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
+      name_base = trimprefix(
+        length(split("-", s.name)) > 1
+        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
+        : s.name,
+        local.cluster_prefix_for_node_names,
+      )
+
+      # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
+      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
+    }
+  ]
+
+  existing_agent_servers_info = [
+    for s in data.hcloud_servers.existing_agent_nodes.servers : {
+      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
+      name_base = trimprefix(
+        length(split("-", s.name)) > 1
+        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
+        : s.name,
+        local.cluster_prefix_for_node_names,
+      )
+
+      # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
+      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
+    }
+  ]
+
+  existing_servers_info = concat(local.existing_control_plane_servers_info, local.existing_agent_servers_info)
+
+  existing_control_plane_servers_nodepool_os = [
+    for s in local.existing_control_plane_servers_info : merge(s, {
+      # Choose the best-matching nodepool for this server name ("longest prefix wins") so that:
+      # - node name suffixes (e.g. "-0") don't break matching
+      # - nodepool "auto" doesn't incorrectly match "auto-large"
+      nodepool = (
+        length([
+          for np in local.configured_control_plane_nodepool_names :
+          np
+          if startswith(s.name_base, np) && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+        ]) > 0
+        ? one([
+          for np in local.configured_control_plane_nodepool_names :
+          np
+          if(
+            startswith(s.name_base, np)
+            && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+            && length(np) == max([
+              for np2 in local.configured_control_plane_nodepool_names :
+              length(np2)
+              if startswith(s.name_base, np2) && (length(s.name_base) == length(np2) || substr(s.name_base, length(np2), 1) == "-")
+            ]...)
+          )
+        ])
+        : null
+      )
+    })
+  ]
+
+  existing_agent_servers_nodepool_os = [
+    for s in local.existing_agent_servers_info : merge(s, {
+      # Choose the best-matching nodepool for this server name ("longest prefix wins") so that:
+      # - node name suffixes (e.g. "-0") don't break matching
+      # - nodepool "auto" doesn't incorrectly match "auto-large"
+      nodepool = (
+        length([
+          for np in local.configured_agent_nodepool_names :
+          np
+          if startswith(s.name_base, np) && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+        ]) > 0
+        ? one([
+          for np in local.configured_agent_nodepool_names :
+          np
+          if(
+            startswith(s.name_base, np)
+            && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+            && length(np) == max([
+              for np2 in local.configured_agent_nodepool_names :
+              length(np2)
+              if startswith(s.name_base, np2) && (length(s.name_base) == length(np2) || substr(s.name_base, length(np2), 1) == "-")
+            ]...)
+          )
+        ])
+        : null
+      )
+    })
+  ]
+
+  existing_control_plane_nodepool_names = distinct(compact([for s in local.existing_control_plane_servers_nodepool_os : s.nodepool]))
+  existing_agent_nodepool_names         = distinct(compact([for s in local.existing_agent_servers_nodepool_os : s.nodepool]))
+
+  existing_os_labels_by_control_plane_nodepool = {
+    for np in local.configured_control_plane_nodepool_names :
+    np => distinct(compact([for s in local.existing_control_plane_servers_nodepool_os : s.os_label if s.nodepool == np]))
+  }
+
+  existing_os_labels_by_agent_nodepool = {
+    for np in local.configured_agent_nodepool_names :
+    np => distinct(compact([for s in local.existing_agent_servers_nodepool_os : s.os_label if s.nodepool == np]))
+  }
+
+  existing_cluster_os_labels = distinct(compact([for s in local.existing_servers_info : s.os_label]))
+
+  control_plane_nodepool_default_os = {
+    for nodepool_name in local.configured_control_plane_nodepool_names :
+    nodepool_name => (
+      !contains(local.existing_control_plane_nodepool_names, nodepool_name)
+      ? "leapmicro"
+      : (
+        length(local.existing_os_labels_by_control_plane_nodepool[nodepool_name]) == 1
+        ? local.existing_os_labels_by_control_plane_nodepool[nodepool_name][0]
+        : "microos"
+      )
+    )
+  }
+
+  agent_nodepool_default_os = {
+    for nodepool_name in local.configured_agent_nodepool_names :
+    nodepool_name => (
+      !contains(local.existing_agent_nodepool_names, nodepool_name)
+      ? "leapmicro"
+      : (
+        length(local.existing_os_labels_by_agent_nodepool[nodepool_name]) == 1
+        ? local.existing_os_labels_by_agent_nodepool[nodepool_name][0]
+        : "microos"
+      )
+    )
+  }
+
   control_plane_nodes = merge([
     for pool_index, nodepool_obj in var.control_plane_nodepools : {
       for node_index in range(nodepool_obj.count) :
@@ -267,6 +433,7 @@ locals {
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
+        os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -296,6 +463,7 @@ locals {
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
+        os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -325,6 +493,7 @@ locals {
           swap_size : nodepool_obj.swap_size,
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
+          os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name]),
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
@@ -350,21 +519,71 @@ locals {
     local.agent_nodes_from_maps_for_counts,
   )
 
+  default_autoscaler_os = length(local.existing_servers_info) == 0 ? "leapmicro" : (
+    length(local.existing_cluster_os_labels) == 1 ? local.existing_cluster_os_labels[0] : "microos"
+  )
+
+  autoscaler_nodepools_os = [
+    for np in var.autoscaler_nodepools :
+    coalesce(np.os, local.default_autoscaler_os)
+  ]
+
+  node_os_arch_pairs = concat(
+    [
+      for n in values(local.control_plane_nodes) :
+      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+    [
+      for n in values(local.agent_nodes) :
+      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+    [
+      for np in var.autoscaler_nodepools :
+      { os = coalesce(np.os, local.default_autoscaler_os), arch = substr(np.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+  )
+
+  os_arch_requirements = {
+    microos = {
+      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "x86"])
+    }
+    leapmicro = {
+      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "x86"])
+    }
+  }
+
+  snapshot_id_by_os = {
+    leapmicro = {
+      arm = var.leapmicro_arm_snapshot_id != "" ? var.leapmicro_arm_snapshot_id : try(data.hcloud_image.leapmicro_arm_snapshot[0].id, "")
+      x86 = var.leapmicro_x86_snapshot_id != "" ? var.leapmicro_x86_snapshot_id : try(data.hcloud_image.leapmicro_x86_snapshot[0].id, "")
+    }
+    microos = {
+      arm = var.microos_arm_snapshot_id != "" ? var.microos_arm_snapshot_id : try(data.hcloud_image.microos_arm_snapshot[0].id, "")
+      x86 = var.microos_x86_snapshot_id != "" ? var.microos_x86_snapshot_id : try(data.hcloud_image.microos_x86_snapshot[0].id, "")
+    }
+  }
+
   use_existing_network = length(var.existing_network_id) > 0
 
   use_nat_router = var.nat_router != null
 
-  ssh_bastion = local.use_nat_router ? {
-    bastion_host        = hcloud_server.nat_router[0].ipv4_address
-    bastion_port        = var.ssh_port
-    bastion_user        = "nat-router"
-    bastion_private_key = var.ssh_private_key
-    } : {
-    bastion_host        = null
-    bastion_port        = null
-    bastion_user        = null
-    bastion_private_key = null
-  }
+  ssh_bastion = coalesce(
+    local.use_nat_router ? {
+      bastion_host        = hcloud_server.nat_router[0].ipv4_address
+      bastion_port        = var.ssh_port
+      bastion_user        = "nat-router"
+      bastion_private_key = var.ssh_private_key
+    } : null,
+    var.optional_bastion_host,
+    {
+      bastion_host        = null
+      bastion_port        = null
+      bastion_user        = null
+      bastion_private_key = null
+    }
+  )
 
   # Create subnets from the base network CIDR.
   # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
@@ -546,8 +765,15 @@ locals {
   # merge the two lists
   firewall_rules_merged = merge(local.firewall_rules, local.extra_firewall_rules)
 
-  # convert the merged list back to a list
-  firewall_rules_list = values(local.firewall_rules_merged)
+  # convert the merged map back to a list and resolve the myipv4 placeholder
+  firewall_rules_list = [for _, rule in local.firewall_rules_merged : {
+    description     = rule.description
+    direction       = rule.direction
+    protocol        = rule.protocol
+    port            = lookup(rule, "port", null)
+    source_ips      = compact([for ip in lookup(rule, "source_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+    destination_ips = compact([for ip in lookup(rule, "destination_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+  } if rule != null]
 
   labels = {
     "provisioner" = "terraform",
@@ -1327,7 +1553,10 @@ cloudinit_runcmd_common = <<EOT
 # SELinux permission for the SSH alternative port
 %{if var.ssh_port != 22}
 # SELinux permission for the SSH alternative port.
-- [semanage, port, '-a', '-t', ssh_port_t, '-p', tcp, '${var.ssh_port}']
+- |
+  semanage port -a -t ssh_port_t -p tcp ${var.ssh_port} 2>/dev/null || \
+  semanage port -m -t ssh_port_t -p tcp ${var.ssh_port} 2>/dev/null || \
+  echo "Port ${var.ssh_port} already configured for SSH"
 %{endif}
 
 # Create and apply the necessary SELinux module for kube-hetzner
@@ -1341,17 +1570,34 @@ cloudinit_runcmd_common = <<EOT
 - [systemctl, disable, '--now', 'rebootmgr.service']
 
 # Bounds the amount of logs that can survive on the system
-- [sed, '-i', 's/#SystemMaxUse=/SystemMaxUse=3G/g', /etc/systemd/journald.conf]
-- [sed, '-i', 's/#MaxRetentionSec=/MaxRetentionSec=1week/g', /etc/systemd/journald.conf]
+- |
+  if [ -f /etc/systemd/journald.conf ]; then
+    sed -i 's/#SystemMaxUse=/SystemMaxUse=3G/g' /etc/systemd/journald.conf
+    sed -i 's/#MaxRetentionSec=/MaxRetentionSec=1week/g' /etc/systemd/journald.conf
+  elif [ -f /usr/lib/systemd/journald.conf ]; then
+    mkdir -p /etc/systemd/journald.conf.d/
+    printf '%s\n' "[Journal]" "SystemMaxUse=3G" "MaxRetentionSec=1week" > /etc/systemd/journald.conf.d/kube-hetzner.conf
+  else
+    echo "journald.conf not found, skipping journal size configuration"
+  fi
 
 # Reduces the default number of snapshots from 2-10 number limit, to 4 and from 4-10 number limit important, to 2
-- [sed, '-i', 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g', /etc/snapper/configs/root]
-- [sed, '-i', 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g', /etc/snapper/configs/root]
+- |
+  if [ -f /etc/snapper/configs/root ]; then
+    sed -i 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g' /etc/snapper/configs/root
+    sed -i 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g' /etc/snapper/configs/root
+  else
+    echo "Snapper config not found, skipping snapshot limit configuration"
+  fi
 
 # Allow network interface
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
 
-# Restart the sshd service to apply the new config
+# Ensure sshd includes config.d directory and restart to apply the new config
+- |
+  if ! grep -q "^Include /etc/ssh/sshd_config.d/\\*.conf" /etc/ssh/sshd_config 2>/dev/null; then
+    echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+  fi
 - [systemctl, 'restart', 'sshd']
 
 # Make sure the network is up
@@ -1389,5 +1635,21 @@ check "ccm_lb_has_eligible_targets" {
   assert {
     condition     = !(var.exclude_agents_from_external_load_balancers && !local.allow_loadbalancer_target_on_control_plane)
     error_message = "Warning: exclude_agents_from_external_load_balancers=true with allow_scheduling_on_control_plane=false leaves NO eligible targets for CCM-managed LoadBalancer services. Either set allow_scheduling_on_control_plane=true or disable exclude_agents_from_external_load_balancers."
+  }
+}
+
+check "autoscaler_nodepools_os_consistent" {
+  assert {
+    condition     = length(distinct(local.autoscaler_nodepools_os)) <= 1
+    error_message = "All autoscaler_nodepools must use the same effective OS. Set 'os' explicitly per autoscaler_nodepool (or omit it everywhere) so the module can select a single image set."
+  }
+}
+
+check "system_upgrade_window_requires_supported_controller_version" {
+  assert {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      try(provider::semvers::compare(trimprefix(var.sys_upgrade_controller_version, "v"), "0.15.0"), -1) >= 0
+    )
+    error_message = "system_upgrade_schedule_window requires sys_upgrade_controller_version v0.15.0 or newer."
   }
 }

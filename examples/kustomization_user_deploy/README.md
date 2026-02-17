@@ -4,6 +4,8 @@ Kube-Hetzner allows you to provide user-defined resources after the initial setu
 
 When you execute terraform apply, the manifests in the extra-manifests directory, including the rendered versions of the `*.yaml.tpl` files, will be automatically deployed to the cluster.
 
+Note: If you would like to use a different folder, define the `user_kustomizations` in kube.tf.
+
 ## Examples
 
 Here are some examples of common use cases for deploying additional resources:
@@ -12,14 +14,18 @@ Here are some examples of common use cases for deploying additional resources:
 
 ### Deploying Simple Resources
 
-The easiest use case is to deploy simple resources to the cluster. Since the Kustomize resources are [Terraform template](https://registry.terraform.io/providers/hashicorp/template/latest/docs/data-sources/file) files, they can make use of parameters provided in the `extra_kustomize_parameters` map of the `kube.tf` file.
+The easiest use case is to deploy simple resources to the cluster. Since the Kustomize resources are [Terraform template](https://registry.terraform.io/providers/hashicorp/template/latest/docs/data-sources/file) files, they can make use of parameters provided in the `kustomize_parameters` map of the `user_kustomizations`.
 
 #### `kube.tf`
 
 ```
 ...
-extra_kustomize_parameters = {
-  my_config_key = "somestring"
+user_kustomizations = {
+  ...
+  kustomize_parameters = {
+    my_config_key = "somestring"
+  }
+  ...
 }
 ...
 ```

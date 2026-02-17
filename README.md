@@ -9,7 +9,7 @@
 
 **HA by default • Auto-upgrading • Cost-optimized**
 
-A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k3s on MicroOS<br>deployed for peanuts on [Hetzner Cloud](https://hetzner.com)
+A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k3s on openSUSE Leap Micro (default) / MicroOS (legacy)<br>deployed for peanuts on [Hetzner Cloud](https://hetzner.com)
 
 [![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.10-844FBA?style=flat-square&logo=terraform)](https://terraform.io)&nbsp;&nbsp;
 [![OpenTofu](https://img.shields.io/badge/OpenTofu-Compatible-FFDA18?style=flat-square&logo=opentofu)](https://opentofu.org)&nbsp;&nbsp;
@@ -56,22 +56,25 @@ AI-powered config generation & debugging!
 > *We are not Hetzner affiliates, but we strive to be the optimal solution for deploying Kubernetes on their platform.*
 
 Built on the shoulders of giants:
-- **[openSUSE MicroOS](https://en.opensuse.org/Portal:MicroOS)** — Immutable container OS with automatic updates
+- **[openSUSE Leap Micro](https://en.opensuse.org/Portal:LeapMicro)** — Stable, immutable container OS with transactional updates
+- **[openSUSE MicroOS](https://en.opensuse.org/Portal:MicroOS)** — Rolling, immutable container OS (legacy/upgrade support)
 - **[k3s](https://k3s.io/)** — Certified, lightweight Kubernetes distribution
 
 <div align="center">
 <img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/kubectl-pod-all-17022022.png" alt="Kube-Hetzner Screenshot" width="700">
 </div>
 
-### Why MicroOS over Ubuntu?
+### Why Leap Micro over Ubuntu?
 
 | Feature | Benefit |
 |---------|---------|
 | **Immutable filesystem** | Most of the OS is read-only—hardened by design |
-| **Auto-ban abusive IPs** | SSH brute-force protection out of the box |
-| **Rolling release** | Piggybacks on openSUSE Tumbleweed—always current |
+| **Transactional updates** | Atomic upgrades with rollback |
+| **Stable release cadence** | Predictable base OS for production |
 | **BTRFS snapshots** | Automatic rollback if updates break something |
 | **[Kured](https://github.com/kubereboot/kured) support** | Safe, HA-aware node reboots |
+
+> MicroOS remains supported for upgrades/legacy nodes. If you want MicroOS for a new nodepool, set `os = "microos"` explicitly.
 
 ### Why k3s?
 
@@ -91,7 +94,7 @@ Built on the shoulders of giants:
 <td width="50%" valign="top">
 
 ### 🚀 Core Platform
-- [x] **Maintenance-free** — Auto-upgrades MicroOS & k3s with rollback
+- [x] **Maintenance-free** — Auto-upgrades OS & k3s with rollback
 - [x] **Multi-architecture** — Mix x86 and ARM (CAX) for cost savings
 - [x] **Private networking** — Secure, low-latency node communication
 - [x] **SELinux hardened** — Pre-configured security policies
@@ -183,7 +186,7 @@ Built on the shoulders of giants:
 </tr>
 <tr>
 <td>3️⃣</td>
-<td><strong>Run the setup script</strong> — creates your project folder and MicroOS snapshot:</td>
+<td><strong>Run the setup script</strong> — creates your project folder and OS snapshots (Leap Micro recommended):</td>
 </tr>
 </table>
 
@@ -214,10 +217,14 @@ alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw
 mkdir /path/to/your/new/folder
 cd /path/to/your/new/folder
 curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o kube.tf
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
 curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
 export HCLOUD_TOKEN="your_hcloud_token"
-packer init hcloud-microos-snapshots.pkr.hcl
-packer build hcloud-microos-snapshots.pkr.hcl
+packer init hcloud-leapmicro-snapshots.pkr.hcl
+packer build hcloud-leapmicro-snapshots.pkr.hcl
+# (optional legacy)
+# packer init hcloud-microos-snapshots.pkr.hcl
+# packer build hcloud-microos-snapshots.pkr.hcl
 hcloud context create <project-name>
 ```
 </details>
@@ -336,7 +343,7 @@ See [Rancher's HA documentation](https://rancher.com/docs/k3s/latest/en/installa
 
 ## 🔄 Automatic Upgrades
 
-### OS Upgrades (MicroOS)
+### OS Upgrades (Leap Micro / MicroOS)
 
 Handled by [Kured](https://github.com/kubereboot/kured)—safe, HA-aware reboots. Configure timeframes via [Kured options](https://kured.dev/docs/configuration/).
 
@@ -568,7 +575,13 @@ spec:
 <details>
 <summary><strong>Managing snapshots</strong></summary>
 
-**Create:**
+**Create (recommended):**
+```sh
+export HCLOUD_TOKEN=<your-token>
+packer build ./packer-template/hcloud-leapmicro-snapshots.pkr.hcl
+```
+
+**Create (legacy MicroOS):**
 ```sh
 export HCLOUD_TOKEN=<your-token>
 packer build ./packer-template/hcloud-microos-snapshots.pkr.hcl
@@ -592,7 +605,7 @@ Uses k3s [service load balancer](https://rancher.com/docs/k3s/latest/en/networki
 <details>
 <summary><strong>Terraform Cloud deployment</strong></summary>
 
-1. Create MicroOS snapshot in your project first
+1. Create a Leap Micro snapshot in your project first (or MicroOS if you explicitly use it)
 2. Configure SSH keys as Terraform Cloud variables (mark private key as sensitive):
 
 ```tf
@@ -1124,10 +1137,12 @@ Update `version` in your kube.tf and run `terraform apply`.
 2. Create your branch: `git checkout -b AmazingFeature`
 3. Point your kube.tf `source` to local clone
 4. Useful commands:
-   ```sh
-   ../kube-hetzner/scripts/cleanup.sh
-   packer build ../kube-hetzner/packer-template/hcloud-microos-snapshots.pkr.hcl
-   ```
+	   ```sh
+	   ../kube-hetzner/scripts/cleanup.sh
+	   packer build ../kube-hetzner/packer-template/hcloud-leapmicro-snapshots.pkr.hcl
+	   # (legacy)
+	   # packer build ../kube-hetzner/packer-template/hcloud-microos-snapshots.pkr.hcl
+	   ```
 5. Update `kube.tf.example` if needed
 6. Commit: `git commit -m 'Add AmazingFeature'`
 7. Push: `git push origin AmazingFeature`
@@ -1174,6 +1189,13 @@ Your sponsorship directly funds:
 ---
 
 ## 🙏 Acknowledgements
+
+- **[k-andy](https://github.com/StarpTech/k-andy)** — The starting point for this project
+- **[Best-README-Template](https://github.com/othneildrew/Best-README-Template)** — README inspiration
+- **[Hetzner Cloud](https://www.hetzner.com)** — Outstanding infrastructure and Terraform provider
+- **[HashiCorp](https://www.hashicorp.com)** — The amazing Terraform framework
+- **[Rancher](https://www.rancher.com)** — k3s, the heart of this project
+- **[openSUSE](https://www.opensuse.org)** — Leap Micro & MicroOS, next-level container OS
 
 <div align="center">
 <a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>
