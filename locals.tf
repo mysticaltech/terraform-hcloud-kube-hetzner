@@ -1857,3 +1857,27 @@ check "system_upgrade_window_requires_supported_controller_version" {
     error_message = "system_upgrade_schedule_window requires sys_upgrade_controller_version v0.15.0 or newer."
   }
 }
+
+check "extra_robot_nodes_require_k3s_distribution" {
+  assert {
+    condition     = length(var.extra_robot_nodes) == 0 || local.kubernetes_distribution == "k3s"
+    error_message = "extra_robot_nodes currently supports k3s clusters only. Set kubernetes_distribution_type to \"k3s\" or remove extra_robot_nodes."
+  }
+}
+
+check "extra_robot_nodes_require_vswitch" {
+  assert {
+    condition     = length(var.extra_robot_nodes) == 0 || var.vswitch_id != null
+    error_message = "extra_robot_nodes requires vswitch_id to be configured so Terraform can provision the vSwitch subnet."
+  }
+}
+
+check "extra_robot_nodes_require_ssh_private_key" {
+  assert {
+    condition = alltrue([
+      for node in var.extra_robot_nodes :
+      try(length(trimspace(coalesce(node.ssh_private_key, var.ssh_private_key))) > 0, false)
+    ])
+    error_message = "Each extra_robot_nodes entry must have ssh_private_key set, or var.ssh_private_key must be provided."
+  }
+}
