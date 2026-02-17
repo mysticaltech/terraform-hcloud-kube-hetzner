@@ -1117,8 +1117,8 @@ variable "extra_firewall_rules" {
 
 variable "firewall_kube_api_source" {
   type        = list(string)
-  default     = ["0.0.0.0/0", "::/0"]
-  description = "Source networks that have Kube API access to the servers."
+  default     = ["myipv4"]
+  description = "Source networks that have Kube API access to the servers. Default is the current apply runner public IPv4 (/32) via the myipv4 placeholder."
 }
 
 variable "firewall_ssh_source" {
