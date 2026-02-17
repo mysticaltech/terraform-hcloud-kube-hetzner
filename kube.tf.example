@@ -595,6 +595,7 @@ module "kube-hetzner" {
 
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
   # hetzner_csi_version = ""
+  # You can customize Helm values with hetzner_csi_values, or overlay defaults with hetzner_csi_merge_values.
 
   # If you want to specify the Kured version, set it below - otherwise it'll use the latest version available.
   # See https://github.com/kubereboot/kured/releases for the available versions.
@@ -1170,6 +1171,7 @@ module "kube-hetzner" {
   # Or you can create a thepackage-values.yaml file with the content and use it here with the following syntax:
   # thepackage_values = file("thepackage-values.yaml")
   # _values fully replaces the chart values used by the module. _merge_values keeps the defaults (or *_values if set) and overlays your YAML on top.
+  # Prefer *_merge_values as the standard customization API for incremental, upgrade-safe tuning.
 
   # Cilium, all Cilium helm values can be found at https://github.com/cilium/cilium/blob/master/install/kubernetes/cilium/values.yaml
   # Be careful when maintaining your own cilium_values, as the choice of available settings depends on the Cilium version used. See also the cilium_version setting to fix a specific version.
@@ -1255,7 +1257,23 @@ env:
     value: "nbg1"
   EOT */
 
+  # Hetzner CSI, all Hetzner CSI helm values can be found at https://github.com/hetznercloud/csi-driver/tree/main/charts/hcloud-csi
+  # If you want to merge extra values into defaults (or hetzner_csi_values), use hetzner_csi_merge_values.
+  /*   hetzner_csi_values = <<-EOT
+controller:
+  replicas: 2
+EOT */
+
+  /*   hetzner_csi_merge_values = <<-EOT
+node:
+  tolerations:
+    - key: "node.kubernetes.io/not-ready"
+      operator: "Exists"
+      effect: "NoExecute"
+EOT */
+
   # csi-driver-smb, all csi-driver-smb helm values can be found at https://github.com/kubernetes-csi/csi-driver-smb/blob/master/charts/latest/csi-driver-smb/values.yaml
+  # If you want to merge extra values into defaults (or csi_driver_smb_values), use csi_driver_smb_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   csi_driver_smb_values = <<-EOT
 controller:
@@ -1283,6 +1301,11 @@ controller:
         cpu: 10m
         memory: 20Mi
   EOT */
+
+  /*   csi_driver_smb_merge_values = <<-EOT
+controller:
+  replicas: 2
+EOT */
 
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
   # If you want to merge extra values into defaults (or longhorn_values), use longhorn_merge_values.
