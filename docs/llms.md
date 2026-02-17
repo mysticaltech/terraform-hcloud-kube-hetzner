@@ -496,6 +496,7 @@ The example shows three control plane nodepools, each with one node, in differen
         "node.kubernetes.io/role=egress:NoSchedule" # Ensures only egress gateway pods run here
       ],
       floating_ip = true # Special attribute for this module
+      # floating_ip_type = "ipv6" # Optional: "ipv4" (default) or "ipv6"
       # Optionally associate a reverse DNS entry with the floating IP(s).
       # floating_ip_rns = "my.domain.com"
       count = 1
@@ -554,6 +555,10 @@ The example shows three control plane nodepools, each with one node, in differen
       * If `true`, the module will provision a Hetzner Floating IP and associate it with the node(s) in this pool. If `count > 1`, how the floating IP is managed across multiple nodes needs clarification from module docs (e.g., active/passive, or one FIP per node).
       * **Use Case (Egress Gateway):** As shown in the "egress" nodepool example, this is used with Cilium's Egress Gateway feature. This allows you to have a stable, predictable public IP address for outbound traffic originating from your cluster, which can be useful for whitelisting with external services.
       * The `labels` and `taints` on the "egress" pool ensure that only specific egress gateway pods (which would have tolerations for the taint) are scheduled there.
+    * **`floating_ip_type` (String, Optional):**
+      * Default: `"ipv4"`.
+      * Allowed values: `"ipv4"`, `"ipv6"`.
+      * **Purpose:** Chooses which floating IP family to allocate and configure on the node.
     * **`floating_ip_rns` (String, Optional):**
       * If `floating_ip = true`, this allows you to set a reverse DNS (PTR record) for the provisioned floating IP.
       * Use Case: Email servers or services where reverse DNS is important for reputation.

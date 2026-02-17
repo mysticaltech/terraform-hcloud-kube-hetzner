@@ -307,6 +307,8 @@ module "kube-hetzner" {
         "node.kubernetes.io/role=egress:NoSchedule"
       ],
       floating_ip = true
+      # Optional: choose floating IP family ("ipv4" default, or "ipv6").
+      # floating_ip_type = "ipv6"
       # Optionally associate a reverse DNS entry with the floating IP(s).
       # This is useful in combination with the Egress Gateway feature for hosting certain services in the cluster, such as email servers.
       # floating_ip_rns = "my.domain.com"
