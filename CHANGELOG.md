@@ -62,6 +62,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 - **Custom Subnet Ranges** - Added `subnet_ip_range` to agent_nodepools for manual CIDR assignment (#1903)
 - **Autoscaler Swap/ZRAM** - Added `swap_size` and `zram_size` support for autoscaler node pools (#2008)
 - **Autoscaler Resources** - New `cluster_autoscaler_replicas`, `cluster_autoscaler_resource_limits`, `cluster_autoscaler_resource_values` (#2025)
+- **Autoscaler Metrics Exposure** - Added a `cluster-autoscaler-metrics` Service and new `cluster_autoscaler_metrics_firewall_source` variable for optional external scraping via firewall allowlists.
 - **Flannel Backend** - New `flannel_backend` variable to override flannel backend (wireguard-native, host-gw, etc.)
 - **Cilium XDP Acceleration** - New `cilium_loadbalancer_acceleration_mode` variable (native, best-effort, disabled)
 - **Cilium Egress Gateway HA Reconciler** - New `cilium_egress_gateway_ha_enabled` option to deploy a lightweight controller that keeps labeled `CiliumEgressGatewayPolicy` objects pinned to a Ready egress node.
@@ -84,6 +85,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 - **SELinux Policy Extraction** - Moved to dedicated template file for maintainability
 - **terraform_data Migration** - Migrated from null_resource to terraform_data with automatic state migration (#1548)
 - **remote-exec Refactor** - Improved provisioner compatibility with Terraform Stacks (#1893)
+- **iSCSI Daemon Defaults** - `iscsid` is now enabled on all nodes by default, and the `enable_iscsid` input was removed.
 - **Custom GPT Updated** - [KH Assistant](https://chatgpt.com/g/g-67df95cd1e0c8191baedfa3179061581-kh-assistant) updated with v2.19.0 features, improved knowledge base, and cost calculator
 
 ---

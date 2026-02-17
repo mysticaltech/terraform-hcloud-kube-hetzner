@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- HERO SECTION -->
-<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/kube-hetzner-logo.png" alt="Kube-Hetzner Logo" width="140" height="140">
+<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/main/.images/kube-hetzner-logo.png" alt="Kube-Hetzner Logo" width="140" height="140">
 
 # Kube-Hetzner
 
@@ -61,7 +61,7 @@ Built on the shoulders of giants:
 - **[k3s](https://k3s.io/)** — Certified, lightweight Kubernetes distribution
 
 <div align="center">
-<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/kubectl-pod-all-17022022.png" alt="Kube-Hetzner Screenshot" width="700">
+<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/main/.images/kubectl-pod-all-17022022.png" alt="Kube-Hetzner Screenshot" width="700">
 </div>
 
 ### Why Leap Micro over Ubuntu?
@@ -138,6 +138,23 @@ Built on the shoulders of giants:
 
 ---
 
+## 🔐 Security
+
+### MicroOS / Leap Micro Hardening
+- **Immutable base OS:** Leap Micro and MicroOS use transactional updates and read-only system partitions by default, reducing host drift and limiting persistence for unauthorized changes.
+- **Reduced host surface:** Cluster nodes are treated as appliance-style Kubernetes hosts; operational changes should flow through Terraform and Kubernetes manifests rather than ad-hoc host mutation.
+- **SELinux integration:** The module includes SELinux handling for K3s/RKE2 bootstrap paths, with explicit controls and troubleshooting guidance for strict environments.
+
+### Network Isolation
+- **Default deny posture for cluster ingress:** Firewall rules are explicit and can be narrowed to trusted source ranges (`myipv4`/allowlists) for SSH and Kubernetes API exposure.
+- **Private cluster topology support:** You can run with private networking and NAT routing patterns to minimize directly exposed node interfaces.
+- **Load balancer boundary controls:** Control plane and ingress load balancer exposure can be restricted and combined with firewall source controls to reduce public attack surface.
+
+### RKE2 Security Posture
+- **CNCF-conformant distribution option:** RKE2 is supported as a first-class Kubernetes distribution choice in this module.
+- **Compliance-oriented operation:** RKE2 is designed for hardened, regulated environments and supports CIS-focused deployment patterns.
+- **Certification visibility:** For current security certifications/compliance mappings, reference the upstream RKE2 documentation and release notes as authoritative sources.
+
 ## 🏁 Getting Started
 
 ### Prerequisites
@@ -171,6 +188,8 @@ Built on the shoulders of giants:
 
 > **Required tools:** [terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [tofu](https://opentofu.org/docs/intro/install/), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli)
 
+OpenTofu is officially supported. Pull requests are validated in CI with both Terraform and OpenTofu.
+
 ---
 
 ### ⚡ Quick Start
@@ -191,14 +210,14 @@ Built on the shoulders of giants:
 </table>
 
 ```sh
-tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
+tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
 ```
 
 <details>
 <summary><strong>Fish shell version</strong></summary>
 
 ```fish
-set tmp_script (mktemp); curl -sSL -o "{tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/create.sh; chmod +x "{tmp_script}"; bash "{tmp_script}"; rm "{tmp_script}"
+set tmp_script (mktemp); curl -sSL -o "{tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/create.sh; chmod +x "{tmp_script}"; bash "{tmp_script}"; rm "{tmp_script}"
 ```
 </details>
 
@@ -206,7 +225,7 @@ set tmp_script (mktemp); curl -sSL -o "{tmp_script}" https://raw.githubuserconte
 <summary><strong>Save as alias for future use</strong></summary>
 
 ```sh
-alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"'
+alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"'
 ```
 </details>
 
@@ -216,9 +235,9 @@ alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw
 ```sh
 mkdir /path/to/your/new/folder
 cd /path/to/your/new/folder
-curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o kube.tf
-curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
-curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/kube.tf.example -o kube.tf
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
 export HCLOUD_TOKEN="your_hcloud_token"
 packer init hcloud-leapmicro-snapshots.pkr.hcl
 packer build hcloud-leapmicro-snapshots.pkr.hcl
@@ -267,7 +286,7 @@ terraform output -json kubeconfig | jq
 ssh root@<control-plane-ip> -i /path/to/private_key -o StrictHostKeyChecking=no
 ```
 
-Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
+Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf (default is `["myipv4"]`). For CI/CD runners, override it with your runner CIDRs. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
 
 ### Connect via Kube API
 
@@ -1040,6 +1059,8 @@ See `/examples/external-overlay-tailscale/README.md` for a concrete outer-module
 
 Create targeted SELinux profiles instead of weakening cluster-wide security:
 
+> **Troubleshooting note:** When using large attached volumes (for example large Longhorn disks), first boot can hit cloud-init/systemd timeouts while SELinux relabeling completes. If you hit this repeatedly, a practical workaround is to disable SELinux only on the affected nodepool(s) instead of disabling it cluster-wide.
+
 ```sh
 # Find container
 crictl ps
@@ -1112,7 +1133,7 @@ terraform destroy -auto-approve
 **If destroy hangs** (LB or autoscaled nodes), use the cleanup script:
 
 ```sh
-tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/cleanup.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
+tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/cleanup.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
 ```
 
 > ⚠️ This deletes everything including volumes. Dry-run option available.
@@ -1203,7 +1224,7 @@ Your sponsorship directly funds:
 - **[openSUSE](https://www.opensuse.org)** — Leap Micro & MicroOS, next-level container OS
 
 <div align="center">
-<a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>
+<a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/main/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>
 <br><br>
 </div>
 
