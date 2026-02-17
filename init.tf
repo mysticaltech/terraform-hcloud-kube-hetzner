@@ -689,6 +689,7 @@ resource "terraform_data" "kustomization" {
   depends_on = [
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
+    helm_release.hcloud_ccm,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets
@@ -984,6 +985,7 @@ resource "null_resource" "rke2_kustomization" {
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
     null_resource.control_planes_rke2,
+    helm_release.hcloud_ccm,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets
