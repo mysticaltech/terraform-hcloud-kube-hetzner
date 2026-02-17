@@ -737,6 +737,15 @@ EOT
         source_ips  = var.firewall_kube_api_source
       }
     ],
+    length(var.cluster_autoscaler_metrics_firewall_source) == 0 || length(var.autoscaler_nodepools) == 0 ? [] : [
+      {
+        description = "Allow Incoming Requests to Cluster Autoscaler Metrics NodePort"
+        direction   = "in"
+        protocol    = "tcp"
+        port        = "30085"
+        source_ips  = var.cluster_autoscaler_metrics_firewall_source
+      }
+    ],
     !var.restrict_outbound_traffic ? [] : [
       # Allow basic out traffic
       # ICMP to ping outside services

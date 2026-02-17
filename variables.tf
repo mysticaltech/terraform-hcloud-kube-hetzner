@@ -593,6 +593,12 @@ variable "cluster_autoscaler_resource_values" {
   description = "Requests and limits for Cluster Autoscaler."
 }
 
+variable "cluster_autoscaler_metrics_firewall_source" {
+  type        = list(string)
+  default     = []
+  description = "Optional source CIDRs allowed to scrape cluster-autoscaler metrics through NodePort 30085 (maps to pod port 8085)."
+}
+
 variable "autoscaler_nodepools" {
   description = "Cluster autoscaler nodepools."
   type = list(object({

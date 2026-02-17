@@ -117,6 +117,25 @@ subjects:
     namespace: kube-system
 
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster-autoscaler-metrics
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+spec:
+  type: NodePort
+  selector:
+    app: cluster-autoscaler
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 8085
+      targetPort: 8085
+      nodePort: 30085
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
