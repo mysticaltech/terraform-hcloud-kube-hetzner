@@ -281,9 +281,17 @@ EOT
 
   common_pre_install_k8s_commands = var.kubernetes_distribution_type == "rke2" ? local.common_pre_install_rke2_commands : local.common_pre_install_k3s_commands
 
-  common_post_install_k3s_commands  = concat(var.postinstall_exec, ["restorecon -v /usr/local/bin/k3s"])
-  common_post_install_rke2_commands = concat(var.postinstall_exec, [])
-  common_post_install_k8s_commands  = var.kubernetes_distribution_type == "rke2" ? local.common_post_install_rke2_commands : local.common_post_install_k3s_commands
+  common_post_install_k3s_commands = concat(var.postinstall_exec, ["restorecon -v /usr/local/bin/k3s"])
+  common_post_install_rke2_commands = concat(var.postinstall_exec, [<<-EOT
+if command -v restorecon >/dev/null 2>&1; then
+  [ -f /usr/local/bin/rke2 ] && restorecon -v /usr/local/bin/rke2 || true
+  [ -d /var/lib/rancher/rke2/bin ] && restorecon -Rv /var/lib/rancher/rke2/bin || true
+else
+  echo "restorecon not available; skipping RKE2 relabel"
+fi
+EOT
+  ])
+  common_post_install_k8s_commands = var.kubernetes_distribution_type == "rke2" ? local.common_post_install_rke2_commands : local.common_post_install_k3s_commands
 
   kustomization_backup_yaml = yamlencode({
     apiVersion = "kustomize.config.k8s.io/v1beta1"
@@ -340,8 +348,21 @@ else
 fi
 EOT
   ]
-  apply_rke2_selinux = ["/sbin/semodule -v -i /usr/share/selinux/packages/rke2.pp"]
-  swap_node_label    = ["node.kubernetes.io/server-swap=enabled"]
+  apply_rke2_selinux = [<<-EOT
+echo "Checking rke2 SELinux policy status..."
+if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm -q rke2-selinux >/dev/null 2>&1; then
+  if [ -f /usr/share/selinux/packages/rke2.pp ]; then
+    echo "Applying rke2 SELinux policy..."
+    semodule -v -i /usr/share/selinux/packages/rke2.pp || true
+  else
+    echo "rke2 SELinux policy file not found at /usr/share/selinux/packages/rke2.pp; skipping"
+  fi
+else
+  echo "rke2-selinux package or semodule not available; skipping"
+fi
+EOT
+  ]
+  swap_node_label = ["node.kubernetes.io/server-swap=enabled"]
 
   k3s_install_command  = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.install_k3s_version == ""}INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}%{else}INSTALL_K3S_VERSION=${var.install_k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
   rke2_install_command = "curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION=${var.install_rke2_version} INSTALL_RKE2_EXEC='%s' sh -"
@@ -355,6 +376,7 @@ EOT
   install_rke2_server = concat(
     local.common_pre_install_k8s_commands,
     [format(local.rke2_install_command, "server ${var.k3s_exec_server_args}")],
+    var.disable_selinux ? [] : local.apply_rke2_selinux,
     local.common_post_install_k8s_commands
   )
 
@@ -367,6 +389,7 @@ EOT
   install_rke2_agent = concat(
     local.common_pre_install_k8s_commands,
     [format(local.rke2_install_command, "agent ${var.k3s_exec_agent_args}")],
+    var.disable_selinux ? [] : local.apply_rke2_selinux,
     local.common_post_install_k8s_commands
   )
 

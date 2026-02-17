@@ -52,6 +52,7 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **NAT Router IP Drift** - Fixed infinite replacement cycle by migrating from deprecated `datacenter` to `location` (#2021)
 - **SELinux YAML Parsing** - Fixed cloud-init SCHEMA_ERROR caused by improper YAML formatting of SELinux policy
 - **SELinux Missing Rules** - Added rules for JuiceFS (sock_file write) and SigNoz (blk_file getattr)
+- **RKE2 SELinux Apply Parity** - Wired RKE2 server/agent install flows to apply the `rke2-selinux` policy module when available and added safe post-install `restorecon` relabeling for RKE2 binaries.
 - **Kured Version Null** - Fixed potential null value issues with `kured_version` logic (#2032)
 - **Autoscaler Nodepool Parity/Validation** - Added autoscaler nodepool validation guards (unique names, integer min/max bounds, taint effect and swap/zram format checks) and aligned RKE2 autoscaled node labeling/taint rendering with the k3s autoscaler path.
 - **RKE2 User Kustomizations** - Switched user kustomization apply path to distribution-aware `kubectl_cli`, fixing apply failures in RKE2 clusters.
