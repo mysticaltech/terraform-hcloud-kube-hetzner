@@ -647,8 +647,32 @@ EOT
   # Create subnets from the base network CIDR.
   # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
   network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_amount, 2), index)]
+
+  cluster_ipv4_cidr_effective = var.cluster_ipv4_cidr != null && trimspace(var.cluster_ipv4_cidr) != "" ? var.cluster_ipv4_cidr : null
+  service_ipv4_cidr_effective = var.service_ipv4_cidr != null && trimspace(var.service_ipv4_cidr) != "" ? var.service_ipv4_cidr : null
+  cluster_ipv6_cidr_effective = var.cluster_ipv6_cidr != null && trimspace(var.cluster_ipv6_cidr) != "" ? var.cluster_ipv6_cidr : null
+  service_ipv6_cidr_effective = var.service_ipv6_cidr != null && trimspace(var.service_ipv6_cidr) != "" ? var.service_ipv6_cidr : null
+
+  cluster_cidrs = compact([
+    local.cluster_ipv4_cidr_effective,
+    local.cluster_ipv6_cidr_effective,
+  ])
+  service_cidrs = compact([
+    local.service_ipv4_cidr_effective,
+    local.service_ipv6_cidr_effective,
+  ])
+
+  cluster_cidr = join(",", local.cluster_cidrs)
+  service_cidr = join(",", local.service_cidrs)
+
   # By convention the DNS service (usually core-dns) is assigned the 10th IP address in the service CIDR block
-  cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : cidrhost(var.service_ipv4_cidr, 10)
+  cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : (local.service_ipv4_cidr_effective != null ? cidrhost(local.service_ipv4_cidr_effective, 10) : null)
+  cluster_dns_ipv6 = local.service_ipv6_cidr_effective != null ? cidrhost(local.service_ipv6_cidr_effective, 10) : null
+  cluster_dns_values = compact([
+    local.cluster_dns_ipv4,
+    local.cluster_dns_ipv6,
+  ])
+  cluster_dns = join(",", local.cluster_dns_values)
 
   # The gateway's IP address is always the first IP address of the subnet's IP range
   network_gw_ipv4 = cidrhost(var.network_ipv4_cidr, 1)
@@ -1832,6 +1856,27 @@ check "nat_router_requires_control_plane_lb" {
   assert {
     condition     = var.nat_router == null || var.use_control_plane_lb
     error_message = "When nat_router is enabled, use_control_plane_lb must be set to true."
+  }
+}
+
+check "cluster_and_service_ipv6_cidrs_are_paired" {
+  assert {
+    condition = (
+      (local.cluster_ipv6_cidr_effective == null && local.service_ipv6_cidr_effective == null) ||
+      (local.cluster_ipv6_cidr_effective != null && local.service_ipv6_cidr_effective != null)
+    )
+    error_message = "cluster_ipv6_cidr and service_ipv6_cidr must be set together."
+  }
+}
+
+check "cluster_and_service_cidr_stacks_are_aligned" {
+  assert {
+    condition = (
+      (local.cluster_ipv4_cidr_effective == null) == (local.service_ipv4_cidr_effective == null) &&
+      (local.cluster_ipv6_cidr_effective == null) == (local.service_ipv6_cidr_effective == null) &&
+      length(local.cluster_cidrs) > 0
+    )
+    error_message = "Cluster and service CIDRs must use matching stacks (IPv4, IPv6, or both), and at least one stack must be configured."
   }
 }
 
