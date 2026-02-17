@@ -36,7 +36,7 @@ module "control_planes" {
   cloudinit_runcmd_extra           = each.value.extra_runcmd
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
-  keep_disk_size                   = var.keep_disk_cp
+  keep_disk_size                   = coalesce(each.value.keep_disk, var.keep_disk_cp)
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
   ssh_bastion                      = local.ssh_bastion

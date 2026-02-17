@@ -336,6 +336,7 @@ variable "control_plane_nodepools" {
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
+    keep_disk                  = optional(bool)
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
   }))
@@ -394,6 +395,7 @@ variable "agent_nodepools" {
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
+    keep_disk                  = optional(bool)
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
     nodes = optional(map(object({
