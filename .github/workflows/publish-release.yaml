@@ -11,6 +11,9 @@ jobs:
   Release:
     name: Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -44,6 +47,7 @@ jobs:
       - name: Generate contributors list
         env:
           PREV_TAG: ${{ steps.prev_tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -n "${PREV_TAG}" ]; then
             RANGE="${PREV_TAG}..HEAD"
@@ -51,18 +55,35 @@ jobs:
             RANGE="HEAD"
           fi
 
-          # Get unique contributors from commits and co-authors
-          CONTRIBUTORS=$(git log "${RANGE}" --format='%an' | sort -u | while read -r name; do
-            echo "* ${name}"
-          done)
+          COMMITS=$(git log "${RANGE}" --format='%H')
 
-          # Also extract Co-authored-by names
-          COAUTHORS=$(git log "${RANGE}" --format='%b' | grep -i "co-authored-by" | sed 's/.*: //' | sed 's/ <.*//' | sort -u | while read -r name; do
-            [ -n "$name" ] && echo "* ${name}"
-          done)
+          # Pull request authors mapped from commits in range.
+          # This preserves attribution when changes were merged with squash.
+          PR_AUTHORS=$(
+            for sha in ${COMMITS}; do
+              gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/pulls" \
+                -H "Accept: application/vnd.github+json" \
+                --jq '.[].user.login' 2>/dev/null || true
+            done | sed '/^$/d' | sort -u
+          )
 
-          # Combine and dedupe
-          ALL_CONTRIBUTORS=$(printf '%s\n%s' "${CONTRIBUTORS}" "${COAUTHORS}" | grep -v "^$" | sort -u)
+          COMMIT_AUTHORS=$(git log "${RANGE}" --format='%an' | sed '/^$/d' | sort -u)
+          COAUTHORS=$(
+            git log "${RANGE}" --format='%b' \
+              | grep -i "co-authored-by:" \
+              | sed -E 's/.*:[[:space:]]*//' \
+              | sed -E 's/[[:space:]]*<.*//' \
+              | sed '/^$/d' \
+              | sort -u || true
+          )
+
+          ALL_CONTRIBUTORS=$(
+            {
+              printf '%s\n' "${PR_AUTHORS}" | sed 's/^/@/'
+              printf '%s\n' "${COMMIT_AUTHORS}"
+              printf '%s\n' "${COAUTHORS}"
+            } | sed '/^$/d' | awk '!seen[tolower($0)]++'
+          )
 
           # Write to file for multi-line output
           {
@@ -70,7 +91,23 @@ jobs:
             echo ""
             echo "Thanks to all contributors who made this release possible:"
             echo ""
-            echo "${ALL_CONTRIBUTORS}"
+            echo "_Attribution includes pull request authors mapped from commits, so squashed PR implementers are credited._"
+            echo ""
+
+            if [ -n "${PR_AUTHORS}" ]; then
+              echo "### Pull Request Authors"
+              echo ""
+              printf '%s\n' "${PR_AUTHORS}" | sed '/^$/d' | sed 's/^/* @/'
+              echo ""
+            fi
+
+            echo "### Full Contributor List"
+            echo ""
+            if [ -n "${ALL_CONTRIBUTORS}" ]; then
+              printf '%s\n' "${ALL_CONTRIBUTORS}" | sed '/^$/d' | sed 's/^/* /'
+            else
+              echo "* No contributors found in this release range."
+            fi
           } > contributors.md
 
           echo "Generated contributors list:"

@@ -67,6 +67,7 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **remote-exec Refactor** - Improved provisioner compatibility with Terraform Stacks (#1893)
 - **iSCSI Daemon Defaults** - `iscsid` is now enabled on all nodes by default, and the `enable_iscsid` input was removed.
 - **Custom GPT Updated** - [KH Assistant](https://chatgpt.com/g/g-67df95cd1e0c8191baedfa3179061581-kh-assistant) updated with v2.19.0 features, improved knowledge base, and cost calculator
+- **Release Attribution Robustness** - Release workflow now maps commits to associated PR authors (including squash merges) when generating contributor credits, so original implementers are preserved.
 
 ---
 
