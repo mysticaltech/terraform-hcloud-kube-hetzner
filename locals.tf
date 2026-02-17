@@ -480,6 +480,7 @@ EOT
         taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints)),
         kubelet_args : nodepool_obj.kubelet_args,
         backups : nodepool_obj.backups,
+        append_random_suffix : nodepool_obj.append_random_suffix,
         swap_size : nodepool_obj.swap_size,
         zram_size : nodepool_obj.zram_size,
         index : node_index
@@ -512,6 +513,7 @@ EOT
         taints : compact(concat(local.default_agent_taints, nodepool_obj.taints)),
         kubelet_args : nodepool_obj.kubelet_args,
         backups : lookup(nodepool_obj, "backups", false),
+        append_random_suffix : nodepool_obj.append_random_suffix,
         swap_size : nodepool_obj.swap_size,
         zram_size : nodepool_obj.zram_size,
         index : node_index
@@ -545,6 +547,7 @@ EOT
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints)),
           kubelet_args : nodepool_obj.kubelet_args,
           backups : lookup(nodepool_obj, "backups", false),
+          append_random_suffix : nodepool_obj.append_random_suffix,
           swap_size : nodepool_obj.swap_size,
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,

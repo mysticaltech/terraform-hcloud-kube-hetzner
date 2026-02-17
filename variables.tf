@@ -326,6 +326,7 @@ variable "control_plane_nodepools" {
     labels                     = list(string)
     taints                     = list(string)
     count                      = number
+    append_random_suffix       = optional(bool, true)
     swap_size                  = optional(string, "")
     zram_size                  = optional(string, "")
     kubelet_args               = optional(list(string), ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
@@ -382,6 +383,7 @@ variable "agent_nodepools" {
     taints                     = list(string)
     longhorn_volume_size       = optional(number)
     longhorn_mount_path        = optional(string, "/var/longhorn")
+    append_random_suffix       = optional(bool, true)
     swap_size                  = optional(string, "")
     zram_size                  = optional(string, "")
     kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
@@ -406,6 +408,7 @@ variable "agent_nodepools" {
       taints                     = optional(list(string))
       longhorn_volume_size       = optional(number)
       longhorn_mount_path        = optional(string, null)
+      append_random_suffix       = optional(bool)
       swap_size                  = optional(string, "")
       zram_size                  = optional(string, "")
       kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
