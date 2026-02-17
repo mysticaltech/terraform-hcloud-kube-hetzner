@@ -490,6 +490,7 @@ EOT
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
+        keep_disk : nodepool_obj.keep_disk,
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
       }
@@ -522,6 +523,7 @@ EOT
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
+        keep_disk : nodepool_obj.keep_disk,
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
       }
@@ -555,6 +557,7 @@ EOT
           disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
           disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
           network_id : nodepool_obj.network_id,
+          keep_disk : nodepool_obj.keep_disk,
           extra_write_files : nodepool_obj.extra_write_files,
           extra_runcmd : nodepool_obj.extra_runcmd,
         },
