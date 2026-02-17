@@ -595,6 +595,7 @@ module "kube-hetzner" {
 
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
   # hetzner_csi_version = ""
+  # Use hetzner_csi_values to fully replace chart values, or hetzner_csi_merge_values to overlay your values on top of defaults.
 
   # If you want to specify the Kured version, set it below - otherwise it'll use the latest version available.
   # See https://github.com/kubereboot/kured/releases for the available versions.
@@ -1256,6 +1257,7 @@ env:
   EOT */
 
   # csi-driver-smb, all csi-driver-smb helm values can be found at https://github.com/kubernetes-csi/csi-driver-smb/blob/master/charts/latest/csi-driver-smb/values.yaml
+  # Use csi_driver_smb_values to fully replace chart values, or csi_driver_smb_merge_values to overlay your values on top of defaults.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   csi_driver_smb_values = <<-EOT
 controller:
@@ -1282,6 +1284,11 @@ controller:
       requests:
         cpu: 10m
         memory: 20Mi
+  EOT */
+
+  /*   csi_driver_smb_merge_values = <<-EOT
+controller:
+  replicas: 2
   EOT */
 
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
