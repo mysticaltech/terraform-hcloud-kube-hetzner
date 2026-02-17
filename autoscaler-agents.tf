@@ -306,7 +306,7 @@ resource "terraform_data" "autoscaled_nodes_kubelet_config" {
   }
 
   provisioner "remote-exec" {
-    inline = [local.k3s_kubelet_config_update_script]
+    inline = [local.k8s_kubelet_config_update_script]
   }
 }
 moved {
