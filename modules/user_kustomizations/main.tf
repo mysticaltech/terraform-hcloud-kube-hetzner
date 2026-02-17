@@ -46,7 +46,6 @@ resource "null_resource" "kustomization_user_deploy" {
         rm -rf ${local.base_destination_folder}
       }
       trap cleanup EXIT
-      
       sorted_dest_keys=$(printf '%s\n' ${join(" ", local.destination_keys)} | sort -n | tr '\n' ' ')
 
       for dest_key in $sorted_dest_keys; do
