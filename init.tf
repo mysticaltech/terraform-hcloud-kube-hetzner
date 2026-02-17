@@ -855,6 +855,7 @@ resource "null_resource" "rke2_kustomization" {
     content = var.hetzner_ccm_use_helm ? templatefile(
       "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
       {
+        values              = indent(4, local.hetzner_ccm_values)
         version             = coalesce(local.ccm_version, "*")
         using_klipper_lb    = local.using_klipper_lb
         default_lb_location = var.load_balancer_location

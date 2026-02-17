@@ -317,25 +317,26 @@ locals {
       advertise-address           = module.control_planes[k].private_ipv4_address
       node-label                  = v.labels
       node-taint                  = v.taints
-      # TODO: Fix this, currently it needs to be false
-      # selinux                     = var.disable_selinux ? false : (v.selinux == true ? true : false)
-      selinux               = false
-      cluster-cidr          = local.cluster_cidr
-      service-cidr          = local.service_cidr
-      cluster-dns           = local.cluster_dns
-      write-kubeconfig-mode = "0644" # needed for import into rancher
-      cni                   = "none"
+      selinux                     = var.disable_selinux ? false : (v.selinux == true ? true : false)
+      cluster-cidr                = local.cluster_cidr
+      service-cidr                = local.service_cidr
+      cluster-dns                 = local.cluster_dns
+      write-kubeconfig-mode       = "0644" # needed for import into rancher
+      cni                         = "none"
     },
     lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
       node-external-ip    = local.control_plane_external_ipv4_by_node[k]
       flannel-external-ip = true
     } : {},
     var.use_control_plane_lb ? {
-      tls-san = concat([
-        hcloud_load_balancer.control_plane.*.ipv4[0],
-        hcloud_load_balancer_network.control_plane.*.ip[0],
-        var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null
-      ], var.additional_tls_sans)
+      tls-san = concat(
+        compact([
+          hcloud_load_balancer.control_plane.*.ipv4[0],
+          hcloud_load_balancer_network.control_plane.*.ip[0],
+          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null
+        ]),
+        var.additional_tls_sans
+      )
       } : {
       tls-san = concat(
         compact([
