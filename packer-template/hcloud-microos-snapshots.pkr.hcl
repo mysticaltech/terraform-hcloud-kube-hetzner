@@ -98,8 +98,6 @@ locals {
     rpm --import https://rpm.rancher.io/public.key
     zypper install -y https://github.com/k3s-io/k3s-selinux/releases/download/v1.6.stable.1/k3s-selinux-1.6-1.sle.noarch.rpm
     zypper addlock k3s-selinux
-    zypper install -y https://github.com/rancher/rke2-selinux/releases/download/v0.18.stable.1/rke2-selinux-0.18-1.sle.noarch.rpm
-    zypper addlock rke2-selinux
     restorecon -Rv /etc/selinux/targeted/policy
     restorecon -Rv /var/lib
     setenforce 1
