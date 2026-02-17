@@ -71,3 +71,4 @@ prs/
 # Local backlog/planning scratch artifacts
 tasks/
 scripts/process_ideas_v3.py
+docs/ideas_v3_verification/
