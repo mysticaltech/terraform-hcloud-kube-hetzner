@@ -27,7 +27,7 @@ module "kube-hetzner" {
   source = "kube-hetzner/kube-hetzner/hcloud"
   #    When using the terraform registry as source, you can optionally specify a version number.
   #    See https://registry.terraform.io/modules/kube-hetzner/kube-hetzner/hcloud for the available versions
-  # version = "2.15.3"
+  # version = "3.0.0"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
   # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
@@ -170,9 +170,9 @@ module "kube-hetzner" {
       # floating_ip_id = 1234567      # Assign an existing Floating IP instead of creating one
     },
     {
-      name        = "control-plane-nbg1",
+      name        = "control-plane-fsn1",
       server_type = "cx23",
-      location    = "nbg1",
+      location    = "fsn1",
       labels      = [],
       # Optional Hetzner Cloud labels attached to server resources.
       # hcloud_labels = { "workload" = "general" }
@@ -306,10 +306,11 @@ module "kube-hetzner" {
         "node.kubernetes.io/role=egress:NoSchedule"
       ],
       floating_ip = true
+      # floating_ip_type = "ipv6" # Optional: "ipv4" (default) or "ipv6"
       # floating_ip_id = 1234567 # Assign an existing Floating IP instead of creating a new one
       # Optionally associate a reverse DNS entry with the floating IP(s).
       # This is useful in combination with the Egress Gateway feature for hosting certain services in the cluster, such as email servers.
-      # floating_ip_rns = "my.domain.com"
+      # floating_ip_rdns = "my.domain.com"
       count = 1
     },
     # Arm based nodes

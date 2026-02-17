@@ -1,14 +1,70 @@
 # Migration advice when updating the module
 
-# v3 migration stability note
+## v2.x -> v3.x
 
-When upgrading clusters that rely on autoscaling, treat `cluster_autoscaler_resource_values` as a primary stability control.
-If autoscaler pods restart due to CPU/memory pressure, scale events can stall or flap.
+This is a major upgrade line. Use a staged upgrade and verify plans carefully.
 
-Use the following settings as a baseline and tune up for larger clusters:
+### Recommended upgrade flow
+
+1. Pin the module to your target v3 tag.
+2. Reinitialize providers and modules:
+   ```bash
+   terraform init -upgrade
+   ```
+3. Review the plan before applying:
+   ```bash
+   terraform plan
+   ```
+4. Apply only after you understand every `replace`/`destroy` action.
+
+## Migration items
+
+### 1) User kustomization variables
+
+The old `extra_kustomize_*` inputs are replaced by `user_kustomizations`.
+
+If your config still contains:
+- `extra_kustomize_deployment_commands`
+- `extra_kustomize_parameters`
+- `extra_kustomize_folder`
+
+Migrate to:
 
 ```hcl
-cluster_autoscaler_replicas       = 2
+user_kustomizations = {
+  "1" = {
+    source_folder        = "extra-manifests"
+    kustomize_parameters = {}
+    pre_commands         = ""
+    post_commands        = ""
+  }
+}
+```
+
+Then remove the deprecated `extra_kustomize_*` variables from your `kube.tf`.
+
+### 2) NAT router primary IP drift (older clusters)
+
+If your NAT router was created before v2.19.0, Terraform may propose replacing NAT router primary IPs.
+
+If you want to keep existing IPs, migrate state:
+
+```bash
+terraform state rm 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv4[0]'
+terraform state rm 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv6[0]'
+
+terraform import 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv4[0]' <ipv4-id>
+terraform import 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv6[0]' <ipv6-id>
+```
+
+Then run `terraform plan` again and verify stability.
+
+### 3) Autoscaler stability tuning (recommended)
+
+For autoscaling clusters, set explicit autoscaler resources to avoid restart loops under pressure:
+
+```hcl
+cluster_autoscaler_replicas        = 2
 cluster_autoscaler_resource_limits = true
 cluster_autoscaler_resource_values = {
   requests = {
@@ -22,34 +78,12 @@ cluster_autoscaler_resource_values = {
 }
 ```
 
-Reference example: `kube.tf.example` (Cluster Autoscaler deployment configuration section).
+### 4) Network scale note
 
-# 2.18.3 -> 2.19.0
+Hetzner Cloud network constraints still apply. Validate expected cluster size against current provider/network limits before upgrade.
 
-## User Kustomization
-The extra_kustomization-feature has been moved to a module so that multiple extra_kustomizations can be run in sequential steps.
-A new variable `user_kustomizations` is now in use, which contains the previous extra_kustomize_* vars.
+## Post-upgrade verification checklist
 
-### Affects
-If you are using Helm charts from the `extra-manifests` folder or if you are using any of the following variables: `extra_kustomize_deployment_commands`, `extra_kustomize_parameters` or `extra_kustomize_folder`.
-
-### Steps
-
-1. Create a new variable `user_kustomizations`, see below and the kube.tf.example.
-
-```
-user_kustomizations = {
-    "1" = {
-    source_folder        = "extra-manifests" # Place here the source-folder defined previously in `var.extra_kustomize_folder`. If `var.extra_kustomize_folder` was previously undefined, leave as "extra-manifests".
-
-    kustomize_parameters = {} # Replace with contents of `var.extra_kustomize_parameters`. If `var.extra_kustomize_parameters` was previously undefined, remove the line or keep the default {}.
-
-    pre_commands         = ""
-
-    post_commands        = "" # Replace with contents of `var.extra_kustomize_deployment_commands`. If `var.extra_kustomize_deployment_commands` was previously undefined, remove the line or keep the default "".
-
-    }
-}
-```
-
-2. After placing the variables, remove the variables `extra_kustomize_deployment_commands`, `extra_kustomize_parameters` and `extra_kustomize_folder` from kube.tf.
+- `terraform validate` succeeds.
+- `terraform plan` shows no unexpected replacements for core networking and control-plane resources.
+- Control plane quorum and nodepool sizing still match your HA expectations.

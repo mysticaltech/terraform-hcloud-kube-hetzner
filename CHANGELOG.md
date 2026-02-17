@@ -7,44 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### 📋 v2.19.1 Patch Release
+### ⚠️ v3.0.0 Upgrade Notes
 
-This is a patch release for v2.19.0. **If upgrading from v2.18.x**, please review the full release notes below including upgrade notes, new features, and breaking changes.
+This branch is the v3 major-release line. Before upgrading from any `v2.x` release:
 
-**Patch fix:**
-- **Audit Policy Bastion Connection** - Fixed missing bastion SSH settings in `audit_policy` provisioner, enabling audit policy deployment for NAT router / private network setups (#2042) - thanks @CounterClops
-
----
-
-### ⚠️ Upgrade Notes (from v2.18.x)
-
-#### NAT Router Users (created before v2.19.0)
-
-If you created a NAT router **before v2.19.0** (when the hcloud provider used the now-deprecated `datacenter` attribute), you may see Terraform wanting to recreate your NAT router primary IPs. This would result in new IP addresses.
-
-**To check if you're affected**, run `terraform plan` and look for changes to:
-- `hcloud_primary_ip.nat_router_primary_ipv4`
-- `hcloud_primary_ip.nat_router_primary_ipv6`
-
-**If Terraform shows replacement**, you have two options:
-
-1. **Allow the recreation** (simplest, but IPs will change):
-   ```bash
-   terraform apply
-   ```
-
-2. **Migrate state manually** (preserves IPs):
-   ```bash
-   # Remove old state entries
-   terraform state rm 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv4[0]'
-   terraform state rm 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv6[0]'
-
-   # Import with current IPs (get IDs from Hetzner Cloud Console)
-   terraform import 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv4[0]' <ipv4-id>
-   terraform import 'module.kube-hetzner.hcloud_primary_ip.nat_router_primary_ipv6[0]' <ipv6-id>
-
-   terraform apply
-   ```
+1. Pin and review:
+   - Set module version to `3.0.0` (or your targeted v3 tag).
+   - Read `MIGRATION.md` end-to-end.
+2. Run safe upgrade flow:
+   - `terraform init -upgrade`
+   - `terraform plan`
+   - Apply only after reviewing all resource actions.
+3. If you use private-network NAT routers created before v2.19.0, check for primary IP replacement and perform state migration first (see migration notes).
 
 #### Version Requirements
 

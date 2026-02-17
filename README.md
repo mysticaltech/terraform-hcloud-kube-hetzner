@@ -87,6 +87,21 @@ Built on the shoulders of giants:
 
 ---
 
+## 🔄 Upgrading
+
+Upgrading from `v2.x` to `v3.x`?
+
+Review the migration checklist in [`MIGRATION.md`](MIGRATION.md) first, then run:
+
+```bash
+terraform init -upgrade
+terraform plan
+```
+
+Only apply after reviewing all planned resource actions.
+
+---
+
 ## ✨ Features
 
 <table>

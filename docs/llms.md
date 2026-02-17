@@ -73,7 +73,7 @@ module "kube-hetzner" {
   source = "kube-hetzner/kube-hetzner/hcloud"
   #    When using the terraform registry as source, you can optionally specify a version number.
   #    See https://registry.terraform.io/modules/kube-hetzner/kube-hetzner/hcloud for the available versions
-  # version = "2.15.3"
+  # version = "3.0.0"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
   # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
@@ -84,7 +84,7 @@ module "kube-hetzner" {
   * **Purpose:** This tells Terraform where to find the `kube-hetzner` module code.
   * **Option 1 (Terraform Registry - Recommended for Users):** `kube-hetzner/kube-hetzner/hcloud`
     * This is the standard way to use published modules. Terraform will download it from the public Terraform Registry.
-    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "2.15.3"`). This ensures:
+    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "3.0.0"`). This ensures:
       * **Reproducibility:** Your infrastructure builds are consistent over time.
       * **Stability:** Prevents unexpected changes or breakages if a new, incompatible version of the module is released.
       * **Controlled Upgrades:** You can consciously decide when to upgrade the module version after reviewing its changelog.
@@ -92,7 +92,7 @@ module "kube-hetzner" {
     * Used when you have a local copy of the module's source code, typically for development or testing modifications to the module itself. The path is relative to this `main.tf` file.
   * **Option 3 (Direct Git Repository - For Bleeding Edge/Specific Commits):** `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"`
     * Pulls the module directly from the `master` branch of the GitHub repository. This is generally **not recommended for production** as `master` can be unstable.
-    * You can also specify a specific branch, tag, or commit hash using the `ref` query parameter (e.g., `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner?ref=v2.15.3"`).
+    * You can also specify a specific branch, tag, or commit hash using the `ref` query parameter (e.g., `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner?ref=v3.0.0"`).
 
 ```terraform
   # Note that some values, notably "location" and "public_key" have no effect after initializing the cluster.
@@ -498,7 +498,7 @@ The example shows three control plane nodepools, each with one node, in differen
       floating_ip = true # Special attribute for this module
       # floating_ip_type = "ipv6" # Optional: "ipv4" (default) or "ipv6"
       # Optionally associate a reverse DNS entry with the floating IP(s).
-      # floating_ip_rns = "my.domain.com"
+      # floating_ip_rdns = "my.domain.com"
       count = 1
     },
     # Arm based nodes
@@ -559,7 +559,7 @@ The example shows three control plane nodepools, each with one node, in differen
       * Default: `"ipv4"`.
       * Allowed values: `"ipv4"`, `"ipv6"`.
       * **Purpose:** Chooses which floating IP family to allocate and configure on the node.
-    * **`floating_ip_rns` (String, Optional):**
+    * **`floating_ip_rdns` (String, Optional):**
       * If `floating_ip = true`, this allows you to set a reverse DNS (PTR record) for the provisioned floating IP.
       * Use Case: Email servers or services where reverse DNS is important for reputation.
     * **`nodes` (Map of Maps, Optional, replaces `count`):**
