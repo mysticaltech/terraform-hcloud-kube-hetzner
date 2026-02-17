@@ -2157,6 +2157,22 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Use Case:** When using an external load balancer (not managed by this module) or a specific DNS alias for your control plane, set this to ensure agents register correctly against that endpoint.
 
 ```terraform
+  # Optional map of node name => SSH host override.
+  # Useful when an external overlay network (Tailscale, ZeroTier, Cloudflare WARP, etc.)
+  # is managed outside this module and Terraform should connect through overlay IPs.
+  # node_connection_overrides = {
+  #   "k3s-control-plane" = "100.64.0.10"
+  #   "k3s-agent-0"       = "100.64.0.11"
+  # }
+```
+
+* **`node_connection_overrides` (Map of Strings, Optional):**
+  * **Default:** `{}`.
+  * **Purpose:** Overrides the SSH host used by Terraform provisioners per node.
+  * **Key Format:** Node name exactly as created by the module (including cluster prefix when `use_cluster_name_in_node_name = true`).
+  * **Use Case:** External connectivity layers where node management should happen over overlay addresses instead of public IPs.
+
+```terraform
   # K3S audit-policy.yaml contents. Used to configure Kubernetes audit logging.
   # k3s_audit_policy_config = <<-EOT
   #   apiVersion: audit.k8s.io/v1

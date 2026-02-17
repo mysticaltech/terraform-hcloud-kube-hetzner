@@ -1714,3 +1714,16 @@ variable "control_plane_endpoint" {
     error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443)."
   }
 }
+
+variable "node_connection_overrides" {
+  type        = map(string)
+  default     = {}
+  description = "Optional map of node name => SSH host override. Use this to route Terraform SSH/provisioning through external overlay networks managed outside this module (for example Tailscale, ZeroTier, or Cloudflare WARP)."
+
+  validation {
+    condition = alltrue([
+      for host in values(var.node_connection_overrides) : trimspace(host) != ""
+    ])
+    error_message = "All node_connection_overrides values must be non-empty hostnames or IP addresses."
+  }
+}

@@ -8,6 +8,7 @@ module "agents" {
   for_each = local.agent_nodes
 
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
+  connection_host                  = lookup(var.node_connection_overrides, "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}", "")
   os_snapshot_id                   = local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                               = each.value.os
   base_domain                      = var.base_domain
@@ -105,6 +106,7 @@ locals {
 
   agent_ips = {
     for k, v in module.agents : k => coalesce(
+      lookup(var.node_connection_overrides, v.name, null),
       v.ipv4_address,
       v.ipv6_address,
       v.private_ipv4_address

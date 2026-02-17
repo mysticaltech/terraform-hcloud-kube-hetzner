@@ -8,4 +8,12 @@ locals {
 
   # check if the user has set dns servers
   has_dns_servers = length(var.dns_servers) > 0
+
+  default_connection_host = coalesce(
+    hcloud_server.server.ipv4_address,
+    hcloud_server.server.ipv6_address,
+    try(one(hcloud_server.server.network).ip, null)
+  )
+
+  provisioner_connection_host = trimspace(var.connection_host) != "" ? var.connection_host : local.default_connection_host
 }

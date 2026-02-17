@@ -998,6 +998,39 @@ Fully private setup with:
 </details>
 
 <details>
+<summary><strong>External overlay access (Tailscale/ZeroTier/WARP)</strong></summary>
+
+Overlay providers are intentionally kept outside of core kube-hetzner logic.
+Use your overlay setup in an outer module and then pass resulting endpoints
+back into kube-hetzner.
+
+```tf
+# Bootstrap overlay client on each node (example command only)
+preinstall_exec = [
+  "curl -fsSL https://tailscale.com/install.sh | sh",
+  "tailscale up --auth-key=${var.tailscale_auth_key} --ssh",
+]
+
+# After overlay IPs are known, route Terraform SSH through them
+# Keys must match final node names (with cluster prefix if enabled)
+node_connection_overrides = {
+  "k3s-control-plane" = "100.64.0.10"
+  "k3s-agent-0"       = "100.64.0.11"
+}
+
+# Optional: use an external control-plane endpoint exposed through overlay
+control_plane_endpoint = "https://cp.tailnet.example:6443"
+```
+
+Typical workflow:
+1. Apply once to bootstrap nodes and overlay agents.
+2. Resolve overlay addresses and set `node_connection_overrides`.
+3. Apply again and optionally tighten `firewall_ssh_source` / `firewall_kube_api_source`.
+
+See `/examples/external-overlay-tailscale/README.md` for a concrete outer-module pattern.
+</details>
+
+<details>
 <summary><strong>Fix SELinux issues with udica</strong></summary>
 
 Create targeted SELinux profiles instead of weakening cluster-wide security:
