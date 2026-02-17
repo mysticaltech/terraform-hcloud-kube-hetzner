@@ -422,9 +422,7 @@ resource "terraform_data" "kustomization" {
       coalesce(var.rancher_version, "N/A"),
       coalesce(var.sys_upgrade_controller_version, "N/A"),
     ])
-    options = join("\n", [
-      for option, value in local.kured_options : "${option}=${value}"
-    ])
+    options                        = local.kured_values
     ccm_use_helm                   = var.hetzner_ccm_use_helm
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
   }
@@ -621,7 +619,8 @@ resource "terraform_data" "kustomization" {
     content = templatefile(
       "${path.module}/templates/kured.yaml.tpl",
       {
-        options = local.kured_options
+        version = local.kured_version
+        values  = indent(4, local.kured_values)
       }
     )
     destination = "/var/post_install/kured.yaml"
@@ -729,9 +728,7 @@ resource "null_resource" "rke2_kustomization" {
       coalesce(var.rancher_version, "N/A"),
       coalesce(var.sys_upgrade_controller_version, "N/A"),
     ])
-    options = join("\n", [
-      for option, value in local.kured_options : "${option}=${value}"
-    ])
+    options      = local.kured_values
     ccm_use_helm = var.hetzner_ccm_use_helm
   }
 
@@ -908,7 +905,8 @@ resource "null_resource" "rke2_kustomization" {
     content = templatefile(
       "${path.module}/templates/kured.yaml.tpl",
       {
-        options = local.kured_options
+        version = local.kured_version
+        values  = indent(4, local.kured_values)
       }
     )
     destination = "/var/post_install/kured.yaml"

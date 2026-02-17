@@ -754,6 +754,17 @@ module "kube-hetzner" {
   #   "lock-ttl" : "30m",
   # }
 
+  # Optional full Helm values override for kured.
+  # If set, this takes precedence over kured_options.
+  # kured_values = <<-EOT
+  # configuration:
+  #   period: 10m
+  # tolerations:
+  #   - key: "node-role.kubernetes.io/control-plane"
+  #     operator: "Exists"
+  #     effect: "NoSchedule"
+  # EOT
+
   # Allows you to specify the k3s version. If defined, supersedes initial_k3s_channel.
   # See https://github.com/k3s-io/k3s/releases for the available versions.
   # install_k3s_version = "v1.33.7+k3s1"

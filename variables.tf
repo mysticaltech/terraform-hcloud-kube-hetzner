@@ -1422,6 +1422,12 @@ variable "kured_options" {
   default = {}
 }
 
+variable "kured_values" {
+  type        = string
+  default     = ""
+  description = "Additional helm values file to pass to Kured as 'valuesContent' at the HelmChart."
+}
+
 variable "block_icmp_ping_in" {
   type        = bool
   default     = false

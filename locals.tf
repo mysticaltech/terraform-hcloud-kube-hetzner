@@ -20,9 +20,6 @@ locals {
   kured_version  = length(data.github_release.kured) == 0 ? var.kured_version : data.github_release.kured[0].release_tag
   calico_version = length(data.github_release.calico) == 0 ? var.calico_version : data.github_release.calico[0].release_tag
 
-  # Determine kured YAML suffix based on version (>= 1.20.0 uses -combined.yaml, < 1.20.0 uses -dockerhub.yaml)
-  kured_yaml_suffix = provider::semvers::compare(local.kured_version, "1.20.0") >= 0 ? "combined" : "dockerhub"
-
   cilium_ipv4_native_routing_cidr = coalesce(var.cilium_ipv4_native_routing_cidr, var.cluster_ipv4_cidr)
 
   # Check if the user has set custom DNS servers.
@@ -244,7 +241,7 @@ locals {
     kind       = "Kustomization"
     resources = concat(
       [
-        "https://github.com/kubereboot/kured/releases/download/${local.kured_version}/kured-${local.kured_version}-${local.kured_yaml_suffix}.yaml",
+        "kured.yaml",
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/system-upgrade-controller.yaml",
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/crd.yaml"
       ],
@@ -269,9 +266,6 @@ locals {
           namespace = "system-upgrade"
         }
         patch = file("${path.module}/kustomize/system-upgrade-controller.yaml")
-      },
-      {
-        path = "kured.yaml"
       }
       ],
       var.hetzner_ccm_use_helm ? [] : [{ path = "ccm.yaml" }]
@@ -1347,6 +1341,12 @@ kured_options = merge({
   "period" : "5m",
   "reboot-sentinel" : "/sentinel/reboot-required"
 }, var.kured_options)
+
+kured_values_default = yamlencode({
+  extraArgs = local.kured_options
+})
+
+kured_values = var.kured_values != "" ? var.kured_values : local.kured_values_default
 
 k3s_registries_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`

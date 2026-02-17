@@ -1,23 +1,14 @@
 ---
-apiVersion: apps/v1
-kind: DaemonSet
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
 metadata:
   name: kured
   namespace: kube-system
 spec:
-  selector:
-    matchLabels:
-      name: kured
-  template:
-    metadata:
-      labels:
-        name: kured
-    spec:
-      serviceAccountName: kured
-      containers:
-        - name: kured
-          command:
-            - /usr/bin/kured
-            %{~ for key, value in options ~}
-            - --${key}=${value}
-            %{~ endfor ~}
+  chart: kured
+  repo: https://kubereboot.github.io/charts
+  version: "${version}"
+  targetNamespace: kube-system
+  bootstrap: false
+  valuesContent: |-
+    ${values}
