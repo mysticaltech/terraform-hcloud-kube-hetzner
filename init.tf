@@ -104,6 +104,7 @@ resource "terraform_data" "first_control_plane" {
           disable-kube-proxy          = var.disable_kube_proxy
           disable                     = local.disable_extras
           kubelet-arg                 = local.kubelet_arg
+          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
           flannel-iface               = local.flannel_iface
           node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -138,6 +139,11 @@ resource "terraform_data" "first_control_plane" {
     destination = "/tmp/config.yaml"
   }
 
+  provisioner "file" {
+    content     = local.secrets_encryption_config
+    destination = "/tmp/encryption-config.yaml"
+  }
+
   # Install k3s server
   provisioner "remote-exec" {
     inline = local.install_k3s_server
@@ -146,6 +152,7 @@ resource "terraform_data" "first_control_plane" {
   # Upon reboot start k3s and wait for it to be ready to receive commands
   provisioner "remote-exec" {
     inline = [
+      "systemctl enable --now iscsid",
       "systemctl start k3s",
       # prepare the needed directories
       "mkdir -p /var/post_install /var/user_kustomize",
@@ -191,6 +198,7 @@ resource "null_resource" "control_plane_setup_rke2" {
     versions = join("\n", [
       coalesce(local.desired_cni_version, "N/A"),
     ])
+    encryption = sha1(local.secrets_encryption_config)
   }
 
   connection {
@@ -219,6 +227,7 @@ resource "null_resource" "control_plane_setup_rke2" {
           disable-kube-proxy          = var.disable_kube_proxy
           disable                     = local.disable_rke2_extras
           kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, local.control_plane_nodes[keys(module.control_planes)[0]].kubelet_args)
+          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
           node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -243,6 +252,11 @@ resource "null_resource" "control_plane_setup_rke2" {
     )
 
     destination = "/tmp/config.yaml"
+  }
+
+  provisioner "file" {
+    content     = local.secrets_encryption_config
+    destination = "/tmp/encryption-config.yaml"
   }
 
   # Upload the cilium install file
@@ -277,6 +291,7 @@ resource "null_resource" "first_control_plane_rke2" {
   provisioner "remote-exec" {
     inline = [
       # "systemctl enable rke2-server",
+      "systemctl enable --now iscsid",
       "systemctl start rke2-server",
       # prepare the needed directories
       "mkdir -p /var/post_install /var/user_kustomize",
@@ -672,6 +687,11 @@ resource "terraform_data" "kustomization" {
         "echo 'Uninstall helm ccm manifests if they exist'",
         "kubectl delete --ignore-not-found -n kube-system helmchart.helm.cattle.io/hcloud-cloud-controller-manager",
       ],
+      compact([
+        var.ingress_controller == "traefik" ? "" : "kubectl delete helmchart -n kube-system traefik --ignore-not-found",
+        var.ingress_controller == "nginx" ? "" : "kubectl delete helmchart -n kube-system nginx --ignore-not-found",
+        var.ingress_controller == "haproxy" ? "" : "kubectl delete helmchart -n kube-system haproxy --ignore-not-found",
+      ]),
       [
         # Ready, set, go for the kustomization
         "kubectl apply -k /var/post_install",
@@ -684,7 +704,7 @@ resource "terraform_data" "kustomization" {
         # Wait for helm install jobs to complete (only in namespaces that have jobs)
         "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns get job -o name 2>/dev/null | grep -q . && kubectl -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
       ],
-      local.has_external_load_balancer ? [] : [
+      (local.has_external_load_balancer || !local.is_managed_ingress_controller) ? [] : [
         <<-EOT
       timeout 360 bash <<EOF
       until [ -n "\$(kubectl get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.lb_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
@@ -699,6 +719,7 @@ resource "terraform_data" "kustomization" {
   depends_on = [
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
+    helm_release.hcloud_ccm,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets
@@ -744,6 +765,7 @@ resource "null_resource" "rke2_kustomization" {
     ])
     ccm_use_helm                    = var.hetzner_ccm_use_helm
     enable_load_balancer_monitoring = var.enable_load_balancer_monitoring
+    system_upgrade_schedule_window  = jsonencode(var.system_upgrade_schedule_window)
   }
 
   connection {
@@ -857,6 +879,7 @@ resource "null_resource" "rke2_kustomization" {
         version          = var.install_rke2_version
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
+        upgrade_window   = var.system_upgrade_schedule_window
     })
     destination = "/var/post_install/plans.yaml"
   }
@@ -978,6 +1001,11 @@ resource "null_resource" "rke2_kustomization" {
         "echo 'Uninstall helm ccm manifests if they exist'",
         "${local.kubectl_cli} delete --ignore-not-found -n kube-system helmchart.helm.cattle.io/hcloud-cloud-controller-manager",
       ],
+      compact([
+        var.ingress_controller == "traefik" ? "" : "${local.kubectl_cli} delete helmchart -n kube-system traefik --ignore-not-found",
+        var.ingress_controller == "nginx" ? "" : "${local.kubectl_cli} delete helmchart -n kube-system nginx --ignore-not-found",
+        var.ingress_controller == "haproxy" ? "" : "${local.kubectl_cli} delete helmchart -n kube-system haproxy --ignore-not-found",
+      ]),
       [
         # Ready, set, go for the kustomization
         "echo 'Deploying the kustomization.yaml...'",
@@ -988,7 +1016,7 @@ resource "null_resource" "rke2_kustomization" {
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml"
       ],
-      local.has_external_load_balancer ? [] : [
+      (local.has_external_load_balancer || !local.is_managed_ingress_controller) ? [] : [
         <<-EOT
       timeout 360 bash <<EOF
       until [ -n "\$(${local.kubectl_cli} get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.lb_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
@@ -1004,6 +1032,7 @@ resource "null_resource" "rke2_kustomization" {
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
     null_resource.control_planes_rke2,
+    helm_release.hcloud_ccm,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets

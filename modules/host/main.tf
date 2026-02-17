@@ -33,13 +33,26 @@ resource "hcloud_server" "server" {
   keep_disk          = var.keep_disk_size
   public_net {
     ipv4_enabled = !var.disable_ipv4
+    ipv4         = var.disable_ipv4 ? null : var.primary_ipv4_id
     ipv6_enabled = !var.disable_ipv6
+    ipv6         = var.disable_ipv6 ? null : var.primary_ipv6_id
   }
 
-  network {
-    network_id = var.network_id
-    ip         = var.private_ipv4
-    alias_ips  = []
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [1] : []
+    content {
+      network_id = var.network_id
+      alias_ips  = []
+    }
+  }
+
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [] : [1]
+    content {
+      network_id = var.network_id
+      ip         = var.private_ipv4
+      alias_ips  = []
+    }
   }
 
   labels = var.labels
@@ -94,6 +107,40 @@ resource "hcloud_server" "server" {
     ]
   }
 
+}
+
+resource "terraform_data" "ssh_authorized_keys" {
+  triggers_replace = {
+    authorized_keys = sha1(jsonencode(distinct(concat([var.ssh_public_key], var.ssh_additional_public_keys))))
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.provisioner_connection_host
+    port           = var.ssh_port
+
+    bastion_host        = var.ssh_bastion.bastion_host
+    bastion_port        = var.ssh_bastion.bastion_port
+    bastion_user        = var.ssh_bastion.bastion_user
+    bastion_private_key = var.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "file" {
+    content     = "${join("\n", distinct(concat([var.ssh_public_key], var.ssh_additional_public_keys)))}\n"
+    destination = "/tmp/authorized_keys"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "install -m 700 -d /root/.ssh",
+      "install -m 600 /tmp/authorized_keys /root/.ssh/authorized_keys",
+      "chown root:root /root/.ssh /root/.ssh/authorized_keys",
+    ]
+  }
+
+  depends_on = [hcloud_server.server]
 }
 
 resource "terraform_data" "registries" {

@@ -1,3 +1,37 @@
+resource "hcloud_primary_ip" "agents_ipv4" {
+  for_each = var.primary_ip_pool.enable_ipv4 ? {
+    for key, value in local.agent_nodes : key => value
+    if !value.disable_ipv4 && value.primary_ipv4_id == null
+  } : {}
+
+  type          = "ipv4"
+  name          = "${var.cluster_name}-agent-${each.key}-ipv4"
+  location      = each.value.location
+  auto_delete   = var.primary_ip_pool.auto_delete
+  assignee_type = "server"
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
+resource "hcloud_primary_ip" "agents_ipv6" {
+  for_each = var.primary_ip_pool.enable_ipv6 ? {
+    for key, value in local.agent_nodes : key => value
+    if !value.disable_ipv6 && value.primary_ipv6_id == null
+  } : {}
+
+  type          = "ipv6"
+  name          = "${var.cluster_name}-agent-${each.key}-ipv6"
+  location      = each.value.location
+  auto_delete   = var.primary_ip_pool.auto_delete
+  assignee_type = "server"
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
 module "agents" {
   source = "./modules/host"
 
@@ -22,13 +56,13 @@ module "agents" {
   location                         = each.value.location
   server_type                      = each.value.server_type
   backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id
+  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
   k3s_registries_update_script     = local.k3s_registries_update_script
   cloudinit_write_files_common     = local.cloudinit_write_files_common
   k3s_kubelet_config               = var.k3s_kubelet_config
-  k3s_kubelet_config_update_script = local.k3s_kubelet_config_update_script
+  k3s_kubelet_config_update_script = local.k8s_kubelet_config_update_script
   k3s_audit_policy_config          = ""
   k3s_audit_policy_update_script   = ""
   cloudinit_runcmd_common          = local.cloudinit_runcmd_common
@@ -36,21 +70,23 @@ module "agents" {
   cloudinit_runcmd_extra           = each.value.extra_runcmd
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
-  keep_disk_size                   = var.keep_disk_agents
+  keep_disk_size                   = coalesce(each.value.keep_disk, var.keep_disk_agents)
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
+  primary_ipv4_id                  = coalesce(each.value.primary_ipv4_id, try(hcloud_primary_ip.agents_ipv4[each.key].id, null))
+  primary_ipv6_id                  = coalesce(each.value.primary_ipv6_id, try(hcloud_primary_ip.agents_ipv6[each.key].id, null))
   ssh_bastion                      = local.ssh_bastion
   network_id                       = data.hcloud_network.k3s.id
-  private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
+  private_ipv4                     = null
 
-  labels = merge(local.labels, local.labels_agent_node, { "kube-hetzner/os" = each.value.os })
+  labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
   network_gw_ipv4 = local.network_gw_ipv4
 
   depends_on = [
-    hcloud_network_subnet.agent,
+    hcloud_network_subnet.control_plane,
     hcloud_placement_group.agent,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
@@ -181,7 +217,7 @@ resource "terraform_data" "agents" {
 
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
-    inline = concat(var.enable_longhorn || var.enable_iscsid ? ["systemctl enable --now iscsid"] : [], local.kubernetes_distribution == "rke2" ? [
+    inline = concat(["systemctl enable --now iscsid"], local.kubernetes_distribution == "rke2" ? [
       "timeout 120 systemctl start rke2-agent 2> /dev/null",
       "systemctl enable rke2-agent",
       <<-EOT
@@ -210,7 +246,7 @@ resource "terraform_data" "agents" {
   depends_on = [
     terraform_data.first_control_plane,
     terraform_data.agent_config,
-    hcloud_network_subnet.agent
+    hcloud_network_subnet.control_plane
   ]
 }
 moved {
