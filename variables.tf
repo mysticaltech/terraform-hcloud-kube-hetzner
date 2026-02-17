@@ -694,6 +694,12 @@ variable "etcd_s3_backup" {
   default     = {}
 }
 
+variable "secrets_encryption" {
+  description = "Enable API server EncryptionConfiguration for Kubernetes Secrets at rest."
+  type        = bool
+  default     = false
+}
+
 variable "ingress_controller" {
   type        = string
   default     = "traefik"

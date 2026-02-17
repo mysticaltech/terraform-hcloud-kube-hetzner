@@ -134,7 +134,7 @@ locals {
       disable-kube-proxy          = var.disable_kube_proxy
       disable                     = local.disable_rke2_extras
       kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
-      kube-apiserver-arg          = local.kube_apiserver_arg
+      kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       node-ip                     = module.control_planes[k].private_ipv4_address
       advertise-address           = module.control_planes[k].private_ipv4_address
@@ -189,7 +189,7 @@ locals {
       disable                  = local.disable_extras
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_control_plane_kubelet_args
       kubelet-arg                 = concat(local.kubelet_arg, v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
-      kube-apiserver-arg          = local.kube_apiserver_arg
+      kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface
       node-ip                     = module.control_planes[k].private_ipv4_address
@@ -238,6 +238,7 @@ resource "null_resource" "control_plane_config_rke2" {
     control_plane_id = module.control_planes[each.key].id
     config           = sha1(yamlencode(local.rke2-config[each.key]))
     cni_values       = sha1(local.desired_cni_values)
+    encryption       = sha1(local.secrets_encryption_config)
   }
 
   connection {
@@ -257,6 +258,11 @@ resource "null_resource" "control_plane_config_rke2" {
   provisioner "file" {
     content     = yamlencode(local.rke2-config[each.key])
     destination = "/tmp/config.yaml"
+  }
+
+  provisioner "file" {
+    content     = local.secrets_encryption_config
+    destination = "/tmp/encryption-config.yaml"
   }
 
   # Create /var/lib/rancher/rke2/server/manifests directory
@@ -293,6 +299,7 @@ resource "terraform_data" "control_plane_config" {
   triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
     config           = sha1(yamlencode(local.k3s-config[each.key]))
+    encryption       = sha1(local.secrets_encryption_config)
   }
 
   connection {
@@ -313,6 +320,11 @@ resource "terraform_data" "control_plane_config" {
   provisioner "file" {
     content     = yamlencode(local.k3s-config[each.key])
     destination = "/tmp/config.yaml"
+  }
+
+  provisioner "file" {
+    content     = local.secrets_encryption_config
+    destination = "/tmp/encryption-config.yaml"
   }
 
   provisioner "remote-exec" {

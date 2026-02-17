@@ -532,6 +532,10 @@ module "kube-hetzner" {
   #   etcd-s3-region          = "<your-s3-bucket-region|usually required for aws>"
   # }
 
+  # Enable Kubernetes Secrets encryption at rest on control plane nodes.
+  # This writes an EncryptionConfiguration file and wires kube-apiserver to use it.
+  # secrets_encryption = true
+
   # To enable Hetzner Storage Box support, you can enable csi-driver-smb, default is "false".
   # enable_csi_driver_smb = true
   # If you want to specify the version for csi-driver-smb, set it below - otherwise it'll use the latest version available.

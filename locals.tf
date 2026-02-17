@@ -10,7 +10,28 @@ locals {
   # if given as a variable, we want to use the given token. This is needed to restore the cluster
   k3s_token = var.k3s_token == null ? random_password.k3s_token.result : var.k3s_token
 
-  kubernetes_distribution = var.kubernetes_distribution_type
+  kubernetes_distribution        = var.kubernetes_distribution_type
+  secrets_encryption_config_file = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/encryption-config.yaml" : "/etc/rancher/k3s/encryption-config.yaml"
+  secrets_encryption_config = var.secrets_encryption ? yamlencode({
+    apiVersion = "apiserver.config.k8s.io/v1"
+    kind       = "EncryptionConfiguration"
+    resources = [{
+      resources = ["secrets"]
+      providers = [
+        {
+          aescbc = {
+            keys = [{
+              name   = "key1"
+              secret = base64encode(random_password.secrets_encryption_key[0].result)
+            }]
+          }
+        },
+        {
+          identity = {}
+        }
+      ]
+    }]
+  }) : ""
 
   # k3s endpoint used for agent registration, respects control_plane_endpoint override
   k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
@@ -102,6 +123,7 @@ locals {
       # move the config file into place and adjust permissions
       "[ -f /tmp/config.yaml ] && mv /tmp/config.yaml /etc/rancher/k3s/config.yaml",
       "chmod 0600 /etc/rancher/k3s/config.yaml",
+      "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/k3s/encryption-config.yaml && chmod 0600 /etc/rancher/k3s/encryption-config.yaml",
       # if the server has already been initialized just stop here
       "[ -e /etc/rancher/k3s/k3s.yaml ] && exit 0",
       local.install_additional_k3s_environment,
@@ -214,6 +236,7 @@ locals {
       # move the config file into place and adjust permissions
       "[ -f /tmp/config.yaml ] && mv /tmp/config.yaml /etc/rancher/rke2/config.yaml",
       "chmod 0600 /etc/rancher/rke2/config.yaml",
+      "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml && chmod 0600 /etc/rancher/rke2/encryption-config.yaml",
       # if the server has already been initialized just stop here
       "[ -e /etc/rancher/rke2/rke2.yaml ] && exit 0",
       local.install_additional_k3s_environment,
@@ -1424,6 +1447,10 @@ else
   fi
   echo "Updated config.yaml detected, restart of k3s service required"
   cp /tmp/config.yaml /etc/rancher/k3s/config.yaml
+  if [ -s /tmp/encryption-config.yaml ]; then
+    cp /tmp/encryption-config.yaml /etc/rancher/k3s/encryption-config.yaml
+    chmod 0600 /etc/rancher/k3s/encryption-config.yaml
+  fi
   if systemctl is-active --quiet k3s; then
     systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s)
   elif systemctl is-active --quiet k3s-agent; then
@@ -1535,6 +1562,10 @@ else
   fi
   echo "Updated config.yaml detected, restart of rke2-server service required"
   cp /tmp/config.yaml /etc/rancher/rke2/config.yaml
+  if [ -s /tmp/encryption-config.yaml ]; then
+    cp /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml
+    chmod 0600 /etc/rancher/rke2/encryption-config.yaml
+  fi
   if systemctl is-active --quiet rke2-server; then
     systemctl restart rke2-server || (echo "Error: Failed to restart rke2-server. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && systemctl restart rke2-server)
   elif systemctl is-active --quiet rke2-agent; then
