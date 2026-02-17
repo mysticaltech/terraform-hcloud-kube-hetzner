@@ -985,6 +985,11 @@ module "kube-hetzner" {
   # Enables egress gateway to redirect and SNAT the traffic that leaves the cluster. Default: false
   # cilium_egress_gateway_enabled = true
 
+  # Optional: deploy a lightweight HA reconciler that retargets labeled CiliumEgressGatewayPolicy objects
+  # to a currently Ready node labeled with node.kubernetes.io/role=egress.
+  # Policies to be managed by this reconciler must have: kube-hetzner.io/egress-ha=true
+  # cilium_egress_gateway_ha_enabled = true
+
   # Enables Hubble Observability to collect and visualize network traffic. Default: false
   # cilium_hubble_enabled = true
 

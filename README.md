@@ -505,6 +505,9 @@ egressGateway:
   enabled: true
 MTU: 1450
 EOT
+
+# Optional: keep selected egress policies pinned to a Ready egress node automatically
+cilium_egress_gateway_ha_enabled = true
 ```
 
 Example policy:
@@ -513,6 +516,8 @@ apiVersion: cilium.io/v2
 kind: CiliumEgressGatewayPolicy
 metadata:
   name: egress-sample
+  labels:
+    kube-hetzner.io/egress-ha: "true"
 spec:
   selectors:
     - podSelector:

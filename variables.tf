@@ -1109,6 +1109,12 @@ variable "cilium_egress_gateway_enabled" {
   description = "Enables egress gateway to redirect and SNAT the traffic that leaves the cluster."
 }
 
+variable "cilium_egress_gateway_ha_enabled" {
+  type        = bool
+  default     = false
+  description = "Deploys a lightweight controller that keeps CiliumEgressGatewayPolicy node selectors pointed at a currently Ready egress node."
+}
+
 variable "cilium_hubble_enabled" {
   type        = bool
   default     = false

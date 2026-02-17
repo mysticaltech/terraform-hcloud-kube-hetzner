@@ -252,6 +252,7 @@ locals {
       var.disable_hetzner_csi ? [] : ["hcloud-csi.yaml"],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
       local.kubernetes_distribution == "k3s" ? lookup(local.cni_install_resources, var.cni_plugin, []) : [],
+      var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled && var.cilium_egress_gateway_ha_enabled ? ["cilium_egress_gateway_ha.yaml"] : [],
       var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
       var.enable_longhorn ? ["longhorn.yaml"] : [],
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
@@ -1855,5 +1856,12 @@ check "system_upgrade_window_requires_supported_controller_version" {
       try(provider::semvers::compare(trimprefix(var.sys_upgrade_controller_version, "v"), "0.15.0"), -1) >= 0
     )
     error_message = "system_upgrade_schedule_window requires sys_upgrade_controller_version v0.15.0 or newer."
+  }
+}
+
+check "cilium_egress_gateway_ha_requires_cilium_egress_gateway" {
+  assert {
+    condition     = !var.cilium_egress_gateway_ha_enabled || (var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled)
+    error_message = "cilium_egress_gateway_ha_enabled requires cni_plugin=\"cilium\" and cilium_egress_gateway_enabled=true."
   }
 }
