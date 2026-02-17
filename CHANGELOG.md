@@ -56,6 +56,8 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **LeapMicro SELinux Policy De-duplication** - Moved `k8s_custom_policies` into a shared template consumed by both host and autoscaler cloud-init paths to prevent policy drift.
 - **RKE2 SELinux Enforcing Guardrail** - Added an explicit enforcing-mode validation that fails provisioning if the `rke2` SELinux module is still not loaded.
 - **Longhorn iSCSI SELinux Capability** - Added `iscsid_t` `dac_override` permission to the shared kube-hetzner SELinux module.
+- **RKE2 TLS SAN Endpoint Parity** - `control_plane_config_rke2` now includes `local.kubeconfig_server_address` in `tls-san`, preserving SAN coverage for NAT-router/private-LB kubeconfig endpoints.
+- **Hetzner CI LeapMicro Snapshot Gate** - Hetzner test prerequisites now accept LeapMicro snapshot secrets (with MicroOS fallback) instead of requiring MicroOS-only secrets.
 - **Kured Version Null** - Fixed potential null value issues with `kured_version` logic (#2032)
 - **Autoscaler Nodepool Parity/Validation** - Added autoscaler nodepool validation guards (unique names, integer min/max bounds, taint effect and swap/zram format checks) and aligned RKE2 autoscaled node labeling/taint rendering with the k3s autoscaler path.
 - **RKE2 User Kustomizations** - Switched user kustomization apply path to distribution-aware `kubectl_cli`, fixing apply failures in RKE2 clusters.

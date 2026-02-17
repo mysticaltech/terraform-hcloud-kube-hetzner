@@ -343,7 +343,7 @@ locals {
         compact([
           hcloud_load_balancer.control_plane.*.ipv4[0],
           hcloud_load_balancer_network.control_plane.*.ip[0],
-          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null
+          local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null
         ]),
         var.additional_tls_sans
       )
@@ -354,7 +354,7 @@ locals {
           module.control_planes[k].ipv4_address != "" ? module.control_planes[k].ipv4_address : null,
           module.control_planes[k].ipv6_address != "" ? module.control_planes[k].ipv6_address : null,
           local.control_plane_endpoint_host,
-          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+          local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
           try(one(module.control_planes[k].network).ip, null)
         ]),
       var.additional_tls_sans)

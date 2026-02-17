@@ -18,6 +18,8 @@ env:
   HCLOUD_CONTEXT: ${{ secrets.HCLOUD_CONTEXT }}
   SNAPSHOT_ID_ARM: ${{ secrets.SNAPSHOT_ID_ARM }}
   SNAPSHOT_ID_X86: ${{ secrets.SNAPSHOT_ID_X86 }}
+  LEAPMICRO_SNAPSHOT_ID_ARM: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM }}
+  LEAPMICRO_SNAPSHOT_ID_X86: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 }}
   TF_VAR_microos_arm_snapshot_id: ${{ secrets.SNAPSHOT_ID_ARM }}
   TF_VAR_microos_x86_snapshot_id: ${{ secrets.SNAPSHOT_ID_X86 }}
   TF_VAR_leapmicro_arm_snapshot_id: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM != '' && secrets.LEAPMICRO_SNAPSHOT_ID_ARM || secrets.SNAPSHOT_ID_ARM }}
@@ -47,9 +49,12 @@ jobs:
       - name: Check prerequisites
         id: prerequisites
         run: |
-          if [ -z "$SNAPSHOT_ID_ARM" ] || [ -z "$SNAPSHOT_ID_X86" ]; then
+          ARM_SNAPSHOT="${LEAPMICRO_SNAPSHOT_ID_ARM:-$SNAPSHOT_ID_ARM}"
+          X86_SNAPSHOT="${LEAPMICRO_SNAPSHOT_ID_X86:-$SNAPSHOT_ID_X86}"
+
+          if [ -z "$ARM_SNAPSHOT" ] || [ -z "$X86_SNAPSHOT" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Snapshots are not configured, skipping workflow."
+            echo "Neither MicroOS nor LeapMicro snapshots are configured, skipping workflow."
             exit 0
           fi
 
