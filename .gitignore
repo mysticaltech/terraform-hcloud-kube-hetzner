@@ -42,6 +42,9 @@ kustomization.yaml
 kube.tf
 .terraform.lock.hcl
 issue_fix.patch
+issues/
+prs/
+kube-hetzner-knowledge.jsondata
 
 # AI related files
 CLAUDE.md

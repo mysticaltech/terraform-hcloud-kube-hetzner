@@ -58,25 +58,67 @@ else
     echo "hcloud-microos-snapshots.pkr.hcl already exists. Skipping download."
 fi
 
-# Ask if they want to create the MicroOS snapshots
+# Leap Micro snapshots (recommended)
+if [ ! -e "${folder_path}/hcloud-leapmicro-snapshots.pkr.hcl" ]; then
+    curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o "${folder_path}/hcloud-leapmicro-snapshots.pkr.hcl"
+else
+    echo "hcloud-leapmicro-snapshots.pkr.hcl already exists. Skipping download."
+fi
+
+# Ask which snapshots they want to create
 if [ -z "${create_snapshots}" ] ; then
     echo " "
-    echo "The snapshots are required and deployed using packer. If you need specific extra packages, you need to choose no and edit hcloud-microos-snapshots.pkr.hcl file manually. This is not needed in 99% of cases, as we already include the most common packages."
+    echo "The snapshots are required and deployed using packer."
+    echo "Leap Micro is the recommended default OS for new clusters. MicroOS is kept for legacy/upgrade scenarios."
     echo " "
-    read -p "Do you want to create the MicroOS snapshots (we create one for x86 and one for ARM architectures) with packer now? (yes/no): " create_snapshots
+    read -p "Which snapshots do you want to create now? (leapmicro/microos/both/none) [leapmicro]: " create_snapshots
+fi
+
+if [[ -z "$create_snapshots" ]]; then
+    create_snapshots="leapmicro"
 fi
 
 if [[ "$create_snapshots" =~ ^([Yy]es|[Yy])$ ]]; then
+    create_snapshots="leapmicro"
+fi
+
+if [[ "$create_snapshots" =~ ^([Nn]o|[Nn])$ ]]; then
+    create_snapshots="none"
+fi
+
+if [[ "$create_snapshots" != "none" ]]; then
     if [[ -z "$HCLOUD_TOKEN" ]]; then
         read -p "Enter your HCLOUD_TOKEN: " hcloud_token
         export HCLOUD_TOKEN=$hcloud_token
     fi
-    echo "Running packer build for hcloud-microos-snapshots.pkr.hcl"
-    cd "${folder_path}" && packer init hcloud-microos-snapshots.pkr.hcl && packer build hcloud-microos-snapshots.pkr.hcl
-else
-    echo " "
-    echo "You can create the snapshots later by running 'packer build hcloud-microos-snapshots.pkr.hcl' in the folder."
 fi
+
+case "$create_snapshots" in
+    leapmicro)
+        echo "Running packer build for hcloud-leapmicro-snapshots.pkr.hcl"
+        cd "${folder_path}" && packer init hcloud-leapmicro-snapshots.pkr.hcl && packer build hcloud-leapmicro-snapshots.pkr.hcl
+        ;;
+    microos)
+        echo "Running packer build for hcloud-microos-snapshots.pkr.hcl"
+        cd "${folder_path}" && packer init hcloud-microos-snapshots.pkr.hcl && packer build hcloud-microos-snapshots.pkr.hcl
+        ;;
+    both)
+        echo "Running packer build for both Leap Micro and MicroOS snapshots"
+        cd "${folder_path}" && \
+          packer init hcloud-leapmicro-snapshots.pkr.hcl && packer build hcloud-leapmicro-snapshots.pkr.hcl && \
+          packer init hcloud-microos-snapshots.pkr.hcl && packer build hcloud-microos-snapshots.pkr.hcl
+        ;;
+    none)
+        echo " "
+        echo "You can create the snapshots later by running:"
+        echo "  packer build hcloud-leapmicro-snapshots.pkr.hcl"
+        echo "  packer build hcloud-microos-snapshots.pkr.hcl"
+        ;;
+    *)
+        echo "Invalid choice for create_snapshots: '$create_snapshots' (expected leapmicro/microos/both/none)"
+        exit 1
+        ;;
+esac
 
 # Output commands
 echo " "
