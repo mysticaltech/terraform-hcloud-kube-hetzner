@@ -601,9 +601,12 @@ locals {
   kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.k3s_kubelet_config != "" ? ["config=/etc/rancher/k3s/kubelet-config.yaml"] : [])
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
   flannel_iface               = "eth1"
+  authentication_config_file  = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/authentication_config.yaml" : "/etc/rancher/k3s/authentication_config.yaml"
+  control_plane_service_name  = local.kubernetes_distribution == "rke2" ? "rke2-server" : "k3s"
+  agent_service_name          = local.kubernetes_distribution == "rke2" ? "rke2-agent" : "k3s-agent"
 
   kube_apiserver_arg = concat(
-    var.authentication_config != "" ? ["authentication-config=/etc/rancher/k3s/authentication_config.yaml"] : [],
+    var.authentication_config != "" ? ["authentication-config=${local.authentication_config_file}"] : [],
     var.k3s_audit_policy_config != "" ? [
       "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml",
       "audit-log-path=${var.k3s_audit_log_path}",
@@ -1161,23 +1164,23 @@ EOF
 
 k3s_authentication_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
-if cmp -s /tmp/authentication_config.yaml /etc/rancher/k3s/authentication_config.yaml; then
+if cmp -s /tmp/authentication_config.yaml ${local.authentication_config_file}; then
   echo "No update required to the authentication_config.yaml file"
 else
-  if [ -f "/etc/rancher/k3s/authentication_config.yaml" ]; then
-    echo "Backing up /etc/rancher/k3s/authentication_config.yaml to /tmp/authentication_config_$DATE.yaml"
-    cp /etc/rancher/k3s/authentication_config.yaml /tmp/authentication_config_$DATE.yaml
+  if [ -f "${local.authentication_config_file}" ]; then
+    echo "Backing up ${local.authentication_config_file} to /tmp/authentication_config_$DATE.yaml"
+    cp "${local.authentication_config_file}" /tmp/authentication_config_$DATE.yaml
   fi
-  echo "Updated authentication_config.yaml detected, restart of k3s service required"
-  cp /tmp/authentication_config.yaml /etc/rancher/k3s/authentication_config.yaml
-  if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/k3s/authentication_config.yaml && systemctl restart k3s)
-  elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/k3s/authentication_config.yaml && systemctl restart k3s-agent)
+  echo "Updated authentication_config.yaml detected, restart of kubernetes service required"
+  cp /tmp/authentication_config.yaml "${local.authentication_config_file}"
+  if systemctl is-active --quiet ${local.control_plane_service_name}; then
+    systemctl restart ${local.control_plane_service_name} || (echo "Error: Failed to restart ${local.control_plane_service_name}. Restoring ${local.authentication_config_file} from backup" && cp /tmp/authentication_config_$DATE.yaml "${local.authentication_config_file}" && systemctl restart ${local.control_plane_service_name})
+  elif systemctl is-active --quiet ${local.agent_service_name}; then
+    systemctl restart ${local.agent_service_name} || (echo "Error: Failed to restart ${local.agent_service_name}. Restoring ${local.authentication_config_file} from backup" && cp /tmp/authentication_config_$DATE.yaml "${local.authentication_config_file}" && systemctl restart ${local.agent_service_name})
   else
-    echo "No active k3s or k3s-agent service found"
+    echo "No active ${local.control_plane_service_name} or ${local.agent_service_name} service found"
   fi
-  echo "k3s service or k3s-agent service (re)started successfully"
+  echo "${local.control_plane_service_name} service or ${local.agent_service_name} service (re)started successfully"
 fi
 EOF
 
