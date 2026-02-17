@@ -33,6 +33,16 @@ data "hcloud_ssh_keys" "keys_by_selector" {
   with_selector = var.ssh_hcloud_key_label
 }
 
+data "http" "my_ipv4" {
+  count = local.is_ref_myipv4_used ? 1 : 0
+
+  url = "https://ipv4.icanhazip.com"
+
+  request_headers = {
+    Accept = "text/plain"
+  }
+}
+
 data "hcloud_servers" "existing_control_plane_nodes" {
   with_selector = "provisioner=terraform,engine=k3s,cluster=${var.cluster_name},role=control_plane_node"
 }
