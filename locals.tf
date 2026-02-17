@@ -661,7 +661,14 @@ EOT
 
   using_klipper_lb = var.enable_klipper_metal_lb || local.is_single_node_cluster
 
-  has_external_load_balancer = local.using_klipper_lb || var.ingress_controller == "none"
+  has_external_load_balancer_base = local.using_klipper_lb || var.ingress_controller == "none"
+  combine_load_balancers_effective = (
+    var.combine_load_balancers &&
+    var.use_control_plane_lb &&
+    !local.has_external_load_balancer_base
+  )
+  has_external_load_balancer = local.has_external_load_balancer_base || local.combine_load_balancers_effective
+  skip_ingress_lb_wait       = local.has_external_load_balancer_base
   load_balancer_name         = "${var.cluster_name}-${var.ingress_controller}"
 
   ingress_controller_service_names = {
@@ -1070,7 +1077,11 @@ controller:
 %{if !local.using_klipper_lb~}
   service:
     annotations:
+%{if local.combine_load_balancers_effective~}
+      "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
       "load-balancer.hetzner.cloud/use-private-ip": "true"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -1155,7 +1166,11 @@ controller:
       prometheus: false
 %{if !local.using_klipper_lb~}
     annotations:
+%{if local.combine_load_balancers_effective~}
+      "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
       "load-balancer.hetzner.cloud/use-private-ip": "true"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -1185,7 +1200,11 @@ service:
   type: LoadBalancer
 %{if !local.using_klipper_lb~}
   annotations:
+%{if local.combine_load_balancers_effective~}
+    "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
     "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
     "load-balancer.hetzner.cloud/use-private-ip": "true"
     "load-balancer.hetzner.cloud/disable-private-ingress": "true"
     "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -1832,6 +1851,13 @@ check "nat_router_requires_control_plane_lb" {
   assert {
     condition     = var.nat_router == null || var.use_control_plane_lb
     error_message = "When nat_router is enabled, use_control_plane_lb must be set to true."
+  }
+}
+
+check "combine_load_balancers_requires_control_plane_lb" {
+  assert {
+    condition     = !var.combine_load_balancers || var.use_control_plane_lb
+    error_message = "combine_load_balancers requires use_control_plane_lb=true."
   }
 }
 

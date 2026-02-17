@@ -43,12 +43,20 @@ output "agents_public_ipv6" {
 
 output "ingress_public_ipv4" {
   description = "The public IPv4 address of the Hetzner load balancer (with fallback to first control plane node)"
-  value       = local.has_external_load_balancer ? local.first_control_plane_ip : hcloud_load_balancer.cluster[0].ipv4
+  value = (
+    local.combine_load_balancers_effective
+    ? one(hcloud_load_balancer.control_plane[*].ipv4)
+    : (local.has_external_load_balancer ? local.first_control_plane_ip : hcloud_load_balancer.cluster[0].ipv4)
+  )
 }
 
 output "ingress_public_ipv6" {
   description = "The public IPv6 address of the Hetzner load balancer (with fallback to first control plane node)"
-  value       = local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_disable_ipv6 ? null : hcloud_load_balancer.cluster[0].ipv6)
+  value = (
+    local.combine_load_balancers_effective
+    ? (var.load_balancer_disable_ipv6 ? null : one(hcloud_load_balancer.control_plane[*].ipv6))
+    : (local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_disable_ipv6 ? null : hcloud_load_balancer.cluster[0].ipv6))
+  )
 }
 
 output "lb_control_plane_ipv4" {

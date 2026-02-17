@@ -1042,6 +1042,10 @@ module "kube-hetzner" {
   # When the above use_control_plane_lb is enabled, you can change to disable the public interface for control plane load balancer, the default is true.
   # control_plane_lb_enable_public_interface = false
 
+  # Reuse the control plane load balancer for ingress controller services too (HTTP/HTTPS), instead of creating a separate ingress load balancer.
+  # Requires use_control_plane_lb = true. Default is false.
+  # combine_load_balancers = true
+
   # Let's say you are not using the control plane LB solution above, and still want to have one hostname point to all your control-plane nodes.
   # You could create multiple A records of to let's say cp.cluster.my.org pointing to all of your control-plane nodes ips.
   # In which case, you need to define that hostname in the k3s TLS-SANs config to allow connection through it. It can be hostnames or IP addresses.

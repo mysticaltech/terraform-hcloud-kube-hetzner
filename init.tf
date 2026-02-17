@@ -674,7 +674,7 @@ resource "terraform_data" "kustomization" {
         # Wait for helm install jobs to complete (only in namespaces that have jobs)
         "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns get job -o name 2>/dev/null | grep -q . && kubectl -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
       ],
-      local.has_external_load_balancer ? [] : [
+      local.skip_ingress_lb_wait ? [] : [
         <<-EOT
       timeout 360 bash <<EOF
       until [ -n "\$(kubectl get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.lb_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
@@ -968,7 +968,7 @@ resource "null_resource" "rke2_kustomization" {
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml"
       ],
-      local.has_external_load_balancer ? [] : [
+      local.skip_ingress_lb_wait ? [] : [
         <<-EOT
       timeout 360 bash <<EOF
       until [ -n "\$(${local.kubectl_cli} get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.lb_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
