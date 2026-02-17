@@ -1342,23 +1342,30 @@ variable "postinstall_exec" {
   description = "Additional to execute after the install calls, for example restoring a backup."
 }
 
+variable "user_kustomizations" {
+  type = map(object({
+    source_folder        = optional(string, "")
+    kustomize_parameters = optional(map(any), {})
+    pre_commands         = optional(string, "")
+    post_commands        = optional(string, "")
+  }))
+  default = {
+    "1" = {
+      source_folder        = "extra-manifests"
+      kustomize_parameters = {}
+      pre_commands         = ""
+      post_commands        = ""
+    }
+  }
+  description = "Map of Kustomization-set entries, where key is the order number."
 
-variable "extra_kustomize_deployment_commands" {
-  type        = string
-  default     = ""
-  description = "Commands to be executed after the `kubectl apply -k <dir>` step."
-}
-
-variable "extra_kustomize_parameters" {
-  type        = any
-  default     = {}
-  description = "All values will be passed to the `kustomization.tmp.yml` template."
-}
-
-variable "extra_kustomize_folder" {
-  type        = string
-  default     = "extra-manifests"
-  description = "Folder from where to upload extra manifests"
+  validation {
+    condition = alltrue([
+      for key in keys(var.user_kustomizations) :
+      can(regex("^[0-9]+$", key)) && tonumber(key) > 0
+    ])
+    error_message = "All keys in user_kustomizations must be positive numeric strings (e.g., '1', '2')."
+  }
 }
 
 variable "create_kubeconfig" {
