@@ -663,6 +663,12 @@ EOT
 
   has_external_load_balancer = local.using_klipper_lb || var.ingress_controller == "none"
   load_balancer_name         = "${var.cluster_name}-${var.ingress_controller}"
+  managed_ingress_controllers = [
+    "traefik",
+    "nginx",
+    "haproxy"
+  ]
+  is_managed_ingress_controller = contains(local.managed_ingress_controllers, var.ingress_controller)
 
   ingress_controller_service_names = {
     "traefik" = "traefik"
