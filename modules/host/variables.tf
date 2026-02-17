@@ -2,6 +2,15 @@ variable "name" {
   description = "Host name"
   type        = string
 }
+
+variable "timeouts" {
+  description = "Optional custom provider timeouts for this host."
+  type = object({
+    create = optional(string, null)
+  })
+  default = {}
+}
+
 variable "connection_host" {
   description = "Optional SSH host override used for Terraform provisioners."
   type        = string

@@ -1046,6 +1046,14 @@ variable "myipv4_ref" {
   description = "Placeholder string that can be used in firewall source/destination IP lists and will be replaced by the apply runner's public IPv4 /32."
 }
 
+variable "timeouts" {
+  description = "Optional custom provider timeout for module-managed hcloud_server resources."
+  type = object({
+    create = optional(string, null)
+  })
+  default = {}
+}
+
 variable "use_cluster_name_in_node_name" {
   type        = bool
   default     = true

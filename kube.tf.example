@@ -964,6 +964,11 @@ module "kube-hetzner" {
   #   }
   # ]
 
+  # Optional provider timeouts for module-managed hcloud_server resources.
+  # timeouts = {
+  #   create = "30m"
+  # }
+
   # If you want to configure a different CNI for k3s, use this flag
   # possible values: flannel (Default), calico, and cilium
   # As for Cilium, we allow infinite configurations via helm values, please check the CNI section of the readme over at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/#cni.

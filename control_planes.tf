@@ -37,6 +37,7 @@ module "control_planes" {
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
   keep_disk_size                   = var.keep_disk_cp
+  timeouts                         = var.timeouts
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
   ssh_bastion                      = local.ssh_bastion

@@ -44,6 +44,13 @@ resource "hcloud_server" "server" {
 
   labels = var.labels
 
+  dynamic "timeouts" {
+    for_each = var.timeouts.create != null ? [var.timeouts] : []
+    content {
+      create = timeouts.value.create
+    }
+  }
+
   # Prevent destroying the whole cluster if the user changes
   # any of the attributes that force to recreate the servers.
   lifecycle {
