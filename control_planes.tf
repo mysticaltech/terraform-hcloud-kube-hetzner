@@ -166,6 +166,7 @@ locals {
           local.control_plane_endpoint_host,
           module.control_planes[k].ipv4_address != "" ? module.control_planes[k].ipv4_address : null,
           module.control_planes[k].ipv6_address != "" ? module.control_planes[k].ipv6_address : null,
+          var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
           try(one(module.control_planes[k].network).ip, null)
         ]),
       var.additional_tls_sans)

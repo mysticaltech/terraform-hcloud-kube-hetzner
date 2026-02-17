@@ -203,6 +203,18 @@ variable "nat_router_hcloud_token" {
   }
 }
 
+variable "optional_bastion_host" {
+  description = "Optional bastion host used to connect to cluster nodes. Useful when using a pre-existing NAT router."
+  type = object({
+    bastion_host        = string
+    bastion_port        = number
+    bastion_user        = string
+    bastion_private_key = string
+  })
+  sensitive = true
+  default   = null
+}
+
 variable "nat_router_subnet_index" {
   type        = number
   default     = 200
