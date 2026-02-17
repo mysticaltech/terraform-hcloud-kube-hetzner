@@ -376,6 +376,10 @@ module "kube-hetzner" {
   # Specifies the number of times a health check is retried before a target is marked as unhealthy. (default: 3)
   # load_balancer_health_check_retries = 3
 
+  # Enable Hetzner CCM load balancer monitoring resources (ServiceMonitor + PrometheusRule).
+  # Requires `hetzner_ccm_use_helm = true` and Prometheus Operator CRDs in the cluster.
+  # enable_load_balancer_monitoring = true
+
 
   # Setup a NAT router, and automatically disable public ips on all control plane and agent nodes.
   # To use this, you must also set use_control_plane_lb = true, otherwise kubectl can never

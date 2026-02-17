@@ -440,8 +440,9 @@ resource "terraform_data" "kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                   = var.hetzner_ccm_use_helm
-    system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
+    ccm_use_helm                    = var.hetzner_ccm_use_helm
+    enable_load_balancer_monitoring = var.enable_load_balancer_monitoring
+    system_upgrade_schedule_window  = jsonencode(var.system_upgrade_schedule_window)
   }
 
   connection {
@@ -531,6 +532,15 @@ resource "terraform_data" "kustomization" {
       }
     ) : ""
     destination = "/var/post_install/hcloud-ccm-helm.yaml"
+  }
+
+  # Upload optional load balancer monitoring resources for Hetzner CCM
+  provisioner "file" {
+    content = var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+      "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
+      {}
+    ) : ""
+    destination = "/var/post_install/load_balancer_monitoring.yaml"
   }
 
   # Upload the calico patch config, for the kustomization of the calico manifest
@@ -753,8 +763,9 @@ resource "null_resource" "rke2_kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                   = var.hetzner_ccm_use_helm
-    system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
+    ccm_use_helm                    = var.hetzner_ccm_use_helm
+    enable_load_balancer_monitoring = var.enable_load_balancer_monitoring
+    system_upgrade_schedule_window  = jsonencode(var.system_upgrade_schedule_window)
   }
 
   connection {
@@ -824,6 +835,15 @@ resource "null_resource" "rke2_kustomization" {
       }
     ) : ""
     destination = "/var/post_install/hcloud-ccm-helm.yaml"
+  }
+
+  # Upload optional load balancer monitoring resources for Hetzner CCM
+  provisioner "file" {
+    content = var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+      "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
+      {}
+    ) : ""
+    destination = "/var/post_install/load_balancer_monitoring.yaml"
   }
 
 
