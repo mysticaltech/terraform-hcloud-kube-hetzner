@@ -608,8 +608,10 @@ module "kube-hetzner" {
   # After the cluster is deployed, you can always use HelmChartConfig definition to tweak the configuration.
   # If you want to disable both controllers set this to "none"
   # ingress_controller = "nginx"
-  # Namespace in which to deploy the ingress controllers. Defaults to the ingress_controller variable, eg (haproxy, nginx, traefik)
+  # Namespace in which to deploy the ingress controllers. Defaults to the ingress_controller variable mapping, eg (haproxy, ingress-nginx, traefik)
   # ingress_target_namespace = ""
+  # Set to true to deploy ingress controllers into kube-system by default (unless ingress_target_namespace is set).
+  # ingress_controller_use_system_namespace = true
 
   # You can change the number of replicas for selected ingress controller here. The default 0 means autoselecting based on number of agent nodes (1 node = 1 replica, 2 nodes = 2 replicas, 3+ nodes = 3 replicas)
   # ingress_replica_count = 1
