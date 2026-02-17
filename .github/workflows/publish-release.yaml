@@ -59,12 +59,34 @@ jobs:
 
           # Pull request authors mapped from commits in range.
           # This preserves attribution when changes were merged with squash.
-          PR_AUTHORS=$(
+          PR_AUTHORS_FROM_COMMITS=$(
             for sha in ${COMMITS}; do
               gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/pulls" \
                 -H "Accept: application/vnd.github+json" \
                 --jq '.[].user.login' 2>/dev/null || true
             done | sed '/^$/d' | sort -u
+          )
+
+          # Additional fallback: merged PR authors in the release date window.
+          # This helps preserve attribution even if a later integration PR is squashed.
+          if [ -n "${PREV_TAG}" ]; then
+            FROM_DATE=$(git log -1 --format='%cs' "${PREV_TAG}")
+          else
+            FROM_DATE=$(git log --reverse --format='%cs' | head -n1)
+          fi
+          TO_DATE=$(git log -1 --format='%cs' HEAD)
+
+          PR_AUTHORS_FROM_MERGED_PRS=$(
+            gh api --method GET --paginate /search/issues \
+              -f q="repo:${GITHUB_REPOSITORY} is:pr is:merged merged:${FROM_DATE}..${TO_DATE}" \
+              --jq '.items[].user.login' 2>/dev/null || true
+          )
+
+          PR_AUTHORS=$(
+            printf '%s\n%s\n' "${PR_AUTHORS_FROM_COMMITS}" "${PR_AUTHORS_FROM_MERGED_PRS}" \
+              | sed '/^$/d' \
+              | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\\[bot\\])?$' \
+              | sort -u || true
           )
 
           COMMIT_AUTHORS=$(git log "${RANGE}" --format='%an' | sed '/^$/d' | sort -u)
