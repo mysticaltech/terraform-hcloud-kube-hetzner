@@ -61,7 +61,7 @@ module "control_planes" {
   ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
-  k3s_registries_update_script     = local.k3s_registries_update_script
+  k3s_registries_update_script     = local.k8s_registries_update_script
   k3s_kubelet_config               = var.k3s_kubelet_config
   k3s_kubelet_config_update_script = local.k8s_kubelet_config_update_script
   k3s_audit_policy_config          = var.k3s_audit_policy_config
@@ -460,15 +460,15 @@ resource "null_resource" "control_plane_config_rke2" {
     ]
   }
 
-  # Upload the cilium install file
+  # Upload the CNI install file.
   provisioner "file" {
     content = templatefile(
-      "${path.module}/templates/${var.cni_plugin}.yaml.tpl",
+      "${path.module}/templates/${local.rke2_manifest_cni_plugin}.yaml.tpl",
       {
         values  = indent(4, trimspace(local.desired_cni_values))
         version = local.desired_cni_version
     })
-    destination = "/var/lib/rancher/rke2/server/manifests/${var.cni_plugin}.yaml"
+    destination = "/var/lib/rancher/rke2/server/manifests/${local.rke2_manifest_cni_plugin}.yaml"
   }
 
   provisioner "remote-exec" {

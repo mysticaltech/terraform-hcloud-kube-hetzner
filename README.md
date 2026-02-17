@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- HERO SECTION -->
-<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/main/.images/kube-hetzner-logo.png" alt="Kube-Hetzner Logo" width="140" height="140">
+<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/kube-hetzner-logo.png" alt="Kube-Hetzner Logo" width="140" height="140">
 
 # Kube-Hetzner
 
@@ -61,7 +61,7 @@ Built on the shoulders of giants:
 - **[k3s](https://k3s.io/)** — Certified, lightweight Kubernetes distribution
 
 <div align="center">
-<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/main/.images/kubectl-pod-all-17022022.png" alt="Kube-Hetzner Screenshot" width="700">
+<img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/kubectl-pod-all-17022022.png" alt="Kube-Hetzner Screenshot" width="700">
 </div>
 
 ### Why Leap Micro over Ubuntu?
@@ -225,14 +225,14 @@ OpenTofu is officially supported. Pull requests are validated in CI with both Te
 </table>
 
 ```sh
-tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
+tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
 ```
 
 <details>
 <summary><strong>Fish shell version</strong></summary>
 
 ```fish
-set tmp_script (mktemp); curl -sSL -o "{tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/create.sh; chmod +x "{tmp_script}"; bash "{tmp_script}"; rm "{tmp_script}"
+set tmp_script (mktemp); curl -sSL -o "{tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/create.sh; chmod +x "{tmp_script}"; bash "{tmp_script}"; rm "{tmp_script}"
 ```
 </details>
 
@@ -240,7 +240,7 @@ set tmp_script (mktemp); curl -sSL -o "{tmp_script}" https://raw.githubuserconte
 <summary><strong>Save as alias for future use</strong></summary>
 
 ```sh
-alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"'
+alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/create.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"'
 ```
 </details>
 
@@ -250,9 +250,9 @@ alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw
 ```sh
 mkdir /path/to/your/new/folder
 cd /path/to/your/new/folder
-curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/kube.tf.example -o kube.tf
-curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
-curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o kube.tf
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
 export HCLOUD_TOKEN="your_hcloud_token"
 packer init hcloud-leapmicro-snapshots.pkr.hcl
 packer build hcloud-leapmicro-snapshots.pkr.hcl
@@ -1148,7 +1148,7 @@ terraform destroy -auto-approve
 **If destroy hangs** (LB or autoscaled nodes), use the cleanup script:
 
 ```sh
-tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/scripts/cleanup.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
+tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/scripts/cleanup.sh && chmod +x "${tmp_script}" && "${tmp_script}" && rm "${tmp_script}"
 ```
 
 > ⚠️ This deletes everything including volumes. Dry-run option available.
@@ -1239,7 +1239,7 @@ Your sponsorship directly funds:
 - **[openSUSE](https://www.opensuse.org)** — Leap Micro & MicroOS, next-level container OS
 
 <div align="center">
-<a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/main/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>
+<a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>
 <br><br>
 </div>
 

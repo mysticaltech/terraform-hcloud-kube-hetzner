@@ -1198,8 +1198,9 @@ spec:
 
   EOT
 
-  desired_cni_values  = var.cni_plugin == "cilium" ? local.cilium_values : local.calico_values
-  desired_cni_version = var.cni_plugin == "cilium" ? var.cilium_version : var.calico_version
+  desired_cni_values       = var.cni_plugin == "cilium" ? local.cilium_values : local.calico_values
+  desired_cni_version      = var.cni_plugin == "cilium" ? var.cilium_version : var.calico_version
+  rke2_manifest_cni_plugin = var.cni_plugin == "flannel" ? "calico" : var.cni_plugin
 
   longhorn_values_default = <<EOT
 defaultSettings:

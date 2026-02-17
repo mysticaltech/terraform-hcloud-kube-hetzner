@@ -656,7 +656,7 @@ module "kube-hetzner" {
   # - Create Robot Webservice credentials and set them to the `robot_user` and `robot_password` TF-variables. They are passed on via secrets to HCCM env.
   # - `hetzner_ccm_use_helm = true`
   # - `robot_ccm_enabled = true`
-  # See more from https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/docs/add-robot-server.md
+  # See more from https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
   # robot_ccm_enabled = false
 
   # To connect the Hetzner Cloud network to Robot servers via vSwitch subnet, create the vSwitch and set its ID to the `vswitch_id` (number).
@@ -1344,7 +1344,7 @@ webhook:
   # Hetzner Cloud Controller Manager, all Hetzner Cloud Controller Manager helm values can be found at https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/main/chart/values.yaml
   # We advise you to not touch this and to let the defaults that are already set under the hood.
   # If you want to merge extra values into defaults (or hetzner_ccm_values), use hetzner_ccm_merge_values.
-  # For advanced use cases like adding Hetzner Robot servers, see: https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/docs/add-robot-server.md
+  # For advanced use cases like adding Hetzner Robot servers, see: https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   hetzner_ccm_values = <<-EOT
 networking:
@@ -1561,7 +1561,7 @@ controller:
 
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
-  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/locals.tf
+  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
   # If you want to merge extra values into defaults (or haproxy_values), use haproxy_merge_values.
   /*   haproxy_values = <<-EOT
   EOT */

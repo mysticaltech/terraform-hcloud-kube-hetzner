@@ -47,20 +47,20 @@ fi
 
 # Download the required files only if they don't exist
 if [ ! -e "${folder_path}/kube.tf" ]; then
-    curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/kube.tf.example -o "${folder_path}/kube.tf"
+    curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o "${folder_path}/kube.tf"
 else
     echo "kube.tf already exists. Skipping download."
 fi
 
 if [ ! -e "${folder_path}/hcloud-microos-snapshots.pkr.hcl" ]; then
-    curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/packer-template/hcloud-microos-snapshots.pkr.hcl -o "${folder_path}/hcloud-microos-snapshots.pkr.hcl"
+    curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o "${folder_path}/hcloud-microos-snapshots.pkr.hcl"
 else
     echo "hcloud-microos-snapshots.pkr.hcl already exists. Skipping download."
 fi
 
 # Leap Micro snapshots (recommended)
 if [ ! -e "${folder_path}/hcloud-leapmicro-snapshots.pkr.hcl" ]; then
-    curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/main/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o "${folder_path}/hcloud-leapmicro-snapshots.pkr.hcl"
+    curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o "${folder_path}/hcloud-leapmicro-snapshots.pkr.hcl"
 else
     echo "hcloud-leapmicro-snapshots.pkr.hcl already exists. Skipping download."
 fi

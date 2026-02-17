@@ -24,14 +24,15 @@ resource "hcloud_load_balancer_network" "cluster" {
   count = local.has_external_load_balancer ? 0 : 1
 
   load_balancer_id = hcloud_load_balancer.cluster.*.id[0]
-  # Use -2 to get the last usable IP in the subnet
+  # Use the last usable IP in the subnet. If control-plane LB is also enabled
+  # on the shared subnet, reserve a distinct address to avoid collision.
   ip = cidrhost(
     (
       length(hcloud_network_subnet.agent) > 0
       ? hcloud_network_subnet.agent.*.ip_range[0]
       : hcloud_network_subnet.control_plane.*.ip_range[0]
     )
-  , -2)
+  , (var.use_control_plane_lb && length(hcloud_network_subnet.agent) == 0 ? -3 : -2))
   subnet_id = (
     length(hcloud_network_subnet.agent) > 0
     ? hcloud_network_subnet.agent.*.id[0]
@@ -272,15 +273,15 @@ resource "null_resource" "control_plane_setup_rke2" {
     destination = "/tmp/encryption-config.yaml"
   }
 
-  # Upload the cilium install file
+  # Upload the CNI install file.
   provisioner "file" {
     content = templatefile(
-      "${path.module}/templates/${var.cni_plugin}.yaml.tpl",
+      "${path.module}/templates/${local.rke2_manifest_cni_plugin}.yaml.tpl",
       {
         values  = indent(4, trimspace(local.desired_cni_values))
         version = local.desired_cni_version
     })
-    destination = "/var/lib/rancher/rke2/server/manifests/${var.cni_plugin}.yaml"
+    destination = "/var/lib/rancher/rke2/server/manifests/${local.rke2_manifest_cni_plugin}.yaml"
   }
 }
 

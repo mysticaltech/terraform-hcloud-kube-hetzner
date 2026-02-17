@@ -85,7 +85,7 @@ jobs:
           PR_AUTHORS=$(
             printf '%s\n%s\n' "${PR_AUTHORS_FROM_COMMITS}" "${PR_AUTHORS_FROM_MERGED_PRS}" \
               | sed '/^$/d' \
-              | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\\[bot\\])?$' \
+              | grep -E '^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$' \
               | sort -u || true
           )
 

@@ -2,7 +2,7 @@ name: Generate terraform docs
 on:
   push:
     branches:
-      - main
+      - master
       - staging
 
 jobs:

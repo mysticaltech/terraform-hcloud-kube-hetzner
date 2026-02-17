@@ -61,7 +61,7 @@ module "agents" {
   ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
-  k3s_registries_update_script     = local.k3s_registries_update_script
+  k3s_registries_update_script     = local.k8s_registries_update_script
   cloudinit_write_files_common     = local.cloudinit_write_files_common
   k3s_kubelet_config               = var.k3s_kubelet_config
   k3s_kubelet_config_update_script = local.k8s_kubelet_config_update_script
@@ -81,7 +81,7 @@ module "agents" {
   node_connection_overrides        = var.node_connection_overrides
   network_id                       = data.hcloud_network.k3s.id
   extra_network_ids                = var.extra_network_ids
-  private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
+  private_ipv4                     = null
 
   labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 

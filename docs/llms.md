@@ -2702,7 +2702,7 @@ controller:
 ```terraform
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
-  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/locals.tf
+  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
   /*   haproxy_values = <<-EOT
   EOT */
 ```
