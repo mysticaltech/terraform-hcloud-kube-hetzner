@@ -389,8 +389,8 @@ locals {
       disable-kube-proxy       = var.disable_kube_proxy
       disable                  = local.disable_extras
       https-listen-port        = var.kubeapi_port
-      # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_control_plane_kubelet_args
-      kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
+      # Kubelet arg precedence (last wins): local.kubelet_arg < k3s_global_kubelet_args < k3s_control_plane_kubelet_args < v.kubelet_args
+      kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
       kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface

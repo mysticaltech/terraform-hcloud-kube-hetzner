@@ -126,13 +126,13 @@ locals {
       node-name = module.agents[k].name
       server    = local.k3s_endpoint
       token     = local.k3s_token
-      # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
+      # Kubelet arg precedence (last wins): local.kubelet_arg < k3s_global_kubelet_args < k3s_agent_kubelet_args < v.kubelet_args
       kubelet-arg = concat(
         local.kubelet_arg,
         v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
-        v.kubelet_args,
         var.k3s_global_kubelet_args,
-        var.k3s_agent_kubelet_args
+        var.k3s_agent_kubelet_args,
+        v.kubelet_args
       )
       flannel-iface = local.flannel_iface
       node-ip       = module.agents[k].private_ipv4_address
@@ -156,13 +156,13 @@ locals {
       node-name = module.agents[k].name
       server    = local.rke2_join_endpoint
       token     = local.k3s_token
-      # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
+      # Kubelet arg precedence (last wins): local.kubelet_arg < k3s_global_kubelet_args < k3s_agent_kubelet_args < v.kubelet_args
       kubelet-arg = concat(
         local.kubelet_arg,
         v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
-        v.kubelet_args,
         var.k3s_global_kubelet_args,
-        var.k3s_agent_kubelet_args
+        var.k3s_agent_kubelet_args,
+        v.kubelet_args
       )
       node-ip    = module.agents[k].private_ipv4_address
       node-label = v.labels
