@@ -502,7 +502,9 @@ module "kube-hetzner" {
   # cluster_autoscaler_resource_limits: Enable or disable resource limits/requests (default: true)
   #   - Set to false to remove resource constraints entirely
   #
-  # cluster_autoscaler_resource_values: Customize CPU and memory resources (defaults: 100m CPU, 300Mi memory for both requests and limits)
+  # cluster_autoscaler_resource_values: Primary stability tuning for the autoscaler pod.
+  #   - Use this to prevent autoscaler restarts from low CPU/memory during scale events.
+  #   - Defaults: 100m CPU, 300Mi memory for both requests and limits.
   #
   # Example:
   #
