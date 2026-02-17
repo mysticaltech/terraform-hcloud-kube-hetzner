@@ -2319,33 +2319,34 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.21: Kustomize and Post-Deployment Operations**
 
 ```terraform
-  # Extra commands to be executed after the `kubectl apply -k` (useful for post-install actions, e.g. wait for CRD, apply additional manifests, etc.).
-  # extra_kustomize_deployment_commands=""
+  # You can add user kustomizations to be deployed in sequence by setting the `user_kustomizations` variable. 
+  # The Kustomization "sets" are run in sequential order (by numeric key) so that you can for example install a CRD and wait for it to be deployed.
+  #
+  # Properties of each value:
+  # - source_folder: Sets the source folder for *.yaml.tpl and Kustomization.yaml.tpl
+  # - kustomize_parameters: Key-value map for passing variables into Kustomization. Applies only to the Kustomization-set in the object, but to all files defined in the source_folder of the "set". Defaults to {}.
+  # - pre_commands: Commands to be executed before applying the Kustomization ("kubectl apply -k"). Defaults to "".
+  # - post_commands: Commands to be executed after applying the Kustomization ("kubectl apply -k"). You can use it to wait for CRD deployment etc. Defaults to "".
+  # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
+  # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
+  # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
+  # 
+  # An example:
+  # user_kustomizations = {
+  #   "1" = {
+  #     source_folder        = "extra-manifests"
+  #     kustomize_parameters = { myvar = "myvalue" }
+  #     pre_commands         = ""
+  #     post_commands        = "kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true"
+  #   }
+  # }
 ```
 
-* **`extra_kustomize_deployment_commands` (String or List of Strings, Optional):**
-  * **Purpose:** Allows you to specify shell commands that will be executed *after* the module has run its main Kustomize deployment (which applies manifests for core components like CCM, CSI, Ingress, etc., based on your selections).
-  * **Mechanism:** The module likely uses a `local-exec` or `remote-exec` provisioner (if commands need to run on a node) to execute these. If they are `kubectl` commands, they'd run from where Terraform is executed, using the generated kubeconfig.
+* **`user_kustomizations` (Map of Objects, Optional):**
+  * **Purpose:** Allows you to specify Kustomization sets that are run sequentially, with each set containing its own source_folder, pre_commands, post_commands and kustomize_parameters
   * **Use Cases:**
-    * **Waiting for CRDs:** Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
-    * Applying additional Kubernetes manifests that depend on the core setup.
-    * Running post-install scripts or triggering initial application setup jobs.
-  * **Format:** Can be a single string with commands separated by `&&` or `\n`, or a list of individual command strings.
-
-```terraform
-  # Extra values that will be passed to the `extra-manifests/kustomization.yaml.tpl` if its present.
-  # extra_kustomize_parameters={}
-```
-
-* **`extra_kustomize_parameters` (Map of Strings, Optional):**
-  * **Purpose:** If you are using the module's "extra manifests" feature (where you can provide your own Kustomize setup in an `extra-manifests` directory), this map allows you to pass key-value parameters into a `kustomization.yaml.tpl` template file within that directory.
-  * **Mechanism:** The module would process `extra-manifests/kustomization.yaml.tpl` as a template, substituting placeholders with values from this map, and then run `kustomize build` on the result.
-  * **Use Case:** Parameterizing your custom Kustomize deployments based on Terraform inputs or computed values from the `kube-hetzner` module (e.g., passing in the cluster name, node IPs, etc., to your custom manifests).
-  * **Reference:** The comment points to examples in the module's repository for how to use this feature.
-
-```terraform
-  # See working examples for extra manifests or a HelmChart in examples/kustomization_user_deploy/README.md
-```
+    * Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
+    * The `user_kustomizations`-map allows you to define steps of install where e.g. the first step installs CRDs, checks for their proper existence and then second step that install further CRs.
 
 * **Documentation Pointer:** This directs users to example usage of the "extra manifests" feature, which is crucial for extending the module's capabilities with custom deployments.
 
