@@ -5,14 +5,14 @@ variable "hcloud_token" {
 }
 
 variable "kubernetes_distribution_type" {
-    description = "Kubernetes distribution type. Can be either k3s or rke2."
-    type        = string
-    default     = "k3s"
+  description = "Kubernetes distribution type. Can be either k3s or rke2."
+  type        = string
+  default     = "k3s"
 
-    validation {
-        condition     = contains(["k3s", "rke2"], var.kubernetes_distribution_type)
-        error_message = "The Kubernetes distribution type must be either k3s or rke2."
-    }
+  validation {
+    condition     = contains(["k3s", "rke2"], var.kubernetes_distribution_type)
+    error_message = "The Kubernetes distribution type must be either k3s or rke2."
+  }
 }
 
 variable "k3s_token" {

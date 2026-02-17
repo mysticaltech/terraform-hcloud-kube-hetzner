@@ -531,20 +531,11 @@ locals {
   kubelet_arg                 = ["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"]
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
   flannel_iface               = "eth1"
-  authentication_config_file = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/authentication_config.yaml" : "/etc/rancher/k3s/authentication_config.yaml"
-  control_plane_service_name = local.kubernetes_distribution == "rke2" ? "rke2-server" : "k3s"
-  agent_service_name         = local.kubernetes_distribution == "rke2" ? "rke2-agent" : "k3s-agent"
+  authentication_config_file  = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/authentication_config.yaml" : "/etc/rancher/k3s/authentication_config.yaml"
+  control_plane_service_name  = local.kubernetes_distribution == "rke2" ? "rke2-server" : "k3s"
+  agent_service_name          = local.kubernetes_distribution == "rke2" ? "rke2-agent" : "k3s-agent"
 
-  kube_apiserver_arg = concat(
-    var.authentication_config != "" ? ["authentication-config=${local.authentication_config_file}"] : [],
-    var.k3s_audit_policy_config != "" ? [
-      "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml",
-      "audit-log-path=${var.k3s_audit_log_path}",
-      "audit-log-maxage=${var.k3s_audit_log_maxage}",
-      "audit-log-maxbackup=${var.k3s_audit_log_maxbackup}",
-      "audit-log-maxsize=${var.k3s_audit_log_maxsize}"
-    ] : []
-  )
+  kube_apiserver_arg = var.authentication_config != "" ? ["authentication-config=${local.authentication_config_file}"] : []
 
   cilium_values = var.cilium_values != "" ? var.cilium_values : <<EOT
 # Enable Kubernetes host-scope IPAM mode (required for K3s + Hetzner CCM)
