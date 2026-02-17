@@ -2028,16 +2028,17 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Interaction with Nodepool `placement_group`:** If a nodepool definition has its own `placement_group = "group_name"` attribute, that would likely take precedence for that specific nodepool, allowing for more granular control even if global placement groups are enabled.
 
 ```terraform
-  # By default, we allow ICMP ping in to the nodes, to check for liveness for instance. If you do not want to allow that, you can. Just set this flag to true (false by default).
-  # block_icmp_ping_in = true
+  # By default, incoming ICMP ping is blocked.
+  # Set this to false only if you explicitly want external ping-based liveness checks.
+  # block_icmp_ping_in = false
 ```
 
 * **`block_icmp_ping_in` (Boolean, Optional):**
-  * **Default:** `false` (meaning ICMP ping requests *are allowed* to the nodes by the Hetzner Firewall).
+  * **Default:** `true` (meaning ICMP ping requests are blocked by the Hetzner Firewall).
   * **Purpose:** Controls whether the Hetzner Firewall rule for ICMP (specifically echo-request, "ping") is configured to allow or block incoming pings to your cluster nodes.
-    * `false`: Nodes will respond to pings. Useful for basic liveness checks and network troubleshooting.
     * `true`: Nodes will not respond to pings from external sources (blocked at the Hetzner Firewall level).
-  * **Security Consideration:** Blocking ICMP can make it slightly harder for attackers to discover live hosts (though there are other methods). However, it also hinders legitimate network diagnostics. The security benefit is often considered minor compared to the operational inconvenience.
+    * `false`: Nodes will respond to pings. Useful for basic liveness checks and network troubleshooting.
+  * **Security Consideration:** Keeping this enabled by default reduces unnecessary network surface while still allowing users to opt in to ping-based diagnostics when needed.
 
 ```terraform
   # You can enable cert-manager (installed by Helm behind the scenes) with the following flag, the default is "true".
