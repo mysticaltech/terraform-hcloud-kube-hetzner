@@ -1,14 +1,16 @@
-# Prerequisities:
-# Create Hcloud context and set value to secrets.HCLOUD_CONTEXT
-# Create snapshots per README in the context and set values to secrets.SNAPSHOT_ID_ARM and secrets.SNAPSHOT_ID_X86
-# Set HCLOUD_TOKEN to the Hetzner Cloud API token
-# Set TEST_IN_HETZNER to 1
-
 name: Test in Hetzner
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hetzner-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
@@ -16,14 +18,16 @@ env:
   HCLOUD_CONTEXT: ${{ secrets.HCLOUD_CONTEXT }}
   SNAPSHOT_ID_ARM: ${{ secrets.SNAPSHOT_ID_ARM }}
   SNAPSHOT_ID_X86: ${{ secrets.SNAPSHOT_ID_X86 }}
+  TF_VAR_microos_arm_snapshot_id: ${{ secrets.SNAPSHOT_ID_ARM }}
+  TF_VAR_microos_x86_snapshot_id: ${{ secrets.SNAPSHOT_ID_X86 }}
 
 jobs:
   tests:
     name: Run Hetzner Tests
-    environment: hetzner-test # This gates the job behind approval
-    if: ${{ vars.TEST_IN_HETZNER == '1'}}
-
     runs-on: ubuntu-latest
+    environment: hetzner-test
+    if: ${{ vars.TEST_IN_HETZNER == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+
     steps:
       - name: Add env mask
         run: |
@@ -32,41 +36,38 @@ jobs:
           echo "::add-mask::${{ secrets.SNAPSHOT_ID_ARM }}"
           echo "::add-mask::${{ secrets.SNAPSHOT_ID_X86 }}"
 
-      - name: Exit if no snapshots are configured
-        if: ${{ env.SNAPSHOT_ID_ARM == '' || env.SNAPSHOT_ID_X86 == '' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check prerequisites
+        id: prerequisites
         run: |
-          echo "No snapshots configured, skipping workflow"
-          gh run cancel ${{ github.run_id }}
-          gh run watch ${{ github.run_id }}
+          if [ -z "$SNAPSHOT_ID_ARM" ] || [ -z "$SNAPSHOT_ID_X86" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Snapshots are not configured, skipping workflow."
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          path: target
+        if: steps.prerequisites.outputs.enabled == 'true'
+        uses: actions/checkout@v6
 
       - name: Install Terraform
-        run: |
-          sudo apt update && sudo apt install -y gnupg software-properties-common
-          wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
-          gpg --no-default-keyring --keyring /usr/share/keyrings/hashicorp-archive-keyring.gpg --fingerprint
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(grep -oP '(?<=UBUNTU_CODENAME=).*' /etc/os-release || lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-          sudo apt update && sudo apt install terraform
+        if: steps.prerequisites.outputs.enabled == 'true'
+        uses: hashicorp/setup-terraform@v3
 
       - name: Create SSH keys
-        run: |
-          ssh-keygen -f ~/.ssh/id_ed25519 -N ""
+        if: steps.prerequisites.outputs.enabled == 'true'
+        run: ssh-keygen -f ~/.ssh/id_ed25519 -N ""
 
       - name: Apply base example
+        if: steps.prerequisites.outputs.enabled == 'true'
         timeout-minutes: 20
         run: |
-          cp target/kube.tf.example kube.tf
+          cp kube.tf.example kube.tf
           terraform init
           terraform validate
           terraform apply -auto-approve
 
       - name: Destroy cluster
-        if: ${{ always() }}
-        run: |
-          terraform destroy -auto-approve
+        if: steps.prerequisites.outputs.enabled == 'true' && always()
+        run: terraform destroy -auto-approve
