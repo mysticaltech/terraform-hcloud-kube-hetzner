@@ -732,7 +732,8 @@ resource "null_resource" "rke2_kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm = var.hetzner_ccm_use_helm
+    ccm_use_helm                   = var.hetzner_ccm_use_helm
+    system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
   }
 
   connection {
@@ -837,6 +838,7 @@ resource "null_resource" "rke2_kustomization" {
         version          = var.install_rke2_version
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
+        upgrade_window   = var.system_upgrade_schedule_window
     })
     destination = "/var/post_install/plans.yaml"
   }
