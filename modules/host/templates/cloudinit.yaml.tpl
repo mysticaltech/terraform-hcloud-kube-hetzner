@@ -137,6 +137,25 @@ ${yamlencode(cloudinit_write_files_extra)}
     WantedBy=sysinit.target
 %{ endif ~}
 
+- path: /usr/local/bin/fetch-keys.sh
+  owner: root:root
+  permissions: '0755'
+  content: |
+    #!/bin/sh
+    set -eu
+    user="$${1:-root}"
+    [ "$user" = "root" ] || exit 0
+    if [ -f /root/.ssh/authorized_keys ]; then
+      cat /root/.ssh/authorized_keys
+    fi
+
+- path: /etc/ssh/sshd_config.d/40-kube-hetzner-authorized-keys-command.conf
+  owner: root:root
+  permissions: '0644'
+  content: |
+    AuthorizedKeysCommand /usr/local/bin/fetch-keys.sh
+    AuthorizedKeysCommandUser root
+
 # Apply DNS config
 %{ if has_dns_servers ~}
 manage_resolv_conf: true
