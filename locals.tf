@@ -490,6 +490,8 @@ EOT
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
+        extra_write_files : nodepool_obj.extra_write_files,
+        extra_runcmd : nodepool_obj.extra_runcmd,
       }
     }
   ]...)
@@ -520,6 +522,8 @@ EOT
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
         network_id : nodepool_obj.network_id,
+        extra_write_files : nodepool_obj.extra_write_files,
+        extra_runcmd : nodepool_obj.extra_runcmd,
       }
     }
   ]...)
@@ -551,11 +555,15 @@ EOT
           disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
           disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
           network_id : nodepool_obj.network_id,
+          extra_write_files : nodepool_obj.extra_write_files,
+          extra_runcmd : nodepool_obj.extra_runcmd,
         },
         { for key, value in node_obj : key => value if value != null },
         {
           labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
+          extra_write_files : concat(nodepool_obj.extra_write_files, coalesce(node_obj.extra_write_files, [])),
+          extra_runcmd : concat(nodepool_obj.extra_runcmd, coalesce(node_obj.extra_runcmd, [])),
         },
         (
           node_obj.append_index_to_node_name ? { node_name_suffix : "-${floor(tonumber(node_key))}" } : {}

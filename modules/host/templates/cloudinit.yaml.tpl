@@ -3,6 +3,9 @@
 write_files:
 
 ${cloudinit_write_files_common}
+%{~ if length(cloudinit_write_files_extra) > 0 ~}
+${yamlencode(cloudinit_write_files_extra)}
+%{~ endif ~}
 
 %{ if os == "leapmicro" ~}
 - path: /usr/local/bin/apply-k8s-selinux-policy.sh
@@ -238,3 +241,6 @@ ${cloudinit_runcmd_common}
   systemctl daemon-reload
   systemctl enable swapon-late.service
 %{endif~}
+%{~ if length(cloudinit_runcmd_extra) > 0 ~}
+${yamlencode(cloudinit_runcmd_extra)}
+%{~ endif ~}

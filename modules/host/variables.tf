@@ -150,6 +150,18 @@ variable "cloudinit_runcmd_common" {
   type    = string
 }
 
+variable "cloudinit_write_files_extra" {
+  type        = list(any)
+  default     = []
+  description = "Additional cloud-init write_files entries appended after module defaults."
+}
+
+variable "cloudinit_runcmd_extra" {
+  type        = list(any)
+  default     = []
+  description = "Additional cloud-init runcmd entries appended after module defaults."
+}
+
 variable "swap_size" {
   default = ""
   type    = string
