@@ -1422,6 +1422,12 @@ variable "kured_options" {
   default = {}
 }
 
+variable "k8s_config_updates_use_kured_sentinel" {
+  type        = bool
+  default     = false
+  description = "When true, k3s/rke2 config updates trigger Kured via reboot sentinel instead of immediate service restarts."
+}
+
 variable "block_icmp_ping_in" {
   type        = bool
   default     = false
