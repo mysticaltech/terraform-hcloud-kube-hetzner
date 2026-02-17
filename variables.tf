@@ -336,6 +336,8 @@ variable "control_plane_nodepools" {
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
+    extra_write_files          = optional(list(any), [])
+    extra_runcmd               = optional(list(any), [])
   }))
   default = []
   validation {
@@ -392,6 +394,8 @@ variable "agent_nodepools" {
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     network_id                 = optional(number, 0)
+    extra_write_files          = optional(list(any), [])
+    extra_runcmd               = optional(list(any), [])
     nodes = optional(map(object({
       server_type                = optional(string)
       location                   = optional(string)
@@ -410,6 +414,8 @@ variable "agent_nodepools" {
       placement_group            = optional(string, null)
       append_index_to_node_name  = optional(bool, true)
       os                         = optional(string)
+      extra_write_files          = optional(list(any), [])
+      extra_runcmd               = optional(list(any), [])
     })))
   }))
   default = []

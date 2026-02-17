@@ -32,6 +32,8 @@ module "control_planes" {
   k3s_audit_policy_update_script   = local.k3s_audit_policy_update_script
   cloudinit_write_files_common     = local.cloudinit_write_files_common
   cloudinit_runcmd_common          = local.cloudinit_runcmd_common
+  cloudinit_write_files_extra      = each.value.extra_write_files
+  cloudinit_runcmd_extra           = each.value.extra_runcmd
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
   keep_disk_size                   = var.keep_disk_cp

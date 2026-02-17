@@ -32,6 +32,8 @@ module "agents" {
   k3s_audit_policy_config          = ""
   k3s_audit_policy_update_script   = ""
   cloudinit_runcmd_common          = local.cloudinit_runcmd_common
+  cloudinit_write_files_extra      = each.value.extra_write_files
+  cloudinit_runcmd_extra           = each.value.extra_runcmd
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
   keep_disk_size                   = var.keep_disk_agents
