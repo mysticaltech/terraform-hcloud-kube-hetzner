@@ -66,6 +66,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 - **Cilium XDP Acceleration** - New `cilium_loadbalancer_acceleration_mode` variable (native, best-effort, disabled)
 - **K3s v1.35 Support** - Added support for k3s v1.35 channel (#2029)
 - **Packer Enhancements** - Configurable `kernel_type`, `sysctl_config_file`, and `timezone` for MicroOS snapshots (#2009, #2010)
+- **Multiple Attached Volumes Per Node** - Added `attached_volumes` support for control plane and agent nodepools (including per-node overrides) to provision and mount multiple Hetzner Volumes per node.
 
 ### 🐛 Bug Fixes
 

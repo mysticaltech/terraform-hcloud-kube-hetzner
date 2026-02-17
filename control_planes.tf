@@ -119,6 +119,24 @@ locals {
       v.private_ipv4_address
     )
   }
+
+  attached_control_plane_volumes = merge([
+    for node_key, node in local.control_plane_nodes : {
+      for volume_idx, volume in coalesce(node.attached_volumes, []) :
+      "${node_key}-${volume_idx}" => {
+        node_key          = node_key
+        volume_idx        = volume_idx
+        size              = volume.size
+        mount_path        = volume.mount_path
+        filesystem        = volume.filesystem
+        automount         = volume.automount
+        name              = volume.name
+        labels            = volume.labels
+        delete_protection = volume.delete_protection
+      }
+    }
+  ]...)
+
   # TODO: What about this?
   # cni_settings = local.kubernetes_distribution == "k3s" ? local.cni_k3s_settings : local.cni_rke2_settings
   rke2-config = { for k, v in local.control_plane_nodes : k => merge(
@@ -514,4 +532,65 @@ resource "terraform_data" "control_planes" {
 moved {
   from = null_resource.control_planes
   to   = terraform_data.control_planes
+}
+
+resource "hcloud_volume" "attached_control_plane_volume" {
+  for_each = local.attached_control_plane_volumes
+
+  labels = merge(
+    {
+      provisioner = "terraform"
+      cluster     = var.cluster_name
+      scope       = "attached-volume"
+      role        = "control-plane"
+    },
+    each.value.labels
+  )
+
+  name              = coalesce(each.value.name, "${var.cluster_name}-cp-${module.control_planes[each.value.node_key].name}-vol-${each.value.volume_idx}")
+  size              = each.value.size
+  server_id         = module.control_planes[each.value.node_key].id
+  automount         = each.value.automount
+  format            = each.value.filesystem
+  delete_protection = coalesce(each.value.delete_protection, var.enable_delete_protection.volume)
+}
+
+resource "terraform_data" "configure_attached_control_plane_volume" {
+  for_each = local.attached_control_plane_volumes
+
+  triggers_replace = {
+    control_plane_id = module.control_planes[each.value.node_key].id
+    volume_id        = hcloud_volume.attached_control_plane_volume[each.key].id
+    mount_path       = each.value.mount_path
+    filesystem       = each.value.filesystem
+    volume_name      = hcloud_volume.attached_control_plane_volume[each.key].name
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -e",
+      "systemctl enable --now iscsid",
+      "mkdir -p '${each.value.mount_path}' >/dev/null",
+      "mountpoint -q '${each.value.mount_path}' || mount -o discard,defaults ${hcloud_volume.attached_control_plane_volume[each.key].linux_device} '${each.value.mount_path}'",
+      "${each.value.filesystem == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.attached_control_plane_volume[each.key].linux_device}",
+      "awk -v path='${each.value.mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.attached_control_plane_volume[each.key].linux_device} ${each.value.mount_path} ${each.value.filesystem} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.control_plane_ips[each.value.node_key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  depends_on = [
+    hcloud_volume.attached_control_plane_volume
+  ]
 }

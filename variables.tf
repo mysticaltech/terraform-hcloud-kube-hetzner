@@ -338,6 +338,15 @@ variable "control_plane_nodepools" {
     network_id                 = optional(number, 0)
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
+    attached_volumes = optional(list(object({
+      size              = number
+      mount_path        = string
+      filesystem        = optional(string, "ext4")
+      automount         = optional(bool, true)
+      name              = optional(string, null)
+      labels            = optional(map(string), {})
+      delete_protection = optional(bool, null)
+    })), [])
   }))
   default = []
   validation {
@@ -367,21 +376,46 @@ variable "control_plane_nodepools" {
     condition     = length(var.control_plane_nodepools) == 0 || sum([for v in var.control_plane_nodepools : v.count]) >= 1
     error_message = "At least one control plane node is required (total count across all control_plane_nodepools must be >= 1)."
   }
+
+  validation {
+    condition = alltrue(flatten([
+      for np in var.control_plane_nodepools : [
+        for vol in coalesce(np.attached_volumes, []) : (
+          vol.size >= 10 &&
+          vol.size <= 10240 &&
+          contains(["ext4", "xfs"], vol.filesystem) &&
+          can(regex("^/var/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", vol.mount_path)) &&
+          !contains(split("/", vol.mount_path), "..") &&
+          !contains(split("/", vol.mount_path), ".")
+        )
+      ]
+    ]))
+    error_message = "Each attached_volumes entry in control_plane_nodepools must have size between 10 and 10240 GB, filesystem in [ext4,xfs], and a mount_path under /var without '.' or '..'."
+  }
 }
 
 variable "agent_nodepools" {
   description = "Number of agent nodes."
   type = list(object({
-    name                       = string
-    server_type                = string
-    location                   = string
-    backups                    = optional(bool)
-    floating_ip                = optional(bool)
-    floating_ip_rdns           = optional(string, null)
-    labels                     = list(string)
-    taints                     = list(string)
-    longhorn_volume_size       = optional(number)
-    longhorn_mount_path        = optional(string, "/var/longhorn")
+    name                 = string
+    server_type          = string
+    location             = string
+    backups              = optional(bool)
+    floating_ip          = optional(bool)
+    floating_ip_rdns     = optional(string, null)
+    labels               = list(string)
+    taints               = list(string)
+    longhorn_volume_size = optional(number)
+    longhorn_mount_path  = optional(string, "/var/longhorn")
+    attached_volumes = optional(list(object({
+      size              = number
+      mount_path        = string
+      filesystem        = optional(string, "ext4")
+      automount         = optional(bool, true)
+      name              = optional(string, null)
+      labels            = optional(map(string), {})
+      delete_protection = optional(bool, null)
+    })), [])
     swap_size                  = optional(string, "")
     zram_size                  = optional(string, "")
     kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
@@ -397,15 +431,24 @@ variable "agent_nodepools" {
     extra_write_files          = optional(list(any), [])
     extra_runcmd               = optional(list(any), [])
     nodes = optional(map(object({
-      server_type                = optional(string)
-      location                   = optional(string)
-      backups                    = optional(bool)
-      floating_ip                = optional(bool)
-      floating_ip_rdns           = optional(string, null)
-      labels                     = optional(list(string))
-      taints                     = optional(list(string))
-      longhorn_volume_size       = optional(number)
-      longhorn_mount_path        = optional(string, null)
+      server_type          = optional(string)
+      location             = optional(string)
+      backups              = optional(bool)
+      floating_ip          = optional(bool)
+      floating_ip_rdns     = optional(string, null)
+      labels               = optional(list(string))
+      taints               = optional(list(string))
+      longhorn_volume_size = optional(number)
+      longhorn_mount_path  = optional(string, null)
+      attached_volumes = optional(list(object({
+        size              = number
+        mount_path        = string
+        filesystem        = optional(string, "ext4")
+        automount         = optional(bool, true)
+        name              = optional(string, null)
+        labels            = optional(map(string), {})
+        delete_protection = optional(bool, null)
+      })), null)
       swap_size                  = optional(string, "")
       zram_size                  = optional(string, "")
       kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
@@ -496,6 +539,36 @@ variable "agent_nodepools" {
       )
     ]))
     error_message = "Each longhorn_mount_path must be a valid, absolute path within a subdirectory of '/var/', not contain '.' or '..' components, and not end with a slash. This applies to both nodepool-level and node-level settings."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for np in var.agent_nodepools : concat(
+        [
+          for vol in coalesce(np.attached_volumes, []) : (
+            vol.size >= 10 &&
+            vol.size <= 10240 &&
+            contains(["ext4", "xfs"], vol.filesystem) &&
+            can(regex("^/var/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", vol.mount_path)) &&
+            !contains(split("/", vol.mount_path), "..") &&
+            !contains(split("/", vol.mount_path), ".")
+          )
+        ],
+        flatten([
+          for node in values(coalesce(np.nodes, {})) : [
+            for vol in coalesce(node.attached_volumes, []) : (
+              vol.size >= 10 &&
+              vol.size <= 10240 &&
+              contains(["ext4", "xfs"], vol.filesystem) &&
+              can(regex("^/var/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", vol.mount_path)) &&
+              !contains(split("/", vol.mount_path), "..") &&
+              !contains(split("/", vol.mount_path), ".")
+            )
+          ]
+        ])
+      )
+    ]))
+    error_message = "Each attached_volumes entry must have size between 10 and 10240 GB, filesystem in [ext4,xfs], and a mount_path under /var without '.' or '..'. This applies to nodepool and node-level entries."
   }
 
 }

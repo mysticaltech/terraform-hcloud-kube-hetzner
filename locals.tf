@@ -492,6 +492,7 @@ EOT
         network_id : nodepool_obj.network_id,
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
+        attached_volumes : nodepool_obj.attached_volumes,
       }
     }
   ]...)
@@ -524,6 +525,7 @@ EOT
         network_id : nodepool_obj.network_id,
         extra_write_files : nodepool_obj.extra_write_files,
         extra_runcmd : nodepool_obj.extra_runcmd,
+        attached_volumes : nodepool_obj.attached_volumes,
       }
     }
   ]...)
@@ -557,6 +559,7 @@ EOT
           network_id : nodepool_obj.network_id,
           extra_write_files : nodepool_obj.extra_write_files,
           extra_runcmd : nodepool_obj.extra_runcmd,
+          attached_volumes : nodepool_obj.attached_volumes,
         },
         { for key, value in node_obj : key => value if value != null },
         {
