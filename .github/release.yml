@@ -1,0 +1,54 @@
+# Configuration for auto-generated release notes
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot
+      - dependabot[bot]
+
+  categories:
+    - title: "🚀 New Features"
+      labels:
+        - enhancement
+        - feature
+
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+        - fix
+        - bugfix
+
+    - title: "📦 Packer / OS"
+      labels:
+        - packer
+        - microos
+
+    - title: "🔧 Configuration & Variables"
+      labels:
+        - configuration
+        - variables
+
+    - title: "📚 Documentation"
+      labels:
+        - documentation
+        - docs
+
+    - title: "🏗️ Infrastructure"
+      labels:
+        - infrastructure
+        - terraform
+
+    - title: "⬆️ Dependencies"
+      labels:
+        - dependencies
+
+    - title: "🔒 Security"
+      labels:
+        - security
+
+    - title: "Other Changes"
+      labels:
+        - "*"

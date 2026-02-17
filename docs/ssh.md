@@ -22,3 +22,16 @@ ssh-add -l
 ```
 
 Then set `private_key = null` in your kube.tf file, as it will be read from the ssh-agent automatically.
+
+---
+
+## Firewall SSH source and changing IPs
+
+SSH access is controlled by the Hetzner Cloud firewall, and the module configures it via the `firewall_ssh_source` input. This is a list of CIDR blocks that are allowed to connect to the nodes over SSH (for a single IPv4 address, use a `/32`, for IPv6 a `/128`).
+
+If your IP changes, you are not locked out permanently:
+
+- Update `firewall_ssh_source` in your `kube.tf` (or the corresponding variable in Terraform Cloud).
+- Run `terraform plan` and `terraform apply`.
+
+Terraform updates the firewall through the Hetzner API, so SSH access is not required to make this change. If you need access immediately, you can temporarily add a wider CIDR (for example `0.0.0.0/0` and/or `::/0`), apply, and then tighten it again once you are connected. A static IP or a VPN with a fixed egress IP also avoids future changes.
