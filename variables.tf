@@ -1546,15 +1546,3 @@ variable "control_plane_endpoint" {
     error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443)."
   }
 }
-
-variable "optional_bastion_host" {
-  type = object({
-    bastion_host        = string
-    bastion_port        = number
-    bastion_user        = string
-    bastion_private_key = string
-  })
-  description = "Optional bastion host used to connect to the nodes in the cluster. Can be useful when using a preexisting NAT router."
-  sensitive   = true
-  default     = null
-}
