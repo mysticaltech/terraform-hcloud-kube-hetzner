@@ -85,15 +85,9 @@ output "k3s_token" {
   sensitive   = true
 }
 
-output "k3s_config" {
-  description = "Rendered k3s control plane config by node."
-  value       = local.k3s-config
-  sensitive   = true
-}
-
-output "rke2_config" {
-  description = "Rendered rke2 control plane config by node."
-  value       = local.rke2-config
+output "join_script_external" {
+  description = "Helper command for joining non-managed external nodes to k3s with external-IP and wireguard-native flannel."
+  value       = local.kubernetes_distribution == "k3s" ? "curl -sfL https://get.k3s.io | K3S_URL='${local.k3s_endpoint}' K3S_TOKEN='${local.k3s_token}' sh -s - agent --node-external-ip=<PUBLIC_NODE_IP> --flannel-backend=wireguard-native" : "External join helper is available only for k3s clusters."
   sensitive   = true
 }
 
