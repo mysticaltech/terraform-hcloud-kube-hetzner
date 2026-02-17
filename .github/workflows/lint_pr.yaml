@@ -38,6 +38,21 @@ jobs:
       - name: terraform validate
         uses: dflook/terraform-validate@v2.2.3
 
+  opentofu-validate:
+    runs-on: ubuntu-latest
+    name: Validate OpenTofu compatibility
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - name: tofu init and validate
+        run: |
+          tofu init -backend=false
+          tofu validate
+
   fmt-check:
     runs-on: ubuntu-latest
     name: Check formatting of terraform files
