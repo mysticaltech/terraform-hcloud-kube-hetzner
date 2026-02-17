@@ -20,6 +20,8 @@ env:
   SNAPSHOT_ID_X86: ${{ secrets.SNAPSHOT_ID_X86 }}
   TF_VAR_microos_arm_snapshot_id: ${{ secrets.SNAPSHOT_ID_ARM }}
   TF_VAR_microos_x86_snapshot_id: ${{ secrets.SNAPSHOT_ID_X86 }}
+  TF_VAR_leapmicro_arm_snapshot_id: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM != '' && secrets.LEAPMICRO_SNAPSHOT_ID_ARM || secrets.SNAPSHOT_ID_ARM }}
+  TF_VAR_leapmicro_x86_snapshot_id: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 != '' && secrets.LEAPMICRO_SNAPSHOT_ID_X86 || secrets.SNAPSHOT_ID_X86 }}
 
 jobs:
   tests:
@@ -39,6 +41,8 @@ jobs:
           echo "::add-mask::${{ secrets.HCLOUD_CONTEXT }}"
           echo "::add-mask::${{ secrets.SNAPSHOT_ID_ARM }}"
           echo "::add-mask::${{ secrets.SNAPSHOT_ID_X86 }}"
+          echo "::add-mask::${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM }}"
+          echo "::add-mask::${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 }}"
 
       - name: Check prerequisites
         id: prerequisites

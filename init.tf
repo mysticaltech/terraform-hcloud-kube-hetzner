@@ -132,7 +132,7 @@ resource "terraform_data" "first_control_plane" {
         },
         local.etcd_s3_snapshots,
         var.control_planes_custom_config,
-        (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {}),
+        (var.disable_selinux ? { selinux = false } : (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {})),
         local.prefer_bundled_bin_config
       )
     )
