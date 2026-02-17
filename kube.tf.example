@@ -531,6 +531,8 @@ module "kube-hetzner" {
   #   etcd-s3-bucket          = "k3s-etcd-snapshots"
   #   etcd-s3-region          = "<your-s3-bucket-region|usually required for aws>"
   # }
+  # Number of local etcd snapshots to retain on control plane nodes.
+  # etcd_snapshot_retention = 5
 
   # To enable Hetzner Storage Box support, you can enable csi-driver-smb, default is "false".
   # enable_csi_driver_smb = true

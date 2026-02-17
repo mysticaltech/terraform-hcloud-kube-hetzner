@@ -899,6 +899,9 @@ EOT
       "etcd-s3" = true
     },
   var.etcd_s3_backup) : {}
+  etcd_snapshot_retention_config = var.etcd_snapshot_retention > 0 ? {
+    "etcd-snapshot-retention" = var.etcd_snapshot_retention
+  } : {}
 
   kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.k3s_kubelet_config != "" ? ["config=/etc/rancher/k3s/kubelet-config.yaml"] : [])
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"

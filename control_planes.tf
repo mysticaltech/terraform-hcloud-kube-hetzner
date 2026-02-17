@@ -166,6 +166,7 @@ locals {
       var.additional_tls_sans)
     },
     local.etcd_s3_snapshots,
+    local.etcd_snapshot_retention_config,
     var.control_planes_custom_config
   ) }
 
@@ -226,6 +227,7 @@ locals {
       var.additional_tls_sans)
     },
     local.etcd_s3_snapshots,
+    local.etcd_snapshot_retention_config,
     var.control_planes_custom_config,
     local.prefer_bundled_bin_config
   ) }

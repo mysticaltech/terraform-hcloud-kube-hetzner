@@ -694,6 +694,17 @@ variable "etcd_s3_backup" {
   default     = {}
 }
 
+variable "etcd_snapshot_retention" {
+  description = "Number of local etcd snapshots to retain."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.etcd_snapshot_retention > 0
+    error_message = "etcd_snapshot_retention must be greater than 0."
+  }
+}
+
 variable "ingress_controller" {
   type        = string
   default     = "traefik"
