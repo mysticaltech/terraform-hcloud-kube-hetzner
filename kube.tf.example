@@ -928,8 +928,9 @@ module "kube-hetzner" {
   # you would have to connect to any control plane node via SSH, as you can run kubectl from within these.
   # Please be advised that this setting has no effect on the load balancer when the use_control_plane_lb variable is set to true. This is
   # because firewall rules cannot be applied to load balancers yet.
-  # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
-  # firewall_kube_api_source = null
+  # Default is ["myipv4"] (resolved to your current public IPv4/32 during apply).
+  # Set to null to disable this rule entirely, or provide your own CIDR list.
+  # firewall_kube_api_source = ["myipv4", "203.0.113.10/32"]
 
   # Allow SSH access from the specified networks. Default: ["0.0.0.0/0", "::/0"]
   # Allowed values: null (disable SSH rule entirely) or a list of allowed networks with CIDR notation.
