@@ -30,7 +30,7 @@ module "kube-hetzner" {
   # version = "2.15.3"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
-  # 3. If you want to use the latest master branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
+  # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
   # source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"
 
   # Note that some values, notably "location" and "public_key" have no effect after initializing the cluster.
@@ -75,15 +75,17 @@ module "kube-hetzner" {
   # NOTE2: square brackets! This must be a list of length 1.
   #
   # existing_network_id = [hcloud_network.your_network.id]
+  #
+  # Optionally attach every control plane and agent node to additional existing Hetzner networks.
+  # extra_network_ids = [12345, 67890]
 
   # If you must change the network CIDR you can do so below, but it is highly advised against.
   # network_ipv4_cidr = "10.0.0.0/8"
+  # Nodes use auto-assigned private IPs from a shared cluster subnet by default.
 
-  # Using the default configuration you can only create a maximum of 42 agent-nodepools.
-  # This is due to the creation of a subnet for each nodepool with CIDRs being in the shape of 10.[nodepool-index].0.0/16 which collides with k3s' cluster and service IP ranges (defaults below).
-  # To create additional ones (or if you want to use different ranges for other reasons), set the `subnet_ip_range` explicitly for a node pool.
-  # Furthermore the maximum number of nodepools (controlplane and agent) is 50, due to a hard limit of 50 subnets per network, see https://docs.hetzner.com/cloud/networks/faq/.
-  # So to be able to create a maximum of 50 nodepools in total, the values below have to be changed to something outside that range, e.g. `10.200.0.0/16` and `10.201.0.0/16` for cluster and service respectively.
+  # Nodepool private IPs are auto-assigned from one shared subnet.
+  # The older per-nodepool subnet planning limits no longer apply.
+  # Keep subnet_amount large enough for additional module-created subnets (for example NAT router and vSwitch).
 
   # If you must change the cluster CIDR you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
@@ -94,6 +96,11 @@ module "kube-hetzner" {
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
   # The service CIDR must be a part of the network CIDR!
   # service_ipv4_cidr = "10.43.0.0/16"
+
+  # Optional IPv6 CIDRs for Pod/Service networking.
+  # Set both to enable dual-stack. If cluster_ipv4_cidr/service_ipv4_cidr are set to empty strings, this enables IPv6-only service/pod CIDRs.
+  # cluster_ipv6_cidr = "2001:cafe:42::/56"
+  # service_ipv6_cidr = "2001:cafe:43::/112"
 
   # If you must change the service IPv4 address of core-dns you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
@@ -137,6 +144,8 @@ module "kube-hetzner" {
       server_type = "cx23",
       location    = "nbg1",
       labels      = [],
+      # Optional Hetzner Cloud labels attached to server resources.
+      # hcloud_labels = { "environment" = "production" }
       taints      = [],
       count       = 1
       # os          = "leapmicro" # valid: "leapmicro" | "microos"
@@ -155,12 +164,23 @@ module "kube-hetzner" {
       # the instructions regarding this type of setup in README.md: "Use only private IPs in your cluster".
       # disable_ipv4 = true
       # disable_ipv6 = true
+
+      # Optional: attach one or more Hetzner Volumes to every node in this nodepool.
+      # attached_volumes = [
+      #   {
+      #     size       = 20
+      #     mount_path = "/var/lib/control-plane-data"
+      #     filesystem = "ext4" # ext4 or xfs
+      #   }
+      # ]
     },
     {
       name        = "control-plane-nbg1",
       server_type = "cx23",
       location    = "nbg1",
       labels      = [],
+      # Optional Hetzner Cloud labels attached to server resources.
+      # hcloud_labels = { "workload" = "general" }
       taints      = [],
       count       = 1
 
@@ -217,6 +237,10 @@ module "kube-hetzner" {
 
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
+
+      # Optionally pin this nodepool to pre-existing Primary IP IDs.
+      # primary_ipv4_id = 123456
+      # primary_ipv6_id = 123457
     },
     {
       name        = "agent-large",
@@ -252,6 +276,20 @@ module "kube-hetzner" {
       # Set any path inside /var/ folder to have the ability to use an additional storage class along with the default one, which by default must be set in helm values to
       # /var/longhorn
       # longhorn_mount_path = "/var/lib/longhorn"
+
+      # Optional: attach one or more additional Hetzner Volumes per node.
+      # attached_volumes = [
+      #   {
+      #     size       = 50
+      #     mount_path = "/var/lib/extra-data"
+      #     filesystem = "xfs"  # ext4 or xfs
+      #   },
+      #   {
+      #     size       = 20
+      #     mount_path = "/var/lib/backups"
+      #   }
+      # ]
+
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
     },
@@ -269,6 +307,8 @@ module "kube-hetzner" {
         "node.kubernetes.io/role=egress:NoSchedule"
       ],
       floating_ip = true
+      # Optional: choose floating IP family ("ipv4" default, or "ipv6").
+      # floating_ip_type = "ipv6"
       # Optionally associate a reverse DNS entry with the floating IP(s).
       # This is useful in combination with the Egress Gateway feature for hosting certain services in the cluster, such as email servers.
       # floating_ip_rns = "my.domain.com"
@@ -299,6 +339,12 @@ module "kube-hetzner" {
           labels = [
             "testing-labels=a1",
           ]
+          # attached_volumes = [
+          #   {
+          #     size       = 20
+          #     mount_path = "/var/lib/node-1-data"
+          #   }
+          # ]
         },
         "20" : {
           labels = [
@@ -310,6 +356,8 @@ module "kube-hetzner" {
   ]
   # Add additional configuration options for control planes here.
   # E.g to enable monitoring for etcd, proxy etc:
+  # WARNING: avoid overriding core bootstrap keys (token/server/node-ip/cluster-cidr/service-cidr)
+  # unless you fully understand upgrade and compatibility implications.
   # control_planes_custom_config = {
   #  etcd-expose-metrics = true,
   #  kube-controller-manager-arg = "bind-address=0.0.0.0",
@@ -357,6 +405,10 @@ module "kube-hetzner" {
 
   # Specifies the number of times a health check is retried before a target is marked as unhealthy. (default: 3)
   # load_balancer_health_check_retries = 3
+
+  # Enable Hetzner CCM load balancer monitoring resources (ServiceMonitor + PrometheusRule).
+  # Requires `hetzner_ccm_use_helm = true` and Prometheus Operator CRDs in the cluster.
+  # enable_load_balancer_monitoring = true
 
 
   # Setup a NAT router, and automatically disable public ips on all control plane and agent nodes.
@@ -493,7 +545,9 @@ module "kube-hetzner" {
   # cluster_autoscaler_resource_limits: Enable or disable resource limits/requests (default: true)
   #   - Set to false to remove resource constraints entirely
   #
-  # cluster_autoscaler_resource_values: Customize CPU and memory resources (defaults: 100m CPU, 300Mi memory for both requests and limits)
+  # cluster_autoscaler_resource_values: Primary stability tuning for the autoscaler pod.
+  #   - Use this to prevent autoscaler restarts from low CPU/memory during scale events.
+  #   - Defaults: 100m CPU, 300Mi memory for both requests and limits.
   #
   # Example:
   #
@@ -510,12 +564,25 @@ module "kube-hetzner" {
   #   }
   # }
 
+  # Optional: allow external scraping of cluster-autoscaler metrics.
+  # This opens firewall access to NodePort 30085 (which forwards to autoscaler metrics port 8085).
+  # Leave empty to keep metrics reachable only from inside the cluster.
+  # cluster_autoscaler_metrics_firewall_source = ["myipv4", "10.0.0.0/8"]
+
   # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
   # This does not protect deletion from Terraform itself.
   # enable_delete_protection = {
   #   floating_ip   = true
   #   load_balancer = true
   #   volume        = true
+  # }
+
+  # Optional module-managed Primary IP pool for node public IP stability.
+  # When enabled, kube-hetzner creates one Primary IP per node (unless a nodepool already sets primary_ipv4_id/primary_ipv6_id).
+  # primary_ip_pool = {
+  #   enable_ipv4 = true
+  #   enable_ipv6 = false
+  #   auto_delete = false
   # }
 
   # Enable etcd snapshot backups to S3 storage.
@@ -532,16 +599,18 @@ module "kube-hetzner" {
   #   etcd-s3-region          = "<your-s3-bucket-region|usually required for aws>"
   # }
 
+  # Enable Kubernetes Secrets encryption at rest on control plane nodes.
+  # This writes an EncryptionConfiguration file and wires kube-apiserver to use it.
+  # secrets_encryption = true
+
   # To enable Hetzner Storage Box support, you can enable csi-driver-smb, default is "false".
   # enable_csi_driver_smb = true
   # If you want to specify the version for csi-driver-smb, set it below - otherwise it'll use the latest version available.
   # See https://github.com/kubernetes-csi/csi-driver-smb/releases for the available versions.
   # csi_driver_smb_version = "v1.16.0"
 
-  # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
-  # you install your own version of longhorn outside of this module.
-  # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
-  # enable_iscsid = true
+  # iscsid is always enabled on all nodes by kube-hetzner.
+  # This keeps iSCSI-backed storage (for example Longhorn) working consistently after node reboots.
 
   # To use local storage on the nodes, you can enable Longhorn, default is "false".
   # See a full recap on how to configure agent nodepools for longhorn here https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/discussions/373#discussioncomment-3983159
@@ -585,16 +654,29 @@ module "kube-hetzner" {
   # - Create Robot Webservice credentials and set them to the `robot_user` and `robot_password` TF-variables. They are passed on via secrets to HCCM env.
   # - `hetzner_ccm_use_helm = true`
   # - `robot_ccm_enabled = true`
-  # See more from https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
+  # See more from https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/docs/add-robot-server.md
   # robot_ccm_enabled = false
 
   # To connect the Hetzner Cloud network to Robot servers via vSwitch subnet, create the vSwitch and set its ID to the `vswitch_id` (number).
   # Note that the VLAN ID is not the same as vSwitch ID. The vSwitch-subnet is assigned to 10.201.0.0/16 by default, can be changed via var.vswitch_subnet_index.
   # The vSwitch subnet is not created when the value is null. Default: null
   # vswitch_id = null
+  #
+  # Optionally bootstrap existing Robot servers as additional k3s agents.
+  # Each entry configures VLAN networking (MTU defaults to 1350), routes, and installs k3s agent.
+  # extra_robot_nodes = [
+  #   {
+  #     host         = "203.0.113.10"
+  #     private_ipv4 = "10.201.0.2"
+  #     vlan_id      = 4000
+  #     interface    = "enp6s0"
+  #     routes       = ["10.0.0.0/8"]
+  #   }
+  # ]
 
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
   # hetzner_csi_version = ""
+  # You can customize Helm values with hetzner_csi_values, or overlay defaults with hetzner_csi_merge_values.
 
   # If you want to specify the Kured version, set it below - otherwise it'll use the latest version available.
   # See https://github.com/kubereboot/kured/releases for the available versions.
@@ -608,8 +690,10 @@ module "kube-hetzner" {
   # After the cluster is deployed, you can always use HelmChartConfig definition to tweak the configuration.
   # If you want to disable both controllers set this to "none"
   # ingress_controller = "nginx"
-  # Namespace in which to deploy the ingress controllers. Defaults to the ingress_controller variable, eg (haproxy, nginx, traefik)
+  # Namespace in which to deploy the ingress controllers. Defaults to the ingress_controller variable mapping, eg (haproxy, ingress-nginx, traefik)
   # ingress_target_namespace = ""
+  # Set to true to deploy ingress controllers into kube-system by default (unless ingress_target_namespace is set).
+  # ingress_controller_use_system_namespace = true
 
   # You can change the number of replicas for selected ingress controller here. The default 0 means autoselecting based on number of agent nodes (1 node = 1 replica, 2 nodes = 2 replicas, 3+ nodes = 3 replicas)
   # ingress_replica_count = 1
@@ -620,7 +704,10 @@ module "kube-hetzner" {
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
   # enable_klipper_metal_lb = true
 
+  # Configure the Kubernetes API port (default 6443).
+  # kubeapi_port = 6443
   # When using an external load balancer, you can specify a stable control plane endpoint URL.
+  # Make sure the endpoint port matches kubeapi_port when you override it.
   # control_plane_endpoint = "https://my-external-lb:6443"
 
   # Optional map of node name => SSH host override.
@@ -753,6 +840,8 @@ module "kube-hetzner" {
   #   "time-zone": "Local",
   #   "lock-ttl" : "30m",
   # }
+  # Trigger k3s/rke2 config updates through Kured's reboot sentinel instead of immediate service restarts.
+  # k8s_config_updates_use_kured_sentinel = true
 
   # Allows you to specify the k3s version. If defined, supersedes initial_k3s_channel.
   # See https://github.com/k3s-io/k3s/releases for the available versions.
@@ -863,6 +952,10 @@ module "kube-hetzner" {
   # Additional flags to pass to the k3s server command (the control plane).
   # k3s_exec_server_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
 
+  # Enable Kubernetes Secrets encryption at rest for k3s control planes.
+  # kube-hetzner will generate /etc/rancher/k3s/encryption-config.yaml and configure kube-apiserver accordingly.
+  # k3s_encryption_at_rest = true
+
   # Additional flags to pass to the k3s agent command (every agents nodes, including autoscaler nodepools).
   # k3s_exec_agent_args = "--kubelet-arg kube-reserved=cpu=100m,memory=200Mi,ephemeral-storage=1Gi"
 
@@ -928,14 +1021,19 @@ module "kube-hetzner" {
   # you would have to connect to any control plane node via SSH, as you can run kubectl from within these.
   # Please be advised that this setting has no effect on the load balancer when the use_control_plane_lb variable is set to true. This is
   # because firewall rules cannot be applied to load balancers yet.
-  # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
-  # firewall_kube_api_source = null
+  # Default is ["myipv4"] (resolved to your current public IPv4/32 during apply).
+  # Set to null to disable this rule entirely, or provide your own CIDR list.
+  # firewall_kube_api_source = ["myipv4", "203.0.113.10/32"]
 
-  # Allow SSH access from the specified networks. Default: ["0.0.0.0/0", "::/0"]
+  # Allow SSH access from the specified networks. Default: ["myipv4"]
   # Allowed values: null (disable SSH rule entirely) or a list of allowed networks with CIDR notation.
   # Ideally you would set your IP there. And if it changes after cluster deploy, you can always update this variable and apply again.
   # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
+  # For CI/CD runners or dynamic office IP ranges, override this explicitly with the required CIDRs.
   # firewall_ssh_source = ["myipv4", "1.2.3.4/32"]
+
+  # Optionally attach additional existing Hetzner firewalls to all control plane and agent nodes.
+  # extra_firewall_ids = [123456]
 
   # By default, SELinux is enabled in enforcing mode on all nodes. For container-specific SELinux issues,
   # consider using the pre-installed 'udica' tool to create custom, targeted SELinux policies instead of
@@ -985,6 +1083,11 @@ module "kube-hetzner" {
   # Enables egress gateway to redirect and SNAT the traffic that leaves the cluster. Default: false
   # cilium_egress_gateway_enabled = true
 
+  # Optional: deploy a lightweight HA reconciler that retargets labeled CiliumEgressGatewayPolicy objects
+  # to a currently Ready node labeled with node.kubernetes.io/role=egress.
+  # Policies to be managed by this reconciler must have: kube-hetzner.io/egress-ha=true
+  # cilium_egress_gateway_ha_enabled = true
+
   # Enables Hubble Observability to collect and visualize network traffic. Default: false
   # cilium_hubble_enabled = true
 
@@ -1017,8 +1120,9 @@ module "kube-hetzner" {
   # The default is "false", meaning it's enabled by default.
   # placement_group_disable = true
 
-  # By default, we allow ICMP ping in to the nodes, to check for liveness for instance. If you do not want to allow that, you can. Just set this flag to true (false by default).
-  # block_icmp_ping_in = true
+  # By default, incoming ICMP ping is blocked for better security hygiene.
+  # Set this to false only if you explicitly want external ping-based liveness checks.
+  # block_icmp_ping_in = false
 
   # You can enable cert-manager (installed by Helm behind the scenes) with the following flag, the default is "true".
   # enable_cert_manager = false
@@ -1175,6 +1279,7 @@ module "kube-hetzner" {
   # Or you can create a thepackage-values.yaml file with the content and use it here with the following syntax:
   # thepackage_values = file("thepackage-values.yaml")
   # _values fully replaces the chart values used by the module. _merge_values keeps the defaults (or *_values if set) and overlays your YAML on top.
+  # Prefer *_merge_values as the standard customization API for incremental, upgrade-safe tuning.
 
   # Cilium, all Cilium helm values can be found at https://github.com/cilium/cilium/blob/master/install/kubernetes/cilium/values.yaml
   # Be careful when maintaining your own cilium_values, as the choice of available settings depends on the Cilium version used. See also the cilium_version setting to fix a specific version.
@@ -1233,7 +1338,7 @@ webhook:
   # Hetzner Cloud Controller Manager, all Hetzner Cloud Controller Manager helm values can be found at https://github.com/hetznercloud/hcloud-cloud-controller-manager/blob/main/chart/values.yaml
   # We advise you to not touch this and to let the defaults that are already set under the hood.
   # If you want to merge extra values into defaults (or hetzner_ccm_values), use hetzner_ccm_merge_values.
-  # For advanced use cases like adding Hetzner Robot servers, see: https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
+  # For advanced use cases like adding Hetzner Robot servers, see: https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/docs/add-robot-server.md
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   hetzner_ccm_values = <<-EOT
 networking:
@@ -1260,7 +1365,23 @@ env:
     value: "nbg1"
   EOT */
 
+  # Hetzner CSI, all Hetzner CSI helm values can be found at https://github.com/hetznercloud/csi-driver/tree/main/charts/hcloud-csi
+  # If you want to merge extra values into defaults (or hetzner_csi_values), use hetzner_csi_merge_values.
+  /*   hetzner_csi_values = <<-EOT
+controller:
+  replicas: 2
+EOT */
+
+  /*   hetzner_csi_merge_values = <<-EOT
+node:
+  tolerations:
+    - key: "node.kubernetes.io/not-ready"
+      operator: "Exists"
+      effect: "NoExecute"
+EOT */
+
   # csi-driver-smb, all csi-driver-smb helm values can be found at https://github.com/kubernetes-csi/csi-driver-smb/blob/master/charts/latest/csi-driver-smb/values.yaml
+  # If you want to merge extra values into defaults (or csi_driver_smb_values), use csi_driver_smb_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   csi_driver_smb_values = <<-EOT
 controller:
@@ -1288,6 +1409,11 @@ controller:
         cpu: 10m
         memory: 20Mi
   EOT */
+
+  /*   csi_driver_smb_merge_values = <<-EOT
+controller:
+  replicas: 2
+EOT */
 
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
   # If you want to merge extra values into defaults (or longhorn_values), use longhorn_merge_values.
@@ -1429,7 +1555,7 @@ controller:
 
   # Override values given to the HAProxy helm chart.
   # All HAProxy helm values can be found at https://github.com/haproxytech/helm-charts/blob/main/kubernetes-ingress/values.yaml
-  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/locals.tf
+  # Default values can be found at https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/main/locals.tf
   # If you want to merge extra values into defaults (or haproxy_values), use haproxy_merge_values.
   /*   haproxy_values = <<-EOT
   EOT */
