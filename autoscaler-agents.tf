@@ -49,6 +49,7 @@ locals {
       ca_resource_limits                         = var.cluster_autoscaler_resource_limits
       ca_resources                               = var.cluster_autoscaler_resource_values
       cluster_autoscaler_extra_args              = var.cluster_autoscaler_extra_args
+      cluster_autoscaler_tolerations             = var.cluster_autoscaler_tolerations
       cluster_autoscaler_log_level               = var.cluster_autoscaler_log_level
       cluster_autoscaler_log_to_stderr           = var.cluster_autoscaler_log_to_stderr
       cluster_autoscaler_stderr_threshold        = var.cluster_autoscaler_stderr_threshold
@@ -306,7 +307,7 @@ resource "terraform_data" "autoscaled_nodes_kubelet_config" {
   }
 
   provisioner "remote-exec" {
-    inline = [local.k3s_kubelet_config_update_script]
+    inline = [local.k8s_kubelet_config_update_script]
   }
 }
 moved {
