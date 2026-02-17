@@ -1265,10 +1265,22 @@ variable "enable_csi_driver_smb" {
   description = "Whether or not to enable csi-driver-smb."
 }
 
+variable "enable_csi_driver_nfs" {
+  type        = bool
+  default     = false
+  description = "Whether or not to enable csi-driver-nfs."
+}
+
 variable "csi_driver_smb_version" {
   type        = string
   default     = "*"
   description = "Version of csi_driver_smb. See https://github.com/kubernetes-csi/csi-driver-smb/releases for the available versions."
+}
+
+variable "csi_driver_nfs_version" {
+  type        = string
+  default     = "*"
+  description = "Version of csi_driver_nfs. See https://github.com/kubernetes-csi/csi-driver-nfs/releases for the available versions."
 }
 
 variable "csi_driver_smb_helmchart_bootstrap" {
@@ -1277,10 +1289,22 @@ variable "csi_driver_smb_helmchart_bootstrap" {
   description = "Whether the HelmChart csi_driver_smb shall be run on control-plane nodes."
 }
 
+variable "csi_driver_nfs_helmchart_bootstrap" {
+  type        = bool
+  default     = false
+  description = "Whether the HelmChart csi_driver_nfs shall be run on control-plane nodes."
+}
+
 variable "csi_driver_smb_values" {
   type        = string
   default     = ""
   description = "Additional helm values file to pass to csi-driver-smb as 'valuesContent' at the HelmChart."
+}
+
+variable "csi_driver_nfs_values" {
+  type        = string
+  default     = ""
+  description = "Additional helm values file to pass to csi-driver-nfs as 'valuesContent' at the HelmChart."
 }
 
 variable "enable_cert_manager" {

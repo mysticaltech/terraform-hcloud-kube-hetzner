@@ -397,6 +397,7 @@ resource "terraform_data" "kustomization" {
       local.cilium_values,
       local.longhorn_values,
       local.csi_driver_smb_values,
+      local.csi_driver_nfs_values,
       local.cert_manager_values,
       local.rancher_values,
       local.hetzner_csi_values,
@@ -418,6 +419,7 @@ resource "terraform_data" "kustomization" {
       coalesce(var.haproxy_version, "N/A"),
       coalesce(var.cert_manager_version, "N/A"),
       coalesce(var.csi_driver_smb_version, "N/A"),
+      coalesce(var.csi_driver_nfs_version, "N/A"),
       coalesce(var.longhorn_version, "N/A"),
       coalesce(var.rancher_version, "N/A"),
       coalesce(var.sys_upgrade_controller_version, "N/A"),
@@ -592,6 +594,18 @@ resource "terraform_data" "kustomization" {
     destination = "/var/post_install/csi-driver-smb.yaml"
   }
 
+  # Upload the csi-driver-nfs config
+  provisioner "file" {
+    content = templatefile(
+      "${path.module}/templates/csi-driver-nfs.yaml.tpl",
+      {
+        version   = var.csi_driver_nfs_version
+        bootstrap = var.csi_driver_nfs_helmchart_bootstrap
+        values    = indent(4, local.csi_driver_nfs_values)
+    })
+    destination = "/var/post_install/csi-driver-nfs.yaml"
+  }
+
   # Upload the cert-manager config
   provisioner "file" {
     content = templatefile(
@@ -706,6 +720,7 @@ resource "null_resource" "rke2_kustomization" {
       local.cilium_values,
       local.longhorn_values,
       local.csi_driver_smb_values,
+      local.csi_driver_nfs_values,
       local.cert_manager_values,
       local.rancher_values,
       local.hetzner_csi_values
@@ -725,6 +740,7 @@ resource "null_resource" "rke2_kustomization" {
       coalesce(var.haproxy_version, "N/A"),
       coalesce(var.cert_manager_version, "N/A"),
       coalesce(var.csi_driver_smb_version, "N/A"),
+      coalesce(var.csi_driver_nfs_version, "N/A"),
       coalesce(var.longhorn_version, "N/A"),
       coalesce(var.rancher_version, "N/A"),
       coalesce(var.sys_upgrade_controller_version, "N/A"),
@@ -877,6 +893,18 @@ resource "null_resource" "rke2_kustomization" {
         values    = indent(4, local.csi_driver_smb_values)
     })
     destination = "/var/post_install/csi-driver-smb.yaml"
+  }
+
+  # Upload the csi-driver-nfs config
+  provisioner "file" {
+    content = templatefile(
+      "${path.module}/templates/csi-driver-nfs.yaml.tpl",
+      {
+        version   = var.csi_driver_nfs_version
+        bootstrap = var.csi_driver_nfs_helmchart_bootstrap
+        values    = indent(4, local.csi_driver_nfs_values)
+    })
+    destination = "/var/post_install/csi-driver-nfs.yaml"
   }
 
   # Upload the cert-manager config

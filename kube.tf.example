@@ -538,6 +538,12 @@ module "kube-hetzner" {
   # See https://github.com/kubernetes-csi/csi-driver-smb/releases for the available versions.
   # csi_driver_smb_version = "v1.16.0"
 
+  # To enable CSI NFS support, enable csi-driver-nfs, default is "false".
+  # enable_csi_driver_nfs = true
+  # If you want to specify the version for csi-driver-nfs, set it below - otherwise it'll use the latest version available.
+  # See https://github.com/kubernetes-csi/csi-driver-nfs/releases for the available versions.
+  # csi_driver_nfs_version = "v4.12.1"
+
   # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
   # you install your own version of longhorn outside of this module.
   # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
@@ -1282,6 +1288,14 @@ controller:
       requests:
         cpu: 10m
         memory: 20Mi
+  EOT */
+
+  # csi-driver-nfs, all csi-driver-nfs helm values can be found at https://github.com/kubernetes-csi/csi-driver-nfs/tree/master/charts
+  # The following is an example, please note that the current indentation inside the EOT is important.
+  /*   csi_driver_nfs_values = <<-EOT
+controller:
+  runOnControlPlane: false
+  replicas: 2
   EOT */
 
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml

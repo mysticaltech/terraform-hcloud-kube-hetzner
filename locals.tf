@@ -255,6 +255,7 @@ locals {
       var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
       var.enable_longhorn ? ["longhorn.yaml"] : [],
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
+      var.enable_csi_driver_nfs ? ["csi-driver-nfs.yaml"] : [],
       var.enable_cert_manager || var.enable_rancher ? ["cert_manager.yaml"] : [],
       var.enable_rancher ? ["rancher.yaml"] : [],
       var.rancher_registration_manifest_url != "" ? [var.rancher_registration_manifest_url] : []
@@ -1039,6 +1040,9 @@ persistence:
   longhorn_values = module.values_merger_longhorn.values
 
   csi_driver_smb_values = var.csi_driver_smb_values != "" ? var.csi_driver_smb_values : <<EOT
+  EOT
+
+  csi_driver_nfs_values = var.csi_driver_nfs_values != "" ? var.csi_driver_nfs_values : <<EOT
   EOT
 
   hetzner_csi_values = var.hetzner_csi_values != "" ? var.hetzner_csi_values : <<-EOT
