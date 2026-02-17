@@ -1077,7 +1077,8 @@ EOT
     },
   var.etcd_s3_backup) : {}
 
-  kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.k3s_kubelet_config != "" ? ["config=/etc/rancher/k3s/kubelet-config.yaml"] : [])
+  kubelet_config_file         = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/kubelet-config.yaml" : "/etc/rancher/k3s/kubelet-config.yaml"
+  kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.k3s_kubelet_config != "" ? ["config=${local.kubelet_config_file}"] : [])
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
   flannel_iface               = "eth1"
   authentication_config_file  = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/authentication_config.yaml" : "/etc/rancher/k3s/authentication_config.yaml"
@@ -1974,39 +1975,6 @@ cloudinit_write_files_common = <<EOT
   encoding: base64
   content: ${base64encode(file("${path.module}/templates/kube-hetzner-selinux.te"))}
 
-    # RKE2
-
-    rke2_filetrans_named_content(container_runtime_t)
-    rke2_filetrans_named_content(unconfined_service_t)
-
-    #######################
-    # type rke2_service_t #
-    #######################
-    rke2_service_domain_template(rke2_service)
-    container_read_lib_files(rke2_service_t)
-    allow rke2_service_t container_var_lib_t:sock_file { write };
-    allow rke2_service_t container_runtime_t:unix_stream_socket { connectto };
-
-    ##########################
-    # type rke2_service_db_t #
-    ##########################
-    rke2_service_domain_template(rke2_service_db)
-    container_manage_lib_dirs(rke2_service_db_t)
-    container_manage_lib_files(rke2_service_db_t)
-    allow rke2_service_db_t container_var_lib_t:file { map };
-
-    #########################
-    # Longhorn ISCSID_T FIX #
-    #########################
-    # https://github.com/longhorn/longhorn/issues/5627#issuecomment-1577498183
-    allow iscsid_t self:capability dac_override;
-
-    ###################
-    # type rke2_tls_t #
-    ###################
-    type rke2_tls_t;
-    container_file(rke2_tls_t);
-
 # Create the k3s registries file if needed
 # TODO: Review that this can stay and behaves the same in rke2 as with k3s
 %{if var.k3s_registries != ""}
@@ -2021,7 +1989,7 @@ cloudinit_write_files_common = <<EOT
 # Create k3s kubelet config file
 - content: ${base64encode(var.k3s_kubelet_config)}
   encoding: base64
-  path: /etc/rancher/k3s/kubelet-config.yaml
+  path: ${local.kubelet_config_file}
 %{endif}
 EOT
 

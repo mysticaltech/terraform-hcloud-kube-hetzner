@@ -169,8 +169,7 @@ locals {
       node-taint = v.taints
     },
     lookup(local.agent_external_ipv4_by_node, k, null) != null ? {
-      node-external-ip    = local.agent_external_ipv4_by_node[k]
-      flannel-external-ip = true
+      node-external-ip = local.agent_external_ipv4_by_node[k]
     } : {},
     var.agent_nodes_custom_config,
     # Force selinux=false if disable_selinux = true.
@@ -300,6 +299,7 @@ resource "terraform_data" "agents" {
 
   depends_on = [
     terraform_data.first_control_plane,
+    null_resource.control_planes_rke2,
     terraform_data.agent_config,
     hcloud_network_subnet.control_plane
   ]

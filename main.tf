@@ -9,6 +9,13 @@ resource "random_password" "secrets_encryption_key" {
   special = false
 }
 
+check "encryption_mode_conflict" {
+  assert {
+    condition     = !(var.k3s_encryption_at_rest && var.secrets_encryption)
+    error_message = "k3s_encryption_at_rest and secrets_encryption are mutually exclusive. Enable only one encryption mode."
+  }
+}
+
 resource "hcloud_ssh_key" "k3s" {
   count      = var.hcloud_ssh_key_id == null ? 1 : 0
   name       = var.cluster_name

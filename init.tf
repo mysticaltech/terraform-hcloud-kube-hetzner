@@ -112,9 +112,9 @@ resource "terraform_data" "first_control_plane" {
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           node-taint                  = local.control_plane_nodes[keys(module.control_planes)[0]].taints
           node-label                  = local.control_plane_nodes[keys(module.control_planes)[0]].labels
-          cluster-cidr                = var.cluster_ipv4_cidr
-          service-cidr                = var.service_ipv4_cidr
-          cluster-dns                 = local.cluster_dns_ipv4
+          cluster-cidr                = local.cluster_cidr
+          service-cidr                = local.service_cidr
+          cluster-dns                 = local.cluster_dns
         },
         lookup(local.cni_k3s_settings, var.cni_plugin, {}),
         var.use_control_plane_lb ? {
@@ -239,20 +239,21 @@ resource "null_resource" "control_plane_setup_rke2" {
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           node-taint                  = local.control_plane_nodes[keys(module.control_planes)[0]].taints
           node-label                  = local.control_plane_nodes[keys(module.control_planes)[0]].labels
+          write-kubeconfig-mode       = "0644" # needed for import into rancher
           selinux                     = false
-          cluster-cidr                = var.cluster_ipv4_cidr
-          service-cidr                = var.service_ipv4_cidr
-          cluster-dns                 = local.cluster_dns_ipv4
+          cluster-cidr                = local.cluster_cidr
+          service-cidr                = local.service_cidr
+          cluster-dns                 = local.cluster_dns
           cni                         = "none"
         },
         var.use_control_plane_lb ? {
           tls-san = concat(
-            [
+            compact([
               hcloud_load_balancer.control_plane.*.ipv4[0],
               hcloud_load_balancer_network.control_plane.*.ip[0],
               var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
               !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
-            ],
+            ]),
             var.additional_tls_sans
           )
           } : {
@@ -384,10 +385,10 @@ resource "terraform_data" "kube_system_secrets" {
       RETRY_INTERVAL=10
       for attempt in $(seq 1 $MAX_ATTEMPTS); do
         echo "Attempt $attempt: Checking kubectl connectivity..."
-        if [ "$(kubectl get --raw='/readyz' 2>/dev/null)" = "ok" ]; then
+        if [ "$(${local.kubectl_cli} get --raw='/readyz' 2>/dev/null)" = "ok" ]; then
           echo "kubectl connectivity established, deploying secrets..."
 
-          kubectl apply -f /var/post_install/kube_system_secrets.yaml
+          ${local.kubectl_cli} apply -f /var/post_install/kube_system_secrets.yaml
 
           echo "Secrets deployed successfully"
           break
@@ -411,6 +412,7 @@ resource "terraform_data" "kube_system_secrets" {
   depends_on = [
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
+    null_resource.control_planes_rke2,
   ]
 }
 moved {

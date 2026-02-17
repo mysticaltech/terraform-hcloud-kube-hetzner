@@ -96,7 +96,7 @@ ${cloudinit_write_files_common}
     Description=Apply K8s SELinux Policy for Leap Micro
     DefaultDependencies=no
     After=local-fs.target
-    Before=k3s.service network-pre.target
+    Before=k3s.service rke2-server.service rke2-agent.service network-pre.target
     ConditionSecurity=selinux
     ConditionPathExists=!/var/lib/kube-hetzner/k8s-selinux-policy.applied
 

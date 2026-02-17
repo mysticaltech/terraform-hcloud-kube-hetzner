@@ -19,6 +19,7 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
    - `terraform plan`
    - Apply only after reviewing all resource actions.
 3. If you use private-network NAT routers created before v2.19.0, check for primary IP replacement and perform state migration first (see migration notes).
+4. Networking topology changed in v3 (shared managed node subnet). Prefer blue/green migration from `v2.x`; do not apply plans that unexpectedly destroy/recreate network subnets.
 
 #### Version Requirements
 

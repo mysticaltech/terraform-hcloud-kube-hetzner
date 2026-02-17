@@ -225,7 +225,6 @@ resource "hcloud_load_balancer_target" "control_plane" {
   use_private_ip   = true
 }
 
-# TODO: Adjust me for RKE2
 resource "hcloud_load_balancer_service" "control_plane" {
   count = var.use_control_plane_lb ? 1 : 0
 
@@ -233,6 +232,18 @@ resource "hcloud_load_balancer_service" "control_plane" {
   protocol         = "tcp"
   destination_port = var.kubeapi_port
   listen_port      = var.kubeapi_port
+}
+
+# RKE2 node registration uses the supervisor port (9345). When the control-plane
+# endpoint is fronted by a load balancer, this extra service is required for
+# agents/control-planes that join via the LB private IP.
+resource "hcloud_load_balancer_service" "control_plane_rke2_supervisor" {
+  count = (var.use_control_plane_lb && local.kubernetes_distribution == "rke2" && var.kubeapi_port != 9345) ? 1 : 0
+
+  load_balancer_id = hcloud_load_balancer.control_plane.*.id[0]
+  protocol         = "tcp"
+  destination_port = 9345
+  listen_port      = 9345
 }
 
 resource "hcloud_rdns" "control_plane_lb_ipv4" {
@@ -311,7 +322,7 @@ locals {
       disable-kube-proxy          = var.disable_kube_proxy
       disable                     = local.disable_rke2_extras
       kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
-      kube-apiserver-arg          = local.kube_apiserver_arg
+      kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       node-ip                     = module.control_planes[k].private_ipv4_address
       advertise-address           = module.control_planes[k].private_ipv4_address
@@ -325,8 +336,7 @@ locals {
       cni                         = "none"
     },
     lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
-      node-external-ip    = local.control_plane_external_ipv4_by_node[k]
-      flannel-external-ip = true
+      node-external-ip = local.control_plane_external_ipv4_by_node[k]
     } : {},
     var.use_control_plane_lb ? {
       tls-san = concat(
@@ -374,7 +384,7 @@ locals {
       https-listen-port        = var.kubeapi_port
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_control_plane_kubelet_args
       kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
-      kube-apiserver-arg          = local.kube_apiserver_arg
+      kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface
       node-ip                     = module.control_planes[k].private_ipv4_address

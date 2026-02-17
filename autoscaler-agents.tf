@@ -151,7 +151,10 @@ data "cloudinit_config" "autoscaler_config" {
           var.agent_nodes_custom_config,
           local.prefer_bundled_bin_config
         ))
-        install_k3s_agent_script     = join("\n", concat(local.install_k3s_agent, ["systemctl start k3s-agent"]))
+        install_k3s_agent_script = join("\n", concat(
+          local.install_k8s_agent,
+          local.kubernetes_distribution == "rke2" ? ["systemctl start rke2-agent", "systemctl enable rke2-agent"] : ["systemctl start k3s-agent"]
+        ))
         cloudinit_write_files_common = local.cloudinit_write_files_common
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
@@ -222,7 +225,7 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         os                = local.first_nodepool_os
         k3s_config = yamlencode(merge(
           {
-            server        = local.k3s_endpoint
+            server        = local.kubernetes_distribution == "rke2" ? "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345" : local.k3s_endpoint
             token         = local.k3s_token
             kubelet-arg   = local.kubelet_arg
             flannel-iface = local.flannel_iface
@@ -233,7 +236,10 @@ data "cloudinit_config" "autoscaler_legacy_config" {
           var.agent_nodes_custom_config,
           local.prefer_bundled_bin_config
         ))
-        install_k3s_agent_script     = join("\n", concat(local.install_k3s_agent, ["systemctl start k3s-agent"]))
+        install_k3s_agent_script = join("\n", concat(
+          local.install_k8s_agent,
+          local.kubernetes_distribution == "rke2" ? ["systemctl start rke2-agent", "systemctl enable rke2-agent"] : ["systemctl start k3s-agent"]
+        ))
         cloudinit_write_files_common = local.cloudinit_write_files_common
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,

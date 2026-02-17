@@ -82,6 +82,23 @@ cluster_autoscaler_resource_values = {
 
 Hetzner Cloud network constraints still apply. Validate expected cluster size against current provider/network limits before upgrade.
 
+### 5) Shared-subnet networking (breaking change)
+
+v3 consolidates managed node private IPv4 allocation into a shared cloud subnet (`hcloud_network_subnet.control_plane`) instead of keeping separate managed agent/control-plane subnets.
+
+For clusters created on `v2.x`, this is not a transparent in-place topology change. A direct `terraform apply` can propose disruptive subnet replacement/detach actions.
+
+Recommended approach:
+
+1. Prefer blue/green migration:
+   - Stand up a fresh v3 cluster.
+   - Migrate workloads/stateful data.
+   - Decommission the old cluster after validation.
+2. If attempting in-place upgrade, treat it as advanced/manual migration:
+   - Review every subnet/network action in `terraform plan`.
+   - Expect maintenance windows and potential downtime.
+   - Do not apply if plan contains unexpected subnet destroys/recreates.
+
 ## Post-upgrade verification checklist
 
 - `terraform validate` succeeds.
