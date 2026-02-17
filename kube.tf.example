@@ -94,6 +94,11 @@ module "kube-hetzner" {
   # The service CIDR must be a part of the network CIDR!
   # service_ipv4_cidr = "10.43.0.0/16"
 
+  # Optional IPv6 CIDRs for Pod/Service networking.
+  # Set both to enable dual-stack. If cluster_ipv4_cidr/service_ipv4_cidr are set to empty strings, this enables IPv6-only service/pod CIDRs.
+  # cluster_ipv6_cidr = "2001:cafe:42::/56"
+  # service_ipv6_cidr = "2001:cafe:43::/112"
+
   # If you must change the service IPv4 address of core-dns you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
   # The service IPv4 address must be part of the service CIDR!

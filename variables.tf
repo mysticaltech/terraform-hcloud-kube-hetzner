@@ -184,6 +184,18 @@ variable "service_ipv4_cidr" {
   default     = "10.43.0.0/16"
 }
 
+variable "cluster_ipv6_cidr" {
+  description = "Internal Pod IPv6 CIDR. Set together with service_ipv6_cidr to enable dual-stack or IPv6-only cluster networking."
+  type        = string
+  default     = null
+}
+
+variable "service_ipv6_cidr" {
+  description = "Internal Service IPv6 CIDR. Set together with cluster_ipv6_cidr to enable dual-stack or IPv6-only cluster networking."
+  type        = string
+  default     = null
+}
+
 variable "cluster_dns_ipv4" {
   description = "Internal Service IPv4 address of core-dns."
   type        = string

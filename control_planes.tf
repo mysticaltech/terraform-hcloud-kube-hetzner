@@ -187,9 +187,9 @@ locals {
       # TODO: Fix this, currently it needs to be false
       # selinux                     = var.disable_selinux ? false : (v.selinux == true ? true : false)
       selinux               = false
-      cluster-cidr          = var.cluster_ipv4_cidr
-      service-cidr          = var.service_ipv4_cidr
-      cluster-dns           = local.cluster_dns_ipv4
+      cluster-cidr          = local.cluster_cidr
+      service-cidr          = local.service_cidr
+      cluster-dns           = local.cluster_dns
       write-kubeconfig-mode = "0644" # needed for import into rancher
       cni                   = "none"
     },
@@ -241,9 +241,9 @@ locals {
       node-label                  = v.labels
       node-taint                  = v.taints
       selinux                     = var.disable_selinux ? false : (v.selinux == true ? true : false)
-      cluster-cidr                = var.cluster_ipv4_cidr
-      service-cidr                = var.service_ipv4_cidr
-      cluster-dns                 = local.cluster_dns_ipv4
+      cluster-cidr                = local.cluster_cidr
+      service-cidr                = local.service_cidr
+      cluster-dns                 = local.cluster_dns
       write-kubeconfig-mode       = "0644" # needed for import into rancher
     },
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
