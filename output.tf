@@ -46,6 +46,11 @@ output "ingress_public_ipv4" {
   value       = local.has_external_load_balancer ? local.first_control_plane_ip : hcloud_load_balancer.cluster[0].ipv4
 }
 
+output "load_balancer_public_ipv4" {
+  description = "The public IPv4 address of the Terraform-managed ingress load balancer, if present."
+  value       = try(one(hcloud_load_balancer.cluster[*].ipv4), null)
+}
+
 output "ingress_public_ipv6" {
   description = "The public IPv6 address of the Hetzner load balancer (with fallback to first control plane node)"
   value       = local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_disable_ipv6 ? null : hcloud_load_balancer.cluster[0].ipv6)
