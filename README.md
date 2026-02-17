@@ -171,6 +171,8 @@ Built on the shoulders of giants:
 
 > **Required tools:** [terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [tofu](https://opentofu.org/docs/intro/install/), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli)
 
+OpenTofu is officially supported. Pull requests are validated in CI with both Terraform and OpenTofu.
+
 ---
 
 ### ⚡ Quick Start
