@@ -94,6 +94,20 @@ output "domain_assignments" {
     [for rdns in hcloud_rdns.agents : {
       domain = rdns.dns_ptr
       ips    = [rdns.ip_address]
+    }],
+    # NAT router primary IP PTR assignments.
+    [for rdns in hcloud_rdns.nat_router_primary_ipv4 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    [for rdns in hcloud_rdns.nat_router_primary_ipv6 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    # Control plane load balancer PTR assignment.
+    [for rdns in hcloud_rdns.control_plane_lb_ipv4 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
     }]
   )
 }

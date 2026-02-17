@@ -108,6 +108,14 @@ resource "hcloud_load_balancer_service" "control_plane" {
   listen_port      = "6443"
 }
 
+resource "hcloud_rdns" "control_plane_lb_ipv4" {
+  count = (var.use_control_plane_lb && var.control_plane_lb_enable_public_interface && var.base_domain != "") ? 1 : 0
+
+  load_balancer_id = hcloud_load_balancer.control_plane[0].id
+  ip_address       = hcloud_load_balancer.control_plane[0].ipv4
+  dns_ptr          = "${var.cluster_name}-control-plane.${var.base_domain}"
+}
+
 locals {
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
 
