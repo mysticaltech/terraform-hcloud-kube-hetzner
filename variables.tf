@@ -60,6 +60,18 @@ variable "leapmicro_arm_snapshot_id" {
   default     = ""
 }
 
+variable "enable_x86" {
+  description = "Enable x86 image lookups and node validation."
+  type        = bool
+  default     = true
+}
+
+variable "enable_arm" {
+  description = "Enable ARM image lookups and node validation."
+  type        = bool
+  default     = true
+}
+
 variable "microos_x86_snapshot_id" {
   description = "MicroOS x86 snapshot ID to be used. If empty, the most recent image created will be used."
   type        = string

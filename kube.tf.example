@@ -1265,6 +1265,11 @@ module "kube-hetzner" {
   # microos_x86_snapshot_id = "1234567"
   # microos_arm_snapshot_id = "1234567"
 
+  # Architecture toggles for image lookup and node validation.
+  # If set to false, node definitions using that architecture will fail at plan time.
+  # enable_x86 = true
+  # enable_arm = true
+
   ### ADVANCED - Custom helm values for packages above (search _values if you want to located where those are mentioned upper in this file)
   # ⚠️ Inside the _values variable below are examples, up to you to find out the best helm values possible, we do not provide support for customized helm values.
   # Please understand that the indentation is very important, inside the EOTs, as those are proper yaml helm values.

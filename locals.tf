@@ -2114,9 +2114,16 @@ check "system_upgrade_window_requires_supported_controller_version" {
   }
 }
 
-check "cilium_egress_gateway_ha_requires_cilium_egress_gateway" {
+check "disabled_x86_arch_must_not_be_used" {
   assert {
-    condition     = !var.cilium_egress_gateway_ha_enabled || (var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled)
-    error_message = "cilium_egress_gateway_ha_enabled requires cni_plugin=\"cilium\" and cilium_egress_gateway_enabled=true."
+    condition     = var.enable_x86 || !anytrue([for pair in local.node_os_arch_pairs : pair.arch == "x86"])
+    error_message = "enable_x86 is false, but x86 node definitions were found in control_plane_nodepools, agent_nodepools, or autoscaler_nodepools."
+  }
+}
+
+check "disabled_arm_arch_must_not_be_used" {
+  assert {
+    condition     = var.enable_arm || !anytrue([for pair in local.node_os_arch_pairs : pair.arch == "arm"])
+    error_message = "enable_arm is false, but ARM node definitions were found in control_plane_nodepools, agent_nodepools, or autoscaler_nodepools."
   }
 }
