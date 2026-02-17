@@ -1754,6 +1754,14 @@ cloudinit_runcmd_common = <<EOT
 # ensure that /var uses full available disk size, thanks to btrfs this is easy
 - [btrfs, 'filesystem', 'resize', 'max', '/var']
 
+%{if var.chrony_disable_steps}
+- |
+  if [ -f /etc/chrony.conf ]; then
+    sed -i -E 's/^[[:space:]]*(makestep[[:space:]].*)$/# \1/' /etc/chrony.conf
+    systemctl restart chronyd >/dev/null 2>&1 || systemctl restart chrony >/dev/null 2>&1 || true
+  fi
+%{endif}
+
 # SELinux permission for the SSH alternative port
 %{if var.ssh_port != 22}
 # SELinux permission for the SSH alternative port.

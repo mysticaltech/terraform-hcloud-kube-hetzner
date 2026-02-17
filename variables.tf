@@ -262,6 +262,12 @@ variable "vswitch_id" {
   default     = null
 }
 
+variable "chrony_disable_steps" {
+  description = "Disable chrony makestep behavior by commenting out makestep directives in /etc/chrony.conf."
+  type        = bool
+  default     = false
+}
+
 variable "load_balancer_location" {
   description = "Default load balancer location."
   type        = string
