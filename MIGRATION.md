@@ -1,5 +1,29 @@
 # Migration advice when updating the module
 
+# v3 migration stability note
+
+When upgrading clusters that rely on autoscaling, treat `cluster_autoscaler_resource_values` as a primary stability control.
+If autoscaler pods restart due to CPU/memory pressure, scale events can stall or flap.
+
+Use the following settings as a baseline and tune up for larger clusters:
+
+```hcl
+cluster_autoscaler_replicas       = 2
+cluster_autoscaler_resource_limits = true
+cluster_autoscaler_resource_values = {
+  requests = {
+    cpu    = "100m"
+    memory = "300Mi"
+  }
+  limits = {
+    cpu    = "200m"
+    memory = "500Mi"
+  }
+}
+```
+
+Reference example: `kube.tf.example` (Cluster Autoscaler deployment configuration section).
+
 # 2.18.3 -> 2.19.0
 
 ## User Kustomization
