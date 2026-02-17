@@ -7,6 +7,7 @@
 | <a name="requirement_assert"></a> [assert](#requirement\_assert) | >= 0.16.0 |
 | <a name="requirement_github"></a> [github](#requirement\_github) | >= 6.4.0 |
 | <a name="requirement_hcloud"></a> [hcloud](#requirement\_hcloud) | >= 1.59.0 |
+| <a name="requirement_http"></a> [http](#requirement\_http) | >= 3.4.0 |
 | <a name="requirement_local"></a> [local](#requirement\_local) | >= 2.5.2 |
 | <a name="requirement_semvers"></a> [semvers](#requirement\_semvers) | >= 0.7.1 |
 | <a name="requirement_ssh"></a> [ssh](#requirement\_ssh) | 2.7.0 |
@@ -18,6 +19,7 @@
 | <a name="provider_cloudinit"></a> [cloudinit](#provider\_cloudinit) | n/a |
 | <a name="provider_github"></a> [github](#provider\_github) | >= 6.4.0 |
 | <a name="provider_hcloud"></a> [hcloud](#provider\_hcloud) | >= 1.59.0 |
+| <a name="provider_http"></a> [http](#provider\_http) | >= 3.4.0 |
 | <a name="provider_local"></a> [local](#provider\_local) | >= 2.5.2 |
 | <a name="provider_random"></a> [random](#provider\_random) | n/a |
 | <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
@@ -29,6 +31,7 @@
 |------|--------|---------|
 | <a name="module_agents"></a> [agents](#module\_agents) | ./modules/host | n/a |
 | <a name="module_control_planes"></a> [control\_planes](#module\_control\_planes) | ./modules/host | n/a |
+| <a name="module_user_kustomizations"></a> [user\_kustomizations](#module\_user\_kustomizations) | ./modules/user_kustomizations | n/a |
 | <a name="module_values_merger_cert_manager"></a> [values\_merger\_cert\_manager](#module\_values\_merger\_cert\_manager) | ./modules/values_merger | n/a |
 | <a name="module_values_merger_cilium"></a> [values\_merger\_cilium](#module\_values\_merger\_cilium) | ./modules/values_merger | n/a |
 | <a name="module_values_merger_haproxy"></a> [values\_merger\_haproxy](#module\_values\_merger\_haproxy) | ./modules/values_merger | n/a |
@@ -97,8 +100,6 @@
 | [terraform_data.first_control_plane](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.kube_system_secrets](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.kustomization](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
-| [terraform_data.kustomization_user](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
-| [terraform_data.kustomization_user_deploy](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.nat_router_await_cloud_init](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [cloudinit_config.autoscaler_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
 | [cloudinit_config.autoscaler_legacy_config](https://registry.terraform.io/providers/hashicorp/cloudinit/latest/docs/data-sources/config) | data source |
@@ -116,6 +117,7 @@
 | [hcloud_servers.existing_agent_nodes](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/servers) | data source |
 | [hcloud_servers.existing_control_plane_nodes](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/servers) | data source |
 | [hcloud_ssh_keys.keys_by_selector](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/ssh_keys) | data source |
+| [http_http.my_ipv4](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 
 ### Inputs
 
@@ -196,9 +198,6 @@
 | <a name="input_existing_network_id"></a> [existing\_network\_id](#input\_existing\_network\_id) | If you want to create the private network before calling this module, you can do so and pass its id here. NOTE: make sure to adapt network\_ipv4\_cidr accordingly to a range which does not collide with your other nodes. | `list(string)` | `[]` | no |
 | <a name="input_export_values"></a> [export\_values](#input\_export\_values) | Export for deployment used values.yaml-files as local files. | `bool` | `false` | no |
 | <a name="input_extra_firewall_rules"></a> [extra\_firewall\_rules](#input\_extra\_firewall\_rules) | Additional firewall rules to apply to the cluster. | `list(any)` | `[]` | no |
-| <a name="input_extra_kustomize_deployment_commands"></a> [extra\_kustomize\_deployment\_commands](#input\_extra\_kustomize\_deployment\_commands) | Commands to be executed after the `kubectl apply -k <dir>` step. | `string` | `""` | no |
-| <a name="input_extra_kustomize_folder"></a> [extra\_kustomize\_folder](#input\_extra\_kustomize\_folder) | Folder from where to upload extra manifests | `string` | `"extra-manifests"` | no |
-| <a name="input_extra_kustomize_parameters"></a> [extra\_kustomize\_parameters](#input\_extra\_kustomize\_parameters) | All values will be passed to the `kustomization.tmp.yml` template. | `any` | `{}` | no |
 | <a name="input_firewall_kube_api_source"></a> [firewall\_kube\_api\_source](#input\_firewall\_kube\_api\_source) | Source networks that have Kube API access to the servers. | `list(string)` | <pre>[<br/>  "0.0.0.0/0",<br/>  "::/0"<br/>]</pre> | no |
 | <a name="input_firewall_ssh_source"></a> [firewall\_ssh\_source](#input\_firewall\_ssh\_source) | Source networks that have SSH access to the servers. | `list(string)` | <pre>[<br/>  "0.0.0.0/0",<br/>  "::/0"<br/>]</pre> | no |
 | <a name="input_flannel_backend"></a> [flannel\_backend](#input\_flannel\_backend) | Override the flannel backend used by k3s. When set, this takes precedence over enable\_wireguard. Valid values: vxlan, host-gw, wireguard-native. See https://docs.k3s.io/networking/basic-network-options for details. Use wireguard-native for Robot nodes with vSwitch to avoid MTU issues. | `string` | `null` | no |
@@ -263,6 +262,7 @@
 | <a name="input_longhorn_version"></a> [longhorn\_version](#input\_longhorn\_version) | Version of longhorn. | `string` | `"*"` | no |
 | <a name="input_microos_arm_snapshot_id"></a> [microos\_arm\_snapshot\_id](#input\_microos\_arm\_snapshot\_id) | MicroOS ARM snapshot ID to be used. If empty, the most recent image created will be used. | `string` | `""` | no |
 | <a name="input_microos_x86_snapshot_id"></a> [microos\_x86\_snapshot\_id](#input\_microos\_x86\_snapshot\_id) | MicroOS x86 snapshot ID to be used. If empty, the most recent image created will be used. | `string` | `""` | no |
+| <a name="input_myipv4_ref"></a> [myipv4\_ref](#input\_myipv4\_ref) | Placeholder string that can be used in firewall source/destination IP lists and will be replaced by the apply runner's public IPv4 /32. | `string` | `"myipv4"` | no |
 | <a name="input_nat_router"></a> [nat\_router](#input\_nat\_router) | Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use\_control\_plane\_lb=true when enabled. Automatically forwards port 6443 to the control plane LB when control\_plane\_lb\_enable\_public\_interface=false. | <pre>object({<br/>    server_type       = string<br/>    location          = string<br/>    labels            = optional(map(string), {})<br/>    enable_sudo       = optional(bool, false)<br/>    enable_redundancy = optional(bool, false)<br/>    standby_location  = optional(string, "")<br/>  })</pre> | `null` | no |
 | <a name="input_nat_router_hcloud_token"></a> [nat\_router\_hcloud\_token](#input\_nat\_router\_hcloud\_token) | API Token used by the nat-router to change ip assignment when nat\_router.enable\_redundancy is true. | `string` | `""` | no |
 | <a name="input_nat_router_subnet_index"></a> [nat\_router\_subnet\_index](#input\_nat\_router\_subnet\_index) | Subnet index for NAT router. Default 200 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0). | `number` | `200` | no |
@@ -271,6 +271,7 @@
 | <a name="input_nginx_merge_values"></a> [nginx\_merge\_values](#input\_nginx\_merge\_values) | Additional Helm values to merge with defaults (or nginx\_values if set). User values take precedence. Requires valid YAML format. | `string` | `""` | no |
 | <a name="input_nginx_values"></a> [nginx\_values](#input\_nginx\_values) | Additional helm values file to pass to nginx as 'valuesContent' at the HelmChart. | `string` | `""` | no |
 | <a name="input_nginx_version"></a> [nginx\_version](#input\_nginx\_version) | Version of Nginx helm chart. See https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table for the available versions. | `string` | `""` | no |
+| <a name="input_optional_bastion_host"></a> [optional\_bastion\_host](#input\_optional\_bastion\_host) | Optional bastion host used to connect to cluster nodes. Useful when using a pre-existing NAT router. | <pre>object({<br/>    bastion_host        = string<br/>    bastion_port        = number<br/>    bastion_user        = string<br/>    bastion_private_key = string<br/>  })</pre> | `null` | no |
 | <a name="input_placement_group_disable"></a> [placement\_group\_disable](#input\_placement\_group\_disable) | Whether to disable placement groups. | `bool` | `false` | no |
 | <a name="input_postinstall_exec"></a> [postinstall\_exec](#input\_postinstall\_exec) | Additional to execute after the install calls, for example restoring a backup. | `list(string)` | `[]` | no |
 | <a name="input_preinstall_exec"></a> [preinstall\_exec](#input\_preinstall\_exec) | Additional to execute before the install calls, for example fetching and installing certs. | `list(string)` | `[]` | no |
@@ -313,6 +314,7 @@
 | <a name="input_traefik_version"></a> [traefik\_version](#input\_traefik\_version) | Version of Traefik helm chart. See https://github.com/traefik/traefik-helm-chart/releases for the available versions. | `string` | `""` | no |
 | <a name="input_use_cluster_name_in_node_name"></a> [use\_cluster\_name\_in\_node\_name](#input\_use\_cluster\_name\_in\_node\_name) | Whether to use the cluster name in the node name. | `bool` | `true` | no |
 | <a name="input_use_control_plane_lb"></a> [use\_control\_plane\_lb](#input\_use\_control\_plane\_lb) | Creates a dedicated load balancer for the Kubernetes API (port 6443). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic. | `bool` | `false` | no |
+| <a name="input_user_kustomizations"></a> [user\_kustomizations](#input\_user\_kustomizations) | Map of Kustomization-set entries, where key is the order number. | <pre>map(object({<br/>    source_folder        = optional(string, "")<br/>    kustomize_parameters = optional(map(any), {})<br/>    pre_commands         = optional(string, "")<br/>    post_commands        = optional(string, "")<br/>  }))</pre> | <pre>{<br/>  "1": {<br/>    "kustomize_parameters": {},<br/>    "post_commands": "",<br/>    "pre_commands": "",<br/>    "source_folder": "extra-manifests"<br/>  }<br/>}</pre> | no |
 | <a name="input_vswitch_id"></a> [vswitch\_id](#input\_vswitch\_id) | Hetzner Cloud vSwitch ID. If defined, a subnet will be created in the IP-range defined by vswitch\_subnet\_index. The vSwitch must exist before this module is called. | `number` | `null` | no |
 | <a name="input_vswitch_subnet_index"></a> [vswitch\_subnet\_index](#input\_vswitch\_subnet\_index) | Subnet index (0-255) for vSwitch. Default 201 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0). | `number` | `201` | no |
 
