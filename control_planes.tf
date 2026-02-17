@@ -1,3 +1,37 @@
+resource "hcloud_primary_ip" "control_planes_ipv4" {
+  for_each = var.primary_ip_pool.enable_ipv4 ? {
+    for key, value in local.control_plane_nodes : key => value
+    if !value.disable_ipv4 && value.primary_ipv4_id == null
+  } : {}
+
+  type          = "ipv4"
+  name          = "${var.cluster_name}-cp-${each.key}-ipv4"
+  location      = each.value.location
+  auto_delete   = var.primary_ip_pool.auto_delete
+  assignee_type = "server"
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
+resource "hcloud_primary_ip" "control_planes_ipv6" {
+  for_each = var.primary_ip_pool.enable_ipv6 ? {
+    for key, value in local.control_plane_nodes : key => value
+    if !value.disable_ipv6 && value.primary_ipv6_id == null
+  } : {}
+
+  type          = "ipv6"
+  name          = "${var.cluster_name}-cp-${each.key}-ipv6"
+  location      = each.value.location
+  auto_delete   = var.primary_ip_pool.auto_delete
+  assignee_type = "server"
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
 module "control_planes" {
   source = "./modules/host"
 
@@ -19,35 +53,39 @@ module "control_planes" {
   ssh_private_key                  = var.ssh_private_key
   ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
   firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
+  extra_firewall_ids               = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
   placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.control_plane[each.value.placement_group_compat_idx].id : hcloud_placement_group.control_plane_named[each.value.placement_group].id)
   location                         = each.value.location
   server_type                      = each.value.server_type
   backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].id
+  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
   k3s_registries_update_script     = local.k3s_registries_update_script
   k3s_kubelet_config               = var.k3s_kubelet_config
-  k3s_kubelet_config_update_script = local.k3s_kubelet_config_update_script
+  k3s_kubelet_config_update_script = local.k8s_kubelet_config_update_script
   k3s_audit_policy_config          = var.k3s_audit_policy_config
   k3s_audit_policy_update_script   = local.k3s_audit_policy_update_script
   cloudinit_write_files_common     = local.cloudinit_write_files_common
   cloudinit_runcmd_common          = local.cloudinit_runcmd_common
-  cloudinit_write_files_extra      = each.value.extra_write_files
+  cloudinit_write_files_extra      = concat(each.value.extra_write_files, local.k3s_encryption_write_files)
   cloudinit_runcmd_extra           = each.value.extra_runcmd
   swap_size                        = each.value.swap_size
   zram_size                        = each.value.zram_size
-  keep_disk_size                   = var.keep_disk_cp
+  keep_disk_size                   = coalesce(each.value.keep_disk, var.keep_disk_cp)
   disable_ipv4                     = each.value.disable_ipv4
   disable_ipv6                     = each.value.disable_ipv6
+  primary_ipv4_id                  = coalesce(each.value.primary_ipv4_id, try(hcloud_primary_ip.control_planes_ipv4[each.key].id, null))
+  primary_ipv6_id                  = coalesce(each.value.primary_ipv6_id, try(hcloud_primary_ip.control_planes_ipv6[each.key].id, null))
   ssh_bastion                      = local.ssh_bastion
   network_id                       = data.hcloud_network.k3s.id
+  extra_network_ids                = var.extra_network_ids
 
   # We leave some room so 100 eventual Hetzner LBs that can be created perfectly safely
   # It leaves the subnet with 254 x 254 - 100 = 64416 IPs to use, so probably enough.
-  private_ipv4 = cidrhost(hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
+  private_ipv4 = null
 
-  labels = merge(local.labels, local.labels_control_plane_node, { "kube-hetzner/os" = each.value.os })
+  labels = merge(local.labels, local.labels_control_plane_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
@@ -58,6 +96,93 @@ module "control_planes" {
     hcloud_placement_group.control_plane,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
+  ]
+}
+
+resource "hcloud_floating_ip" "control_planes" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) == null
+  }
+
+  type              = "ipv4"
+  labels            = local.labels
+  home_location     = each.value.location
+  delete_protection = var.enable_delete_protection.floating_ip
+}
+
+data "hcloud_floating_ip" "control_planes_existing" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) != null
+  }
+
+  id = each.value.floating_ip_id
+}
+
+resource "hcloud_floating_ip_assignment" "control_planes" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  floating_ip_id = local.control_plane_floating_ip_id_by_node[each.key]
+  server_id      = module.control_planes[each.key].id
+
+  depends_on = [
+    terraform_data.first_control_plane,
+  ]
+}
+
+resource "terraform_data" "configure_control_plane_floating_ip" {
+  for_each = {
+    for k, v in local.control_plane_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  triggers_replace = {
+    control_plane_id = module.control_planes[each.key].id
+    floating_ip_id   = local.control_plane_floating_ip_id_by_node[each.key]
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      <<-EOT
+      ETH=eth1
+      if ip link show eth0 &>/dev/null; then
+          ETH=eth0
+      fi
+
+      NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null)
+      if [ -z "$NM_CONNECTION" ]; then
+          echo "ERROR: No NetworkManager connection found for $ETH" >&2
+          exit 1
+      fi
+
+      nmcli connection modify "$NM_CONNECTION" \
+          ipv4.method manual \
+          ipv4.addresses ${local.control_plane_external_ipv4_by_node[each.key]}/32,${local.control_plane_ips[each.key]}/32 gw4 172.31.1.1 \
+          ipv4.route-metric 100 \
+      && nmcli connection up "$NM_CONNECTION"
+      EOT
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.control_plane_ips[each.key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  depends_on = [
+    hcloud_floating_ip_assignment.control_planes
   ]
 }
 
@@ -105,11 +230,37 @@ resource "hcloud_load_balancer_service" "control_plane" {
 
   load_balancer_id = hcloud_load_balancer.control_plane.*.id[0]
   protocol         = "tcp"
-  destination_port = "6443"
-  listen_port      = "6443"
+  destination_port = var.kubeapi_port
+  listen_port      = var.kubeapi_port
+}
+
+resource "hcloud_rdns" "control_plane_lb_ipv4" {
+  count = (var.use_control_plane_lb && var.control_plane_lb_enable_public_interface && var.base_domain != "") ? 1 : 0
+
+  load_balancer_id = hcloud_load_balancer.control_plane[0].id
+  ip_address       = hcloud_load_balancer.control_plane[0].ipv4
+  dns_ptr          = "${var.cluster_name}-control-plane.${var.base_domain}"
 }
 
 locals {
+  control_plane_floating_ip_id_by_node = {
+    for k, v in local.control_plane_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.control_planes_existing[k].id, null),
+      try(hcloud_floating_ip.control_planes[k].id, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  control_plane_external_ipv4_by_node = {
+    for k, v in local.control_plane_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.control_planes_existing[k].ip_address, null),
+      try(hcloud_floating_ip.control_planes[k].ip_address, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
 
   control_plane_ips = {
@@ -120,6 +271,24 @@ locals {
       v.private_ipv4_address
     )
   }
+
+  attached_control_plane_volumes = merge([
+    for node_key, node in local.control_plane_nodes : {
+      for volume_idx, volume in coalesce(node.attached_volumes, []) :
+      "${node_key}-${volume_idx}" => {
+        node_key          = node_key
+        volume_idx        = volume_idx
+        size              = volume.size
+        mount_path        = volume.mount_path
+        filesystem        = volume.filesystem
+        automount         = volume.automount
+        name              = volume.name
+        labels            = volume.labels
+        delete_protection = volume.delete_protection
+      }
+    }
+  ]...)
+
   # TODO: What about this?
   # cni_settings = local.kubernetes_distribution == "k3s" ? local.cni_k3s_settings : local.cni_rke2_settings
   rke2-config = { for k, v in local.control_plane_nodes : k => merge(
@@ -134,7 +303,7 @@ locals {
       disable-cloud-controller    = true
       disable-kube-proxy          = var.disable_kube_proxy
       disable                     = local.disable_rke2_extras
-      kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
+      kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
       kube-apiserver-arg          = local.kube_apiserver_arg
       kube-controller-manager-arg = local.kube_controller_manager_arg
       node-ip                     = module.control_planes[k].private_ipv4_address
@@ -144,12 +313,16 @@ locals {
       # TODO: Fix this, currently it needs to be false
       # selinux                     = var.disable_selinux ? false : (v.selinux == true ? true : false)
       selinux               = false
-      cluster-cidr          = var.cluster_ipv4_cidr
-      service-cidr          = var.service_ipv4_cidr
-      cluster-dns           = local.cluster_dns_ipv4
+      cluster-cidr          = local.cluster_cidr
+      service-cidr          = local.service_cidr
+      cluster-dns           = local.cluster_dns
       write-kubeconfig-mode = "0644" # needed for import into rancher
       cni                   = "none"
     },
+    lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
+      node-external-ip    = local.control_plane_external_ipv4_by_node[k]
+      flannel-external-ip = true
+    } : {},
     var.use_control_plane_lb ? {
       tls-san = concat([
         hcloud_load_balancer.control_plane.*.ipv4[0],
@@ -182,14 +355,15 @@ locals {
             module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
             module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           )
-        }:6443"
+        }:${var.kubeapi_port}"
       )
       token                    = local.k3s_token
       disable-cloud-controller = true
       disable-kube-proxy       = var.disable_kube_proxy
       disable                  = local.disable_extras
+      https-listen-port        = var.kubeapi_port
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_control_plane_kubelet_args
-      kubelet-arg                 = concat(local.kubelet_arg, v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
+      kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
       kube-apiserver-arg          = local.kube_apiserver_arg
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface
@@ -198,11 +372,15 @@ locals {
       node-label                  = v.labels
       node-taint                  = v.taints
       selinux                     = var.disable_selinux ? false : (v.selinux == true ? true : false)
-      cluster-cidr                = var.cluster_ipv4_cidr
-      service-cidr                = var.service_ipv4_cidr
-      cluster-dns                 = local.cluster_dns_ipv4
+      cluster-cidr                = local.cluster_cidr
+      service-cidr                = local.service_cidr
+      cluster-dns                 = local.cluster_dns
       write-kubeconfig-mode       = "0644" # needed for import into rancher
     },
+    lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
+      node-external-ip    = local.control_plane_external_ipv4_by_node[k]
+      flannel-external-ip = true
+    } : {},
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
     var.use_control_plane_lb ? {
       tls-san = concat(
@@ -239,6 +417,7 @@ resource "null_resource" "control_plane_config_rke2" {
     control_plane_id = module.control_planes[each.key].id
     config           = sha1(yamlencode(local.rke2-config[each.key]))
     cni_values       = sha1(local.desired_cni_values)
+    encryption       = sha1(local.secrets_encryption_config)
   }
 
   connection {
@@ -258,6 +437,11 @@ resource "null_resource" "control_plane_config_rke2" {
   provisioner "file" {
     content     = yamlencode(local.rke2-config[each.key])
     destination = "/tmp/config.yaml"
+  }
+
+  provisioner "file" {
+    content     = local.secrets_encryption_config
+    destination = "/tmp/encryption-config.yaml"
   }
 
   # Create /var/lib/rancher/rke2/server/manifests directory
@@ -292,8 +476,9 @@ resource "terraform_data" "control_plane_config" {
   for_each = local.kubernetes_distribution == "k3s" ? local.control_plane_nodes : {}
 
   triggers_replace = {
-    control_plane_id = module.control_planes[each.key].id
-    config           = sha1(yamlencode(local.k3s-config[each.key]))
+    control_plane_id  = module.control_planes[each.key].id
+    config            = sha1(yamlencode(local.k3s-config[each.key]))
+    encryption_config = var.k3s_encryption_at_rest ? sha1(local.k3s_encryption_config) : ""
   }
 
   connection {
@@ -316,8 +501,16 @@ resource "terraform_data" "control_plane_config" {
     destination = "/tmp/config.yaml"
   }
 
+  provisioner "file" {
+    content     = var.k3s_encryption_at_rest ? local.k3s_encryption_config : ""
+    destination = "/tmp/encryption-config.yaml"
+  }
+
   provisioner "remote-exec" {
-    inline = [local.k3s_config_update_script]
+    inline = concat(
+      var.k3s_encryption_at_rest ? ["install -m 0600 /tmp/encryption-config.yaml ${local.k3s_encryption_config_path}"] : ["rm -f ${local.k3s_encryption_config_path} /tmp/encryption-config.yaml"],
+      [local.k3s_config_update_script]
+    )
   }
 
   depends_on = [
@@ -439,6 +632,7 @@ resource "null_resource" "control_planes_rke2" {
   # Start the server and wait until it is ready.
   provisioner "remote-exec" {
     inline = [
+      "systemctl enable --now iscsid",
       "systemctl start rke2-server",
       "systemctl enable rke2-server",
       "mkdir -p /var/post_install /var/user_kustomize",
@@ -491,6 +685,7 @@ resource "terraform_data" "control_planes" {
   # Start the server and wait until it is ready.
   provisioner "remote-exec" {
     inline = [
+      "systemctl enable --now iscsid",
       "systemctl start k3s 2> /dev/null",
       "mkdir -p /var/post_install /var/user_kustomize",
       <<-EOT
@@ -515,4 +710,65 @@ resource "terraform_data" "control_planes" {
 moved {
   from = null_resource.control_planes
   to   = terraform_data.control_planes
+}
+
+resource "hcloud_volume" "attached_control_plane_volume" {
+  for_each = local.attached_control_plane_volumes
+
+  labels = merge(
+    {
+      provisioner = "terraform"
+      cluster     = var.cluster_name
+      scope       = "attached-volume"
+      role        = "control-plane"
+    },
+    each.value.labels
+  )
+
+  name              = coalesce(each.value.name, "${var.cluster_name}-cp-${module.control_planes[each.value.node_key].name}-vol-${each.value.volume_idx}")
+  size              = each.value.size
+  server_id         = module.control_planes[each.value.node_key].id
+  automount         = each.value.automount
+  format            = each.value.filesystem
+  delete_protection = coalesce(each.value.delete_protection, var.enable_delete_protection.volume)
+}
+
+resource "terraform_data" "configure_attached_control_plane_volume" {
+  for_each = local.attached_control_plane_volumes
+
+  triggers_replace = {
+    control_plane_id = module.control_planes[each.value.node_key].id
+    volume_id        = hcloud_volume.attached_control_plane_volume[each.key].id
+    mount_path       = each.value.mount_path
+    filesystem       = each.value.filesystem
+    volume_name      = hcloud_volume.attached_control_plane_volume[each.key].name
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -e",
+      "systemctl enable --now iscsid",
+      "mkdir -p '${each.value.mount_path}' >/dev/null",
+      "mountpoint -q '${each.value.mount_path}' || mount -o discard,defaults ${hcloud_volume.attached_control_plane_volume[each.key].linux_device} '${each.value.mount_path}'",
+      "${each.value.filesystem == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.attached_control_plane_volume[each.key].linux_device}",
+      "awk -v path='${each.value.mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.attached_control_plane_volume[each.key].linux_device} ${each.value.mount_path} ${each.value.filesystem} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.control_plane_ips[each.value.node_key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  depends_on = [
+    hcloud_volume.attached_control_plane_volume
+  ]
 }

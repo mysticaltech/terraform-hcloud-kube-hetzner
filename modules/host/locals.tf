@@ -9,6 +9,12 @@ locals {
   # check if the user has set dns servers
   has_dns_servers = length(var.dns_servers) > 0
 
+  effective_firewall_ids = var.firewall_ids == null ? toset(var.extra_firewall_ids) : setunion(var.firewall_ids, toset(var.extra_firewall_ids))
+  extra_network_ids = toset([
+    for network_id in var.extra_network_ids : network_id
+    if var.network_id == null || network_id != var.network_id
+  ])
+
   default_connection_host = coalesce(
     hcloud_server.server.ipv4_address,
     hcloud_server.server.ipv6_address,
