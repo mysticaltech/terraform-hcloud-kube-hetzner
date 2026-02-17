@@ -323,6 +323,7 @@ variable "control_plane_nodepools" {
     server_type                = string
     location                   = string
     backups                    = optional(bool)
+    hcloud_labels              = optional(map(string), {})
     labels                     = list(string)
     taints                     = list(string)
     count                      = number
@@ -376,6 +377,7 @@ variable "agent_nodepools" {
     server_type                = string
     location                   = string
     backups                    = optional(bool)
+    hcloud_labels              = optional(map(string), {})
     floating_ip                = optional(bool)
     floating_ip_rdns           = optional(string, null)
     labels                     = list(string)

@@ -46,7 +46,7 @@ module "control_planes" {
   # It leaves the subnet with 254 x 254 - 100 = 64416 IPs to use, so probably enough.
   private_ipv4 = cidrhost(hcloud_network_subnet.control_plane[[for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
 
-  labels = merge(local.labels, local.labels_control_plane_node, { "kube-hetzner/os" = each.value.os })
+  labels = merge(local.labels, local.labels_control_plane_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
