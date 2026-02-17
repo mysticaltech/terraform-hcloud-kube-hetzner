@@ -350,15 +350,26 @@ EOT
   ]
   apply_rke2_selinux = [<<-EOT
 echo "Checking rke2 SELinux policy status..."
-if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm -q rke2-selinux >/dev/null 2>&1; then
-  if [ -f /usr/share/selinux/packages/rke2.pp ]; then
-    echo "Applying rke2 SELinux policy..."
-    semodule -v -i /usr/share/selinux/packages/rke2.pp || true
+if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1; then
+  if rpm -q rke2-selinux >/dev/null 2>&1; then
+    if [ -f /usr/share/selinux/packages/rke2.pp ]; then
+      echo "Applying rke2 SELinux policy..."
+      semodule -v -i /usr/share/selinux/packages/rke2.pp || true
+    else
+      echo "rke2 SELinux policy file not found at /usr/share/selinux/packages/rke2.pp; skipping"
+    fi
   else
-    echo "rke2 SELinux policy file not found at /usr/share/selinux/packages/rke2.pp; skipping"
+    echo "rke2-selinux package not installed; skipping policy apply"
+  fi
+
+  if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = "Enforcing" ]; then
+    if ! semodule -l 2>/dev/null | awk '{print $1}' | grep -qx "rke2"; then
+      echo "ERROR: SELinux is enforcing but rke2 module is not loaded"
+      exit 1
+    fi
   fi
 else
-  echo "rke2-selinux package or semodule not available; skipping"
+  echo "rpm or semodule not available; skipping rke2 SELinux policy checks"
 fi
 EOT
   ]
@@ -1997,6 +2008,11 @@ cloudinit_write_files_common = <<EOT
 - path: /root/kube_hetzner_selinux.te
   encoding: base64
   content: ${base64encode(file("${path.module}/templates/kube-hetzner-selinux.te"))}
+
+# Shared Leap Micro policy used by host and autoscaler templates
+- path: /root/k8s_custom_policies.te
+  encoding: base64
+  content: ${base64encode(file("${path.module}/templates/k8s-custom-policies.te"))}
 
 # Create the k3s registries file if needed
 # TODO: Review that this can stay and behaves the same in rke2 as with k3s

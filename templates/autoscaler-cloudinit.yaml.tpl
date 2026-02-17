@@ -21,54 +21,12 @@ ${cloudinit_write_files_common}
         exit 0
     fi
 
-    cat > /tmp/k8s_custom_policies.te <<'EOF'
-    module k8s_custom_policies 1.0;
-
-    require {
-        type container_t;
-        type cert_t;
-        type proc_t;
-        type sysfs_t;
-        type kernel_t;
-        type init_t;
-        type security_t;
-        type unreserved_port_t;
-        type kubernetes_port_t;
-        type http_port_t;
-        type hplip_port_t;
-        type node_t;
-        class dir { read search open getattr };
-        class file { read open getattr };
-        class lnk_file { read getattr };
-        class tcp_socket { name_bind name_connect accept listen read write };
-        class node { tcp_recv tcp_send };
-        class peer recv;
-        class filesystem getattr;
-    }
-
-    allow container_t cert_t:dir { read search open getattr };
-    allow container_t cert_t:file { read open getattr };
-    allow container_t proc_t:file { read open getattr };
-    allow container_t proc_t:dir { read search open getattr };
-    allow container_t proc_t:lnk_file { read getattr };
-    allow container_t proc_t:filesystem getattr;
-    allow container_t sysfs_t:file { read open getattr };
-    allow container_t sysfs_t:dir { read search open getattr };
-    allow container_t sysfs_t:lnk_file { read getattr };
-    allow container_t sysfs_t:filesystem getattr;
-    allow container_t kubernetes_port_t:tcp_socket { name_bind name_connect accept listen };
-    allow container_t hplip_port_t:tcp_socket { name_bind name_connect accept listen };
-    allow container_t unreserved_port_t:tcp_socket { name_bind name_connect accept listen };
-    allow container_t container_t:tcp_socket { name_connect accept };
-    allow container_t container_t:peer recv;
-    allow container_t node_t:node { tcp_recv tcp_send };
-    allow container_t http_port_t:tcp_socket { name_bind name_connect accept listen };
-    allow container_t kernel_t:tcp_socket { read write };
-    allow container_t security_t:file { read open getattr };
-    allow container_t init_t:dir { read search open getattr };
-    allow container_t init_t:file { read open getattr };
-    allow container_t init_t:lnk_file { read getattr };
-    EOF
+    # Shared policy written by cloudinit_write_files_common from templates/k8s-custom-policies.te.
+    if [ ! -f /root/k8s_custom_policies.te ]; then
+        echo "[$(date)] Missing /root/k8s_custom_policies.te; cannot apply SELinux policy" >> "$LOG_FILE"
+        exit 1
+    fi
+    cp /root/k8s_custom_policies.te /tmp/k8s_custom_policies.te
 
     for mod in k8s_custom_policies k8s_comprehensive; do
         semodule -r "$mod" 2>/dev/null || true

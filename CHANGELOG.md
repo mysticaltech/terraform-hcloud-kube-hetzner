@@ -53,6 +53,9 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **SELinux YAML Parsing** - Fixed cloud-init SCHEMA_ERROR caused by improper YAML formatting of SELinux policy
 - **SELinux Missing Rules** - Added rules for JuiceFS (sock_file write) and SigNoz (blk_file getattr)
 - **RKE2 SELinux Apply Parity** - Wired RKE2 server/agent install flows to apply the `rke2-selinux` policy module when available and added safe post-install `restorecon` relabeling for RKE2 binaries.
+- **LeapMicro SELinux Policy De-duplication** - Moved `k8s_custom_policies` into a shared template consumed by both host and autoscaler cloud-init paths to prevent policy drift.
+- **RKE2 SELinux Enforcing Guardrail** - Added an explicit enforcing-mode validation that fails provisioning if the `rke2` SELinux module is still not loaded.
+- **Longhorn iSCSI SELinux Capability** - Added `iscsid_t` `dac_override` permission to the shared kube-hetzner SELinux module.
 - **Kured Version Null** - Fixed potential null value issues with `kured_version` logic (#2032)
 - **Autoscaler Nodepool Parity/Validation** - Added autoscaler nodepool validation guards (unique names, integer min/max bounds, taint effect and swap/zram format checks) and aligned RKE2 autoscaled node labeling/taint rendering with the k3s autoscaler path.
 - **RKE2 User Kustomizations** - Switched user kustomization apply path to distribution-aware `kubectl_cli`, fixing apply failures in RKE2 clusters.
