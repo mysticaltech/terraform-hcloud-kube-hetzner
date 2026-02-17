@@ -1037,6 +1037,8 @@ See `/examples/external-overlay-tailscale/README.md` for a concrete outer-module
 
 Create targeted SELinux profiles instead of weakening cluster-wide security:
 
+> **Troubleshooting note:** When using large attached volumes (for example large Longhorn disks), first boot can hit cloud-init/systemd timeouts while SELinux relabeling completes. If you hit this repeatedly, a practical workaround is to disable SELinux only on the affected nodepool(s) instead of disabling it cluster-wide.
+
 ```sh
 # Find container
 crictl ps
