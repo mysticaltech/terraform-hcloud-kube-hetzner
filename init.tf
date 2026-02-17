@@ -72,11 +72,7 @@ resource "hcloud_load_balancer_target" "cluster" {
 }
 
 locals {
-  first_control_plane_ip = coalesce(
-    module.control_planes[keys(module.control_planes)[0]].ipv4_address,
-    module.control_planes[keys(module.control_planes)[0]].ipv6_address,
-    module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
-  )
+  first_control_plane_ip = local.control_plane_ips[keys(local.control_plane_ips)[0]]
 }
 
 resource "terraform_data" "first_control_plane" {

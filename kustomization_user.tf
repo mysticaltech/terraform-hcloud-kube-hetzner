@@ -29,6 +29,6 @@ module "user_kustomizations" {
   kustomizations_map = local.processed_kustomizes
 
   depends_on = [
-    null_resource.kustomization,
+    terraform_data.kustomization,
   ]
 }

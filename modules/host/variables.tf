@@ -2,6 +2,12 @@ variable "name" {
   description = "Host name"
   type        = string
 }
+variable "connection_host" {
+  description = "Optional SSH host override used for Terraform provisioners."
+  type        = string
+  default     = ""
+}
+
 variable "os_snapshot_id" {
   description = "OS snapshot ID to be used."
   type        = string
