@@ -540,6 +540,18 @@ variable "cluster_autoscaler_extra_args" {
   description = "Extra arguments for the Cluster Autoscaler deployment."
 }
 
+variable "cluster_autoscaler_tolerations" {
+  description = "Additional tolerations to append to the cluster-autoscaler deployment."
+  type = list(object({
+    key               = optional(string)
+    operator          = optional(string)
+    value             = optional(string)
+    effect            = optional(string)
+    tolerationSeconds = optional(number)
+  }))
+  default = []
+}
+
 variable "cluster_autoscaler_server_creation_timeout" {
   type        = number
   default     = 15
