@@ -1019,8 +1019,9 @@ module "kube-hetzner" {
   # The default is "false", meaning it's enabled by default.
   # placement_group_disable = true
 
-  # By default, we allow ICMP ping in to the nodes, to check for liveness for instance. If you do not want to allow that, you can. Just set this flag to true (false by default).
-  # block_icmp_ping_in = true
+  # By default, incoming ICMP ping is blocked for better security hygiene.
+  # Set this to false only if you explicitly want external ping-based liveness checks.
+  # block_icmp_ping_in = false
 
   # You can enable cert-manager (installed by Helm behind the scenes) with the following flag, the default is "true".
   # enable_cert_manager = false

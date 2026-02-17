@@ -1438,7 +1438,7 @@ variable "kured_options" {
 
 variable "block_icmp_ping_in" {
   type        = bool
-  default     = false
+  default     = true
   description = "Block entering ICMP ping."
 }
 
