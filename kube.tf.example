@@ -310,6 +310,8 @@ module "kube-hetzner" {
   ]
   # Add additional configuration options for control planes here.
   # E.g to enable monitoring for etcd, proxy etc:
+  # WARNING: avoid overriding core bootstrap keys (token/server/node-ip/cluster-cidr/service-cidr)
+  # unless you fully understand upgrade and compatibility implications.
   # control_planes_custom_config = {
   #  etcd-expose-metrics = true,
   #  kube-controller-manager-arg = "bind-address=0.0.0.0",

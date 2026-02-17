@@ -72,6 +72,18 @@ output "k3s_token" {
   sensitive   = true
 }
 
+output "k3s_config" {
+  description = "Rendered k3s control plane config by node."
+  value       = local.k3s-config
+  sensitive   = true
+}
+
+output "rke2_config" {
+  description = "Rendered rke2 control plane config by node."
+  value       = local.rke2-config
+  sensitive   = true
+}
+
 output "control_plane_nodes" {
   description = "The control plane nodes"
   value       = [for node in module.control_planes : node]
