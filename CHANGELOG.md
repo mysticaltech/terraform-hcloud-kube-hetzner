@@ -65,6 +65,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 - **Autoscaler Metrics Exposure** - Added a `cluster-autoscaler-metrics` Service and new `cluster_autoscaler_metrics_firewall_source` variable for optional external scraping via firewall allowlists.
 - **Flannel Backend** - New `flannel_backend` variable to override flannel backend (wireguard-native, host-gw, etc.)
 - **Cilium XDP Acceleration** - New `cilium_loadbalancer_acceleration_mode` variable (native, best-effort, disabled)
+- **Cilium Egress Gateway HA Reconciler** - New `cilium_egress_gateway_ha_enabled` option to deploy a lightweight controller that keeps labeled `CiliumEgressGatewayPolicy` objects pinned to a Ready egress node.
 - **K3s v1.35 Support** - Added support for k3s v1.35 channel (#2029)
 - **Packer Enhancements** - Configurable `kernel_type`, `sysctl_config_file`, and `timezone` for MicroOS snapshots (#2009, #2010)
 

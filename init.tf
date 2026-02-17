@@ -440,9 +440,9 @@ resource "terraform_data" "kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                    = var.hetzner_ccm_use_helm
-    enable_load_balancer_monitoring = var.enable_load_balancer_monitoring
-    system_upgrade_schedule_window  = jsonencode(var.system_upgrade_schedule_window)
+    ccm_use_helm                   = var.hetzner_ccm_use_helm
+    cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
+    system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
   }
 
   connection {
@@ -563,6 +563,15 @@ resource "terraform_data" "kustomization" {
         version = var.cilium_version
     })
     destination = "/var/post_install/cilium.yaml"
+  }
+
+  # Upload the optional Cilium egress gateway HA controller
+  provisioner "file" {
+    content = templatefile(
+      "${path.module}/templates/cilium_egress_gateway_ha.yaml.tpl",
+      {}
+    )
+    destination = "/var/post_install/cilium_egress_gateway_ha.yaml"
   }
 
   # Upload the system upgrade controller plans config
@@ -763,9 +772,8 @@ resource "null_resource" "rke2_kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                    = var.hetzner_ccm_use_helm
-    enable_load_balancer_monitoring = var.enable_load_balancer_monitoring
-    system_upgrade_schedule_window  = jsonencode(var.system_upgrade_schedule_window)
+    ccm_use_helm             = var.hetzner_ccm_use_helm
+    cilium_egress_gateway_ha = var.cilium_egress_gateway_ha_enabled
   }
 
   connection {
@@ -868,6 +876,15 @@ resource "null_resource" "rke2_kustomization" {
         version = var.cilium_version
     })
     destination = "/tmp/rke2-cilium-config.yaml"
+  }
+
+  # Upload the optional Cilium egress gateway HA controller
+  provisioner "file" {
+    content = templatefile(
+      "${path.module}/templates/cilium_egress_gateway_ha.yaml.tpl",
+      {}
+    )
+    destination = "/var/post_install/cilium_egress_gateway_ha.yaml"
   }
 
   # Upload the system upgrade controller plans config

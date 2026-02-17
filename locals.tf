@@ -276,6 +276,7 @@ locals {
       var.disable_hetzner_csi ? [] : ["hcloud-csi.yaml"],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
       local.kubernetes_distribution == "k3s" ? lookup(local.cni_install_resources, var.cni_plugin, []) : [],
+      var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled && var.cilium_egress_gateway_ha_enabled ? ["cilium_egress_gateway_ha.yaml"] : [],
       var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
       var.enable_longhorn ? ["longhorn.yaml"] : [],
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
@@ -2085,26 +2086,9 @@ check "system_upgrade_window_requires_supported_controller_version" {
   }
 }
 
-check "extra_robot_nodes_require_k3s_distribution" {
+check "cilium_egress_gateway_ha_requires_cilium_egress_gateway" {
   assert {
-    condition     = length(var.extra_robot_nodes) == 0 || local.kubernetes_distribution == "k3s"
-    error_message = "extra_robot_nodes currently supports k3s clusters only. Set kubernetes_distribution_type to \"k3s\" or remove extra_robot_nodes."
-  }
-}
-
-check "extra_robot_nodes_require_vswitch" {
-  assert {
-    condition     = length(var.extra_robot_nodes) == 0 || var.vswitch_id != null
-    error_message = "extra_robot_nodes requires vswitch_id to be configured so Terraform can provision the vSwitch subnet."
-  }
-}
-
-check "extra_robot_nodes_require_ssh_private_key" {
-  assert {
-    condition = alltrue([
-      for node in var.extra_robot_nodes :
-      try(length(trimspace(coalesce(node.ssh_private_key, var.ssh_private_key))) > 0, false)
-    ])
-    error_message = "Each extra_robot_nodes entry must have ssh_private_key set, or var.ssh_private_key must be provided."
+    condition     = !var.cilium_egress_gateway_ha_enabled || (var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled)
+    error_message = "cilium_egress_gateway_ha_enabled requires cni_plugin=\"cilium\" and cilium_egress_gateway_enabled=true."
   }
 }
