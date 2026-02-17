@@ -61,3 +61,6 @@ requirements/*
 # Local triage documentation
 issues/
 prs/
+
+# V3 backlog verification working notes
+docs/ideas_v3_verification/
