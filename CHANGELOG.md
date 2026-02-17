@@ -68,6 +68,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 - **Cilium Egress Gateway HA Reconciler** - New `cilium_egress_gateway_ha_enabled` option to deploy a lightweight controller that keeps labeled `CiliumEgressGatewayPolicy` objects pinned to a Ready egress node.
 - **K3s v1.35 Support** - Added support for k3s v1.35 channel (#2029)
 - **Packer Enhancements** - Configurable `kernel_type`, `sysctl_config_file`, and `timezone` for MicroOS snapshots (#2009, #2010)
+- **Multiple Attached Volumes Per Node** - Added `attached_volumes` support for control plane and agent nodepools (including per-node overrides) to provision and mount multiple Hetzner Volumes per node.
 
 ### 🐛 Bug Fixes
 

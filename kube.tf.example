@@ -165,9 +165,14 @@ module "kube-hetzner" {
       # disable_ipv4 = true
       # disable_ipv6 = true
 
-      # Optionally pin this nodepool to pre-existing Primary IP IDs.
-      # primary_ipv4_id = 123456
-      # primary_ipv6_id = 123457
+      # Optional: attach one or more Hetzner Volumes to every node in this nodepool.
+      # attached_volumes = [
+      #   {
+      #     size       = 20
+      #     mount_path = "/var/lib/control-plane-data"
+      #     filesystem = "ext4" # ext4 or xfs
+      #   }
+      # ]
     },
     {
       name        = "control-plane-nbg1",
@@ -271,6 +276,20 @@ module "kube-hetzner" {
       # Set any path inside /var/ folder to have the ability to use an additional storage class along with the default one, which by default must be set in helm values to
       # /var/longhorn
       # longhorn_mount_path = "/var/lib/longhorn"
+
+      # Optional: attach one or more additional Hetzner Volumes per node.
+      # attached_volumes = [
+      #   {
+      #     size       = 50
+      #     mount_path = "/var/lib/extra-data"
+      #     filesystem = "xfs"  # ext4 or xfs
+      #   },
+      #   {
+      #     size       = 20
+      #     mount_path = "/var/lib/backups"
+      #   }
+      # ]
+
       # Enable automatic backups via Hetzner (default: false)
       # backups = true
     },
@@ -318,6 +337,12 @@ module "kube-hetzner" {
           labels = [
             "testing-labels=a1",
           ]
+          # attached_volumes = [
+          #   {
+          #     size       = 20
+          #     mount_path = "/var/lib/node-1-data"
+          #   }
+          # ]
         },
         "20" : {
           labels = [

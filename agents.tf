@@ -152,6 +152,23 @@ locals {
       v.private_ipv4_address
     )
   }
+
+  attached_agent_volumes = merge([
+    for node_key, node in local.agent_nodes : {
+      for volume_idx, volume in coalesce(node.attached_volumes, []) :
+      "${node_key}-${volume_idx}" => {
+        node_key          = node_key
+        volume_idx        = volume_idx
+        size              = volume.size
+        mount_path        = volume.mount_path
+        filesystem        = volume.filesystem
+        automount         = volume.automount
+        name              = volume.name
+        labels            = volume.labels
+        delete_protection = volume.delete_protection
+      }
+    }
+  ]...)
 }
 
 resource "terraform_data" "agent_config" {
@@ -313,6 +330,67 @@ resource "terraform_data" "configure_longhorn_volume" {
 moved {
   from = null_resource.configure_longhorn_volume
   to   = terraform_data.configure_longhorn_volume
+}
+
+resource "hcloud_volume" "attached_agent_volume" {
+  for_each = local.attached_agent_volumes
+
+  labels = merge(
+    {
+      provisioner = "terraform"
+      cluster     = var.cluster_name
+      scope       = "attached-volume"
+      role        = "agent"
+    },
+    each.value.labels
+  )
+
+  name              = coalesce(each.value.name, "${var.cluster_name}-agent-${module.agents[each.value.node_key].name}-vol-${each.value.volume_idx}")
+  size              = each.value.size
+  server_id         = module.agents[each.value.node_key].id
+  automount         = each.value.automount
+  format            = each.value.filesystem
+  delete_protection = coalesce(each.value.delete_protection, var.enable_delete_protection.volume)
+}
+
+resource "terraform_data" "configure_attached_agent_volume" {
+  for_each = local.attached_agent_volumes
+
+  triggers_replace = {
+    agent_id    = module.agents[each.value.node_key].id
+    volume_id   = hcloud_volume.attached_agent_volume[each.key].id
+    mount_path  = each.value.mount_path
+    filesystem  = each.value.filesystem
+    volume_name = hcloud_volume.attached_agent_volume[each.key].name
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -e",
+      "systemctl enable --now iscsid",
+      "mkdir -p '${each.value.mount_path}' >/dev/null",
+      "mountpoint -q '${each.value.mount_path}' || mount -o discard,defaults ${hcloud_volume.attached_agent_volume[each.key].linux_device} '${each.value.mount_path}'",
+      "${each.value.filesystem == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.attached_agent_volume[each.key].linux_device}",
+      "awk -v path='${each.value.mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.attached_agent_volume[each.key].linux_device} ${each.value.mount_path} ${each.value.filesystem} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.agent_ips[each.value.node_key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  depends_on = [
+    hcloud_volume.attached_agent_volume
+  ]
 }
 
 resource "hcloud_floating_ip" "agents" {
