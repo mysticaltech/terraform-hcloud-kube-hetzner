@@ -471,7 +471,7 @@ variable "control_plane_nodepools" {
       labels                     = optional(list(string))
       hcloud_labels              = optional(map(string), {})
       taints                     = optional(list(string))
-      append_random_suffix       = optional(bool, true)
+      append_random_suffix       = optional(bool)
       swap_size                  = optional(string, "")
       zram_size                  = optional(string, "")
       kubelet_args               = optional(list(string), ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
@@ -479,11 +479,11 @@ variable "control_plane_nodepools" {
       placement_group_compat_idx = optional(number, 0)
       placement_group            = optional(string, null)
       os                         = optional(string)
-      disable_ipv4               = optional(bool, false)
-      disable_ipv6               = optional(bool, false)
+      disable_ipv4               = optional(bool)
+      disable_ipv6               = optional(bool)
       primary_ipv4_id            = optional(number, null)
       primary_ipv6_id            = optional(number, null)
-      network_id                 = optional(number, 0)
+      network_id                 = optional(number)
       keep_disk                  = optional(bool)
       join_endpoint_type         = optional(string, null)
       extra_write_files          = optional(list(any), [])
@@ -635,11 +635,11 @@ variable "agent_nodepools" {
       placement_group            = optional(string, null)
       append_index_to_node_name  = optional(bool, true)
       os                         = optional(string)
-      disable_ipv4               = optional(bool, false)
-      disable_ipv6               = optional(bool, false)
+      disable_ipv4               = optional(bool)
+      disable_ipv6               = optional(bool)
       primary_ipv4_id            = optional(number, null)
       primary_ipv6_id            = optional(number, null)
-      network_id                 = optional(number, 0)
+      network_id                 = optional(number)
       keep_disk                  = optional(bool)
       join_endpoint_type         = optional(string, null)
       extra_write_files          = optional(list(any), [])
@@ -758,7 +758,11 @@ variable "agent_nodepools" {
         alltrue([
           for _, node in coalesce(np.nodes, {}) : (
             coalesce(node.floating_ip, np.floating_ip, false) ?
-            (coalesce(node.floating_ip_type, np.floating_ip_type, "ipv4") == "ipv4" ? !np.disable_ipv4 : !np.disable_ipv6)
+            (
+              coalesce(node.floating_ip_type, np.floating_ip_type, "ipv4") == "ipv4" ?
+              !coalesce(node.disable_ipv4, np.disable_ipv4) :
+              !coalesce(node.disable_ipv6, np.disable_ipv6)
+            )
             : true
           )
         ])
