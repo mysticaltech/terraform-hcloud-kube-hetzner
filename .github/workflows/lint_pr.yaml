@@ -14,16 +14,10 @@ jobs:
       - name: Clone repo
         uses: actions/checkout@v6
 
-      - name: tfsec
-        uses: aquasecurity/tfsec-pr-commenter-action@v1.3.1
-        with:
-          github_token: ${{ github.token }}
-          tfsec_args: --ignore-hcl-errors
-
       - name: Run tfsec with reviewdog output on the PR
         uses: reviewdog/action-tfsec@v1.30.0
         with:
-          github_token: ${{ secrets.github_token }}
+          github_token: ${{ github.token }}
           filter_mode: nofilter
           fail_on_error: true
           tfsec_flags: --ignore-hcl-errors
