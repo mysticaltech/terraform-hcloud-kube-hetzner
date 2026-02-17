@@ -1692,6 +1692,12 @@ variable "use_control_plane_lb" {
   description = "Creates a dedicated load balancer for the Kubernetes API (kubeapi_port). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic."
 }
 
+variable "combine_load_balancers" {
+  type        = bool
+  default     = false
+  description = "Reuse the control plane load balancer for ingress services as well. Requires use_control_plane_lb=true."
+}
+
 variable "control_plane_lb_type" {
   type        = string
   default     = "lb11"

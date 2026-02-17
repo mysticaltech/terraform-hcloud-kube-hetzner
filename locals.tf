@@ -793,7 +793,14 @@ EOT
 
   using_klipper_lb = var.enable_klipper_metal_lb || local.is_single_node_cluster
 
-  has_external_load_balancer = local.using_klipper_lb || var.ingress_controller == "none"
+  has_external_load_balancer_base = local.using_klipper_lb || var.ingress_controller == "none"
+  combine_load_balancers_effective = (
+    var.combine_load_balancers &&
+    var.use_control_plane_lb &&
+    !local.has_external_load_balancer_base
+  )
+  has_external_load_balancer = local.has_external_load_balancer_base || local.combine_load_balancers_effective
+  skip_ingress_lb_wait       = local.has_external_load_balancer_base
   load_balancer_name         = "${var.cluster_name}-${var.ingress_controller}"
   managed_ingress_controllers = [
     "traefik",
@@ -1223,7 +1230,11 @@ controller:
 %{if !local.using_klipper_lb~}
   service:
     annotations:
+%{if local.combine_load_balancers_effective~}
+      "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
       "load-balancer.hetzner.cloud/use-private-ip": "true"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -1308,7 +1319,11 @@ controller:
       prometheus: false
 %{if !local.using_klipper_lb~}
     annotations:
+%{if local.combine_load_balancers_effective~}
+      "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
       "load-balancer.hetzner.cloud/use-private-ip": "true"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -1338,7 +1353,11 @@ service:
   type: LoadBalancer
 %{if !local.using_klipper_lb~}
   annotations:
+%{if local.combine_load_balancers_effective~}
+    "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
     "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
     "load-balancer.hetzner.cloud/use-private-ip": "true"
     "load-balancer.hetzner.cloud/disable-private-ingress": "true"
     "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -2072,24 +2091,10 @@ check "nat_router_requires_control_plane_lb" {
   }
 }
 
-check "cluster_and_service_ipv6_cidrs_are_paired" {
+check "combine_load_balancers_requires_control_plane_lb" {
   assert {
-    condition = (
-      (local.cluster_ipv6_cidr_effective == null && local.service_ipv6_cidr_effective == null) ||
-      (local.cluster_ipv6_cidr_effective != null && local.service_ipv6_cidr_effective != null)
-    )
-    error_message = "cluster_ipv6_cidr and service_ipv6_cidr must be set together."
-  }
-}
-
-check "cluster_and_service_cidr_stacks_are_aligned" {
-  assert {
-    condition = (
-      (local.cluster_ipv4_cidr_effective == null) == (local.service_ipv4_cidr_effective == null) &&
-      (local.cluster_ipv6_cidr_effective == null) == (local.service_ipv6_cidr_effective == null) &&
-      length(local.cluster_cidrs) > 0
-    )
-    error_message = "Cluster and service CIDRs must use matching stacks (IPv4, IPv6, or both), and at least one stack must be configured."
+    condition     = !var.combine_load_balancers || var.use_control_plane_lb
+    error_message = "combine_load_balancers requires use_control_plane_lb=true."
   }
 }
 
