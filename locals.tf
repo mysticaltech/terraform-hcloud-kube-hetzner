@@ -896,13 +896,14 @@ EOT
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
   flannel_iface               = "eth1"
   authentication_config_file  = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/authentication_config.yaml" : "/etc/rancher/k3s/authentication_config.yaml"
+  audit_policy_file           = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/audit-policy.yaml" : "/etc/rancher/k3s/audit-policy.yaml"
   control_plane_service_name  = local.kubernetes_distribution == "rke2" ? "rke2-server" : "k3s"
   agent_service_name          = local.kubernetes_distribution == "rke2" ? "rke2-agent" : "k3s-agent"
 
   kube_apiserver_arg = concat(
     var.authentication_config != "" ? ["authentication-config=${local.authentication_config_file}"] : [],
     var.k3s_audit_policy_config != "" ? [
-      "audit-policy-file=${local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/audit-policy.yaml" : "/etc/rancher/k3s/audit-policy.yaml"}",
+      "audit-policy-file=${local.audit_policy_file}",
       "audit-log-path=${var.k3s_audit_log_path}",
       "audit-log-maxage=${var.k3s_audit_log_maxage}",
       "audit-log-maxbackup=${var.k3s_audit_log_maxbackup}",
@@ -1428,6 +1429,11 @@ EOF
 
 k3s_audit_policy_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+AUDIT_POLICY_FILE="${local.audit_policy_file}"
+SERVICE_NAME="${local.control_plane_service_name}"
+BACKUP_FILE="/tmp/audit-policy_$DATE.yaml"
+HAS_BACKUP=false
+
 if [ -z "${var.k3s_audit_policy_config}" ] || [ "${var.k3s_audit_policy_config}" = " " ]; then
   echo "No audit policy config provided via Terraform, skipping audit policy setup"
   # Note: We intentionally DO NOT remove existing audit policies here.
@@ -1436,21 +1442,30 @@ if [ -z "${var.k3s_audit_policy_config}" ] || [ "${var.k3s_audit_policy_config}"
 fi
 
 # Config is provided, proceed with audit policy setup
-if cmp -s /tmp/audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml; then
+if cmp -s /tmp/audit-policy.yaml "$AUDIT_POLICY_FILE"; then
   echo "No update required to the audit-policy.yaml file"
 else
-  if [ -f "/etc/rancher/k3s/audit-policy.yaml" ]; then
-    echo "Backing up /etc/rancher/k3s/audit-policy.yaml to /tmp/audit-policy_$DATE.yaml"
-    cp /etc/rancher/k3s/audit-policy.yaml /tmp/audit-policy_$DATE.yaml
+  if [ -f "$AUDIT_POLICY_FILE" ]; then
+    echo "Backing up $AUDIT_POLICY_FILE to $BACKUP_FILE"
+    cp "$AUDIT_POLICY_FILE" "$BACKUP_FILE"
+    HAS_BACKUP=true
   fi
-  echo "Updated audit-policy.yaml detected, restart of k3s service required"
-  cp /tmp/audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml
-  if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/audit-policy.yaml from backup" && cp /tmp/audit-policy_$DATE.yaml /etc/rancher/k3s/audit-policy.yaml && systemctl restart k3s)
+  echo "Updated audit-policy.yaml detected, restart of $SERVICE_NAME service required"
+  cp /tmp/audit-policy.yaml "$AUDIT_POLICY_FILE"
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+    if ! systemctl restart "$SERVICE_NAME"; then
+      echo "Error: Failed to restart $SERVICE_NAME"
+      if [ "$HAS_BACKUP" = true ]; then
+        echo "Restoring $AUDIT_POLICY_FILE from backup $BACKUP_FILE"
+        cp "$BACKUP_FILE" "$AUDIT_POLICY_FILE"
+        systemctl restart "$SERVICE_NAME" || true
+      fi
+      exit 1
+    fi
   else
-    echo "k3s service is not active, skipping restart"
+    echo "$SERVICE_NAME is not active, skipping restart"
   fi
-  echo "k3s service restarted successfully with new audit policy"
+  echo "$SERVICE_NAME restarted successfully with new audit policy"
 fi
 
 # Ensure audit log directory exists with proper permissions
