@@ -20,4 +20,3 @@ spec:
                 name: nginx-service
                 port:
                   number: 80
-
