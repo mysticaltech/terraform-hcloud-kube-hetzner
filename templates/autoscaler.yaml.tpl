@@ -141,6 +141,9 @@ spec:
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/control-plane
+        %{~ if length(cluster_autoscaler_tolerations) > 0 ~}
+${indent(8, yamlencode(cluster_autoscaler_tolerations))}
+        %{~ endif ~}
 
       # Node affinity is used to force cluster-autoscaler to stick
       # to the control-plane node. This allows the cluster to reliably downscale
