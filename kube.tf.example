@@ -620,7 +620,10 @@ module "kube-hetzner" {
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
   # enable_klipper_metal_lb = true
 
+  # Configure the Kubernetes API port (default 6443).
+  # kubeapi_port = 6443
   # When using an external load balancer, you can specify a stable control plane endpoint URL.
+  # Make sure the endpoint port matches kubeapi_port when you override it.
   # control_plane_endpoint = "https://my-external-lb:6443"
 
   # Optional map of node name => SSH host override.

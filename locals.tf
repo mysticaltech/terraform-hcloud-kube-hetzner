@@ -13,7 +13,7 @@ locals {
   kubernetes_distribution = var.kubernetes_distribution_type
 
   # k3s endpoint used for agent registration, respects control_plane_endpoint override
-  k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
+  k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:${var.kubeapi_port}")
 
   ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : data.github_release.hetzner_ccm[0].release_tag
   csi_version    = length(data.github_release.hetzner_csi) == 0 ? var.hetzner_csi_version : data.github_release.hetzner_csi[0].release_tag
@@ -733,7 +733,7 @@ EOT
         description = "Allow Incoming Requests to Kube API Server"
         direction   = "in"
         protocol    = "tcp"
-        port        = "6443"
+        port        = tostring(var.kubeapi_port)
         source_ips  = var.firewall_kube_api_source
       }
     ],
@@ -936,7 +936,7 @@ kubeProxyReplacementHealthzBindAddr: "0.0.0.0:10256"
 
 # Access to Kube API Server (mandatory if kube-proxy is disabled)
 k8sServiceHost: "127.0.0.1"
-k8sServicePort: "${local.kubernetes_distribution == "rke2" ? "6443" : "6444"}"
+k8sServicePort: "${local.kubernetes_distribution == "rke2" ? tostring(var.kubeapi_port) : "6444"}"
 
 # Set Tunnel Mode or Native Routing Mode (supported by Hetzner CCM Route Controller)
 routingMode: "${var.cilium_routing_mode}"

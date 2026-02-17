@@ -104,8 +104,8 @@ resource "hcloud_load_balancer_service" "control_plane" {
 
   load_balancer_id = hcloud_load_balancer.control_plane.*.id[0]
   protocol         = "tcp"
-  destination_port = "6443"
-  listen_port      = "6443"
+  destination_port = var.kubeapi_port
+  listen_port      = var.kubeapi_port
 }
 
 locals {
@@ -133,6 +133,7 @@ locals {
       disable-cloud-controller    = true
       disable-kube-proxy          = var.disable_kube_proxy
       disable                     = local.disable_rke2_extras
+      https-listen-port           = var.kubeapi_port
       kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, v.kubelet_args)
       kube-apiserver-arg          = local.kube_apiserver_arg
       kube-controller-manager-arg = local.kube_controller_manager_arg
@@ -181,12 +182,13 @@ locals {
             module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
             module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           )
-        }:6443"
+        }:${var.kubeapi_port}"
       )
       token                    = local.k3s_token
       disable-cloud-controller = true
       disable-kube-proxy       = var.disable_kube_proxy
       disable                  = local.disable_extras
+      https-listen-port        = var.kubeapi_port
       # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_control_plane_kubelet_args
       kubelet-arg                 = concat(local.kubelet_arg, v.kubelet_args, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args)
       kube-apiserver-arg          = local.kube_apiserver_arg
