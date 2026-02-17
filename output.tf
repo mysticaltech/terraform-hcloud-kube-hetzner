@@ -43,12 +43,25 @@ output "agents_public_ipv6" {
 
 output "ingress_public_ipv4" {
   description = "The public IPv4 address of the Hetzner load balancer (with fallback to first control plane node)"
-  value       = local.has_external_load_balancer ? local.first_control_plane_ip : hcloud_load_balancer.cluster[0].ipv4
+  value = (
+    local.combine_load_balancers_effective
+    ? one(hcloud_load_balancer.control_plane[*].ipv4)
+    : (local.has_external_load_balancer ? local.first_control_plane_ip : hcloud_load_balancer.cluster[0].ipv4)
+  )
+}
+
+output "load_balancer_public_ipv4" {
+  description = "The public IPv4 address of the Terraform-managed ingress load balancer, if present."
+  value       = try(one(hcloud_load_balancer.cluster[*].ipv4), null)
 }
 
 output "ingress_public_ipv6" {
   description = "The public IPv6 address of the Hetzner load balancer (with fallback to first control plane node)"
-  value       = local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_disable_ipv6 ? null : hcloud_load_balancer.cluster[0].ipv6)
+  value = (
+    local.combine_load_balancers_effective
+    ? (var.load_balancer_disable_ipv6 ? null : one(hcloud_load_balancer.control_plane[*].ipv6))
+    : (local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_disable_ipv6 ? null : hcloud_load_balancer.cluster[0].ipv6))
+  )
 }
 
 output "lb_control_plane_ipv4" {
@@ -88,6 +101,16 @@ output "agent_nodes" {
   value       = [for node in module.agents : node]
 }
 
+output "control_planes" {
+  description = "Full control plane module map keyed by node identifier."
+  value       = module.control_planes
+}
+
+output "agents" {
+  description = "Full agent module map keyed by node identifier."
+  value       = module.agents
+}
+
 output "domain_assignments" {
   description = "Assignments of domains to IPs based on reverse DNS"
   value = concat(
@@ -98,6 +121,20 @@ output "domain_assignments" {
     ]),
     # Get assignments from floating IPs.
     [for rdns in hcloud_rdns.agents : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    # NAT router primary IP PTR assignments.
+    [for rdns in hcloud_rdns.nat_router_primary_ipv4 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    [for rdns in hcloud_rdns.nat_router_primary_ipv6 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    # Control plane load balancer PTR assignment.
+    [for rdns in hcloud_rdns.control_plane_lb_ipv4 : {
       domain = rdns.dns_ptr
       ips    = [rdns.ip_address]
     }]
