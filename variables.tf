@@ -1036,7 +1036,7 @@ variable "firewall_kube_api_source" {
 
 variable "firewall_ssh_source" {
   type        = list(string)
-  default     = ["0.0.0.0/0", "::/0"]
+  default     = ["myipv4"]
   description = "Source networks that have SSH access to the servers."
 }
 

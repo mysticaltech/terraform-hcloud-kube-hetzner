@@ -931,10 +931,11 @@ module "kube-hetzner" {
   # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
   # firewall_kube_api_source = null
 
-  # Allow SSH access from the specified networks. Default: ["0.0.0.0/0", "::/0"]
+  # Allow SSH access from the specified networks. Default: ["myipv4"]
   # Allowed values: null (disable SSH rule entirely) or a list of allowed networks with CIDR notation.
   # Ideally you would set your IP there. And if it changes after cluster deploy, you can always update this variable and apply again.
   # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
+  # For CI/CD runners or dynamic office IP ranges, override this explicitly with the required CIDRs.
   # firewall_ssh_source = ["myipv4", "1.2.3.4/32"]
 
   # By default, SELinux is enabled in enforcing mode on all nodes. For container-specific SELinux issues,
