@@ -33,7 +33,9 @@ resource "hcloud_server" "server" {
   keep_disk          = var.keep_disk_size
   public_net {
     ipv4_enabled = !var.disable_ipv4
+    ipv4         = var.disable_ipv4 ? null : var.primary_ipv4_id
     ipv6_enabled = !var.disable_ipv6
+    ipv6         = var.disable_ipv6 ? null : var.primary_ipv6_id
   }
 
   dynamic "network" {
