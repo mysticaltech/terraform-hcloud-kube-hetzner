@@ -18,14 +18,14 @@
 
 | Name | Version |
 |------|---------|
-| <a name="provider_cloudinit"></a> [cloudinit](#provider\_cloudinit) | 2.3.7 |
-| <a name="provider_github"></a> [github](#provider\_github) | 6.11.1 |
-| <a name="provider_hcloud"></a> [hcloud](#provider\_hcloud) | 1.60.1 |
-| <a name="provider_helm"></a> [helm](#provider\_helm) | 3.1.1 |
-| <a name="provider_http"></a> [http](#provider\_http) | 3.5.0 |
-| <a name="provider_local"></a> [local](#provider\_local) | 2.7.0 |
-| <a name="provider_null"></a> [null](#provider\_null) | 3.2.4 |
-| <a name="provider_random"></a> [random](#provider\_random) | 3.8.1 |
+| <a name="provider_cloudinit"></a> [cloudinit](#provider\_cloudinit) | n/a |
+| <a name="provider_github"></a> [github](#provider\_github) | >= 6.4.0 |
+| <a name="provider_hcloud"></a> [hcloud](#provider\_hcloud) | >= 1.59.0 |
+| <a name="provider_helm"></a> [helm](#provider\_helm) | >= 2.14.0 |
+| <a name="provider_http"></a> [http](#provider\_http) | >= 3.4.0 |
+| <a name="provider_local"></a> [local](#provider\_local) | >= 2.5.2 |
+| <a name="provider_null"></a> [null](#provider\_null) | n/a |
+| <a name="provider_random"></a> [random](#provider\_random) | n/a |
 | <a name="provider_ssh"></a> [ssh](#provider\_ssh) | 2.7.0 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 

@@ -15,7 +15,7 @@ jobs:
 
     - name: Install terraform-docs
       env:
-        TERRAFORM_DOCS_VERSION: v0.20.0
+        TERRAFORM_DOCS_VERSION: v0.21.0
       run: |
         curl -fsSL -o /tmp/terraform-docs.tar.gz \
           "https://github.com/terraform-docs/terraform-docs/releases/download/${TERRAFORM_DOCS_VERSION}/terraform-docs-${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz"
