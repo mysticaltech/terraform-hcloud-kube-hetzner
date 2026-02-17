@@ -1088,10 +1088,12 @@ persistence:
 
   longhorn_values = module.values_merger_longhorn.values
 
-  csi_driver_smb_values = var.csi_driver_smb_values != "" ? var.csi_driver_smb_values : <<EOT
-  EOT
+  csi_driver_smb_values_default = <<EOT
+EOT
 
-  hetzner_csi_values = var.hetzner_csi_values != "" ? var.hetzner_csi_values : <<-EOT
+  csi_driver_smb_values = module.values_merger_csi_driver_smb.values
+
+  hetzner_csi_values_default = <<-EOT
 node:
   affinity:
     nodeAffinity:
@@ -1107,6 +1109,8 @@ node:
                 values:
                   - robot
 EOT
+
+  hetzner_csi_values = module.values_merger_hetzner_csi.values
 
   nginx_values_default = <<EOT
 controller:

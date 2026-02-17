@@ -755,6 +755,17 @@ variable "hetzner_csi_values" {
   description = "Additional helm values file to pass to hetzner csi as 'valuesContent' at the HelmChart."
 }
 
+variable "hetzner_csi_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or hetzner_csi_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.hetzner_csi_merge_values == "" || can(yamldecode(var.hetzner_csi_merge_values))
+    error_message = "hetzner_csi_merge_values must be valid YAML format or empty string."
+  }
+}
+
 
 variable "restrict_outbound_traffic" {
   type        = bool
@@ -1362,6 +1373,17 @@ variable "csi_driver_smb_values" {
   type        = string
   default     = ""
   description = "Additional helm values file to pass to csi-driver-smb as 'valuesContent' at the HelmChart."
+}
+
+variable "csi_driver_smb_merge_values" {
+  type        = string
+  default     = ""
+  description = "Additional Helm values to merge with defaults (or csi_driver_smb_values if set). User values take precedence. Requires valid YAML format."
+
+  validation {
+    condition     = var.csi_driver_smb_merge_values == "" || can(yamldecode(var.csi_driver_smb_merge_values))
+    error_message = "csi_driver_smb_merge_values must be valid YAML format or empty string."
+  }
 }
 
 variable "enable_cert_manager" {
