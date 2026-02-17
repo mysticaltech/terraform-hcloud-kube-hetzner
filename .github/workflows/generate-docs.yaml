@@ -13,11 +13,18 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Install terraform-docs
+      env:
+        TERRAFORM_DOCS_VERSION: v0.20.0
+      run: |
+        curl -fsSL -o /tmp/terraform-docs.tar.gz \
+          "https://github.com/terraform-docs/terraform-docs/releases/download/${TERRAFORM_DOCS_VERSION}/terraform-docs-${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz"
+        tar -xzf /tmp/terraform-docs.tar.gz -C /tmp terraform-docs
+        sudo install -m 0755 /tmp/terraform-docs /usr/local/bin/terraform-docs
+        terraform-docs --version
+
     - name: Verify terraform docs are up to date
-      uses: terraform-docs/gh-actions@main
-      with:
-        working-dir: .
-        output-file: docs/terraform.md
-        output-method: inject
-        config-file: ".terraform-docs.yml"
-        fail-on-diff: true
+      run: |
+        terraform-docs markdown table --config .terraform-docs.yml --output-mode inject --output-file docs/terraform.md .
+        git diff -- docs/terraform.md
+        git diff --exit-code -- docs/terraform.md
