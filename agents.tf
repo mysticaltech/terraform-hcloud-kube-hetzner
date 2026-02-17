@@ -181,7 +181,7 @@ resource "terraform_data" "agents" {
 
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
-    inline = concat(var.enable_longhorn || var.enable_iscsid ? ["systemctl enable --now iscsid"] : [], local.kubernetes_distribution == "rke2" ? [
+    inline = concat(["systemctl enable --now iscsid"], local.kubernetes_distribution == "rke2" ? [
       "timeout 120 systemctl start rke2-agent 2> /dev/null",
       "systemctl enable rke2-agent",
       <<-EOT

@@ -538,10 +538,8 @@ module "kube-hetzner" {
   # See https://github.com/kubernetes-csi/csi-driver-smb/releases for the available versions.
   # csi_driver_smb_version = "v1.16.0"
 
-  # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
-  # you install your own version of longhorn outside of this module.
-  # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
-  # enable_iscsid = true
+  # iscsid is always enabled on all nodes by kube-hetzner.
+  # This keeps iSCSI-backed storage (for example Longhorn) working consistently after node reboots.
 
   # To use local storage on the nodes, you can enable Longhorn, default is "false".
   # See a full recap on how to configure agent nodepools for longhorn here https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/discussions/373#discussioncomment-3983159

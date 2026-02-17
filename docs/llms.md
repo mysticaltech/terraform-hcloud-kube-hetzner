@@ -973,20 +973,9 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Default:** The module likely picks the latest stable version of the driver.
   * **Purpose:** Allows you to pin the `csi-driver-smb` to a specific version. Useful for stability or if you need a particular feature/fix from a specific version. The GitHub releases link provides available versions.
 
-```terraform
-  # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
-  # you install your own version of longhorn outside of this module.
-  # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
-  # enable_iscsid = true
-```
-
-* **`enable_iscsid` (Boolean, Optional):**
-  * **Default:** `false`.
-  * **Purpose:** Ensures that the iSCSI daemon (`iscsid` or `open-iscsi`) and related tools are installed and running on your cluster nodes.
-  * **Relevance:** iSCSI is a protocol used by some storage solutions (like Longhorn, and potentially others you might install manually) to connect to block storage devices over a network.
-  * **Logic:**
-    * If `enable_longhorn = true` (a global module setting for Longhorn), `iscsid` is automatically enabled by the module because Longhorn requires it. This `enable_iscsid` variable is then ignored.
-    * If you are *not* using the module's Longhorn integration (`enable_longhorn = false`) but plan to install Longhorn (or another iSCSI-dependent storage solution) *manually*, you would set `enable_iscsid = true` here to ensure the necessary OS-level iSCSI support is present.
+* **iSCSI daemon behavior:**
+  * kube-hetzner always enables `iscsid` on all nodes.
+  * This avoids post-reboot storage failures for iSCSI-backed workloads (including Longhorn and manual storage setups).
 
 ```terraform
   # To use local storage on the nodes, you can enable Longhorn, default is "false".

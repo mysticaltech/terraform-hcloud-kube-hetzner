@@ -83,6 +83,7 @@ If you created a NAT router **before v2.19.0** (when the hcloud provider used th
 - **SELinux Policy Extraction** - Moved to dedicated template file for maintainability
 - **terraform_data Migration** - Migrated from null_resource to terraform_data with automatic state migration (#1548)
 - **remote-exec Refactor** - Improved provisioner compatibility with Terraform Stacks (#1893)
+- **iSCSI Daemon Defaults** - `iscsid` is now enabled on all nodes by default, and the `enable_iscsid` input was removed.
 - **Custom GPT Updated** - [KH Assistant](https://chatgpt.com/g/g-67df95cd1e0c8191baedfa3179061581-kh-assistant) updated with v2.19.0 features, improved knowledge base, and cost calculator
 
 ---
