@@ -519,6 +519,11 @@ module "kube-hetzner" {
   #   }
   # }
 
+  # Optional: allow external scraping of cluster-autoscaler metrics.
+  # This opens firewall access to NodePort 30085 (which forwards to autoscaler metrics port 8085).
+  # Leave empty to keep metrics reachable only from inside the cluster.
+  # cluster_autoscaler_metrics_firewall_source = ["myipv4", "10.0.0.0/8"]
+
   # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
   # This does not protect deletion from Terraform itself.
   # enable_delete_protection = {

@@ -861,6 +861,10 @@ The example shows three control plane nodepools, each with one node, in differen
     * **Purpose:** Whether to apply resource requests/limits to the autoscaler pod.
   * **`cluster_autoscaler_resource_values` (Map, Optional):**
     * **Purpose:** Customizes the specific CPU and memory requests/limits for the autoscaler pod.
+  * **`cluster_autoscaler_metrics_firewall_source` (List of Strings, Optional):**
+    * **Default:** `[]`.
+    * **Purpose:** Optional CIDR allowlist for external scraping of autoscaler metrics.
+    * **Details:** Enables an HCloud firewall rule to port `30085` (autoscaler metrics `NodePort`), which forwards to autoscaler container port `8085`.
 
 ```terraform
   # Additional Cluster Autoscaler binary configuration
