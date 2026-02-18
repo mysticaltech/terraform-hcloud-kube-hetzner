@@ -180,6 +180,15 @@ locals {
     restorecon -Rv /var/lib
     setenforce 1 || true
 
+    # Set a real password hash for root inside TU (so the hash persists in the
+    # snapshot). The ! lock prefix will be stripped later in clean_up, AFTER
+    # booting into this snapshot — because tukit's etc overlay finalization
+    # can restore the ! prefix even after sed removes it inside the chroot.
+    _PW="$(openssl rand -base64 32)"
+    _HASH="$(openssl passwd -6 -salt "$(openssl rand -hex 8)" "$_PW")"
+    usermod -p "$_HASH" root
+    unset _PW _HASH
+
     ${local.sysctl_commands}
 EOF
     sleep 1 && udevadm settle && reboot
@@ -188,8 +197,6 @@ EOF
   clean_up = <<-EOT
     set -ex
     echo "Second reboot successful, cleaning-up..."
-    echo "Unlocking root account (LeapMicro Default ships with root locked)..."
-    usermod -p '*' root
     case "${var.selinux_package_to_install}" in
       k3s)
         rpm -q k3s-selinux
@@ -202,6 +209,16 @@ EOF
         exit 1
         ;;
     esac
+    # Unlock root for SSH pubkey auth. This MUST run on the live booted system
+    # (not inside transactional-update shell) because tukit's etc overlay
+    # finalization restores the ! lock prefix. On SUSE, usermod -p preserves
+    # the ! prefix (!$6$...), so we strip it with sed on the live /etc/shadow.
+    # The hash was set inside TU; here we just remove the lock prefix.
+    sed -i 's/^root:!/root:/' /etc/shadow
+    # Verify: shadow field must start with $6$ (real hash, no ! prefix)
+    getent shadow root | cut -d: -f2 | grep -q '^\$6\$' \
+      || { echo "FATAL: root still locked after unlock"; getent shadow root; exit 1; }
+
     rm -rf /etc/ssh/ssh_host_*
     echo "Make sure to use NetworkManager"
     touch /etc/NetworkManager/NetworkManager.conf

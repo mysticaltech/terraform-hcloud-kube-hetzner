@@ -120,6 +120,16 @@ preserve_hostname: true
 
 runcmd:
 
+%{ if os == "leapmicro" ~}
+# Cloud-init's cc_set_passwords runs `passwd -l root` on every boot, re-locking
+# the account we unlocked in the packer snapshot. This breaks SSH pubkey auth
+# because sshd rejects locked accounts before checking keys. Strip the ! prefix
+# that passwd -l adds, restoring the $6$ hash from the snapshot.
+- "sed -i 's/^root:!/root:/' /etc/shadow"
+# Restart sshd so it picks up the unlocked account
+- "systemctl restart sshd"
+%{ endif ~}
+
 ${cloudinit_runcmd_common}
 
 %{ if os == "leapmicro" ~}

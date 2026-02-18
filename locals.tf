@@ -1350,6 +1350,18 @@ env:
 %{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
+
+# The chart hardcodes base tolerations in its template and uses
+# additionalTolerations for extras. The defaults miss not-ready:NoSchedule
+# and cilium agent-not-ready, creating a bootstrap deadlock on fresh clusters
+# where nodes are NotReady (no CNI) and Cilium hasn't started.
+additionalTolerations:
+  - key: "node.kubernetes.io/not-ready"
+    effect: "NoSchedule"
+  - key: "node.cilium.io/agent-not-ready"
+    effect: "NoSchedule"
+  - key: "node.cilium.io/agent-not-ready"
+    effect: "NoExecute"
   EOT
 
   hetzner_ccm_values = module.values_merger_hetzner_ccm.values

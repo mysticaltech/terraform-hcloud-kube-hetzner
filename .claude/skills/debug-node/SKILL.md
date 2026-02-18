@@ -1,6 +1,6 @@
 ---
 name: debug-node
-description: Use when a Hetzner node is unreachable, SSH fails, cloud-init seems broken, or provisioning hangs. Boots into rescue mode via hcloud CLI to inspect filesystem, logs, SSH keys, shadow, sshd config, and cloud-init state without needing SSH access to the node itself.
+description: Use when a Hetzner node is unreachable, SSH fails, cloud-init seems broken, or provisioning hangs. Boots into rescue mode via hcloud CLI to inspect filesystem, logs, SSH keys, sshd config, and cloud-init state without needing SSH access to the node itself.
 ---
 
 # Debug Hetzner Node via Rescue Console
@@ -8,8 +8,6 @@ description: Use when a Hetzner node is unreachable, SSH fails, cloud-init seems
 ## Overview
 
 When a Hetzner Cloud server is unreachable (SSH hangs, provisioning stuck, cloud-init failure), this skill uses Hetzner's **rescue mode** to mount the node's filesystem and inspect everything from the outside — no working SSH required.
-
-This is the nuclear option for debugging: it gives you root access to the node's disk even when the OS is completely broken.
 
 ## Usage
 
@@ -25,330 +23,253 @@ When invoked, ask for:
 
 - `hcloud` CLI installed and configured with a valid token
 - The server must exist in Hetzner Cloud
-- An SSH key that Hetzner knows about (for rescue mode access)
 
 ```bash
-# Verify hcloud CLI works
 hcloud server list
 ```
 
-## Workflow
+## Leap Micro Filesystem Model
 
-```dot
-digraph debug_flow {
-    rankdir=TB;
-    node [shape=box];
+Leap Micro uses a **transactional-update** system on btrfs. This is the mental model for everything below.
 
-    identify [label="1. Identify server"];
-    rescue [label="2. Enable rescue mode"];
-    reboot [label="3. Reboot into rescue"];
-    ssh [label="4. SSH to rescue"];
-    mount [label="5. Mount filesystem"];
-    inspect [label="6. Inspect logs/config"];
-    diagnose [label="7. Diagnose root cause"];
-    fix [label="8. Fix if possible"];
-    reboot2 [label="9. Reboot to normal"];
+| Layer | Writable? | Persists reboot? | Persists Hetzner snapshot? |
+|-------|-----------|------------------|---------------------------|
+| `/usr` (snapshot) | No (read-only) | Yes | Yes |
+| `/etc` via `transactional-update shell` | Yes (new snapshot) | Yes (after reboot) | Yes |
+| `/etc` via direct edit on running system | Yes (volatile overlay) | **No** | **No** |
+| `/var` (separate subvolume) | Yes | Yes | Yes |
 
-    identify -> rescue -> reboot -> ssh -> mount -> inspect -> diagnose -> fix -> reboot2;
-}
-```
+**Rule:** Any `/etc` change that must survive MUST go through `transactional-update --continue shell`.
+
+**Packer build phases:**
+1. **Rescue mode:** Write qcow2 to disk, reboot
+2. **`install_packages`:** Inside `transactional-update` — changes **persist**
+3. **`clean_up`:** Volatile overlay — `/etc` changes are **lost** in the Hetzner snapshot
 
 ## Step 1: Identify the Server
 
 ```bash
-# List all servers
-hcloud server list
-
-# Or find by name pattern
 hcloud server list -o columns=id,name,status,ipv4 | grep <pattern>
 ```
-
-Note the server ID and IPv4 address.
 
 ## Step 2: Enable Rescue Mode & Reboot
 
 ```bash
-# Enable rescue mode (returns a root password for rescue SSH)
-hcloud server enable-rescue <SERVER_ID>
-
-# Reboot the server into rescue
+hcloud server enable-rescue <SERVER_ID> --type linux64
 hcloud server reboot <SERVER_ID>
-
-# Wait ~30 seconds for rescue to boot
 sleep 30
 ```
 
-**Important:** The rescue root password is shown in the `enable-rescue` output. You may need it if key auth doesn't work in rescue, but typically Hetzner rescue accepts your project SSH keys automatically.
+Save the rescue root password from the output (usually key auth works, but just in case).
 
 ## Step 3: SSH into Rescue
 
 ```bash
-# Connect to rescue mode
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<SERVER_IP>
 ```
 
-You're now in a minimal Linux rescue environment with the server's disk available as `/dev/sda`.
-
 ## Step 4: Mount the Filesystem
 
-### For MicroOS / Leap Micro (btrfs with subvolumes)
-
-These distros use btrfs with transactional-update snapshots. The layout is:
-
-```
-/dev/sda2 (or sda3)  →  btrfs root
-  @/                  →  base subvolume
-  @/.snapshots/       →  snapshot container
-  @/.snapshots/N/snapshot/  →  active snapshot (where /etc lives)
-  @/root/             →  /root home
-  @/var/              →  /var
-```
+### Leap Micro / MicroOS (btrfs)
 
 ```bash
-# Find the btrfs partition
-lsblk -f
+# Mount btrfs top-level
+mount -o subvolid=5 /dev/sda3 /mnt
 
-# Mount the btrfs root
-mkdir -p /mnt/root
-mount /dev/sda2 /mnt/root       # or sda3, check lsblk output
-
-# List subvolumes to find the active snapshot
-btrfs subvolume list /mnt/root
-
-# The active snapshot is usually the highest-numbered one
-# Mount the active snapshot (adjust N to your snapshot number)
-mkdir -p /mnt/snap
-mount -o subvol=@/.snapshots/N/snapshot /dev/sda2 /mnt/snap
-
-# Mount additional subvolumes
-mount -o subvol=@/root /dev/sda2 /mnt/snap/root
-mount -o subvol=@/var /dev/sda2 /mnt/snap/var
-
-# Now /mnt/snap has the full filesystem view
+# List snapshots — highest number is active
+ls /mnt/@/.snapshots/
 ```
 
-### For Ubuntu / Debian (ext4)
+Layout:
+```
+/mnt/@/.snapshots/N/snapshot/    latest active snapshot — /etc lives here
+/mnt/@/root/                     /root home (/root/.ssh/authorized_keys)
+/mnt/@/var/                      /var (logs, cloud-init state, journal)
+```
+
+**Key:** `/etc` is inside the snapshot. `/var` and `/root` are separate subvolumes at `@/var` and `@/root`.
+
+### Ubuntu / Debian (ext4)
 
 ```bash
-mkdir -p /mnt/root
-mount /dev/sda1 /mnt/root    # adjust partition as needed
+mount /dev/sda1 /mnt
 ```
 
-## Step 5: Inspect — The Diagnostic Checklist
+## Step 5: Diagnostic Checklist
 
-Run through these checks systematically. Each reveals a different class of failure.
+Set this once and use throughout:
+```bash
+SNAP=/mnt/@/.snapshots/N/snapshot   # replace N with highest snapshot number
+```
 
-### 5a. SSH Keys (Are they injected?)
+### 5a. Cloud-Init Status
+
+Start here — most provisioning failures trace back to cloud-init.
 
 ```bash
-# Check authorized_keys
-cat /mnt/snap/root/.ssh/authorized_keys
+cat /mnt/@/var/lib/cloud/data/result.json
+cat /mnt/@/var/lib/cloud/data/status.json
+cat /mnt/@/var/lib/cloud/instance/datasource
 
-# Verify the key matches what you expect
-# Compare with your local pubkey:
-# cat ~/.ssh/id_ed25519.pub
+# What Terraform actually sent
+cat /mnt/@/var/lib/cloud/instance/user-data.txt
+zcat /mnt/@/var/lib/cloud/instance/user-data.txt.i 2>/dev/null
+
+# Logs
+tail -100 /mnt/@/var/log/cloud-init.log
+tail -100 /mnt/@/var/log/cloud-init-output.log
 ```
 
-**Expected:** Your SSH public key should be present.
-**If missing:** Cloud-init failed to inject keys.
+**Expected:** `DataSourceHetzner`, no errors.
+**Watch for:** `Skipping modules` — means cloud-init already ran for this instance-id.
 
-### 5b. Cloud-Init Status
+Cloud-init facts on Hetzner + Leap Micro:
+- Datasource: `DataSourceHetzner` (metadata API)
+- Terraform's `cloudinit_config` → gzip+base64 multipart MIME → `user_data`
+- `disable_root: false` prevents cloud-init from disabling root but does NOT unlock a locked account
+- `ssh_authorized_keys` writes keys to `/root/.ssh/authorized_keys`
+
+### 5b. SSH Keys
 
 ```bash
-# Cloud-init result
-cat /mnt/snap/var/lib/cloud/data/result.json
-
-# Cloud-init status
-cat /mnt/snap/var/lib/cloud/data/status.json
-
-# Cloud-init datasource
-ls /mnt/snap/var/lib/cloud/instance/
-cat /mnt/snap/var/lib/cloud/instance/datasource
-
-# Full cloud-init log
-cat /mnt/snap/var/log/cloud-init.log | tail -100
-
-# Cloud-init output log
-cat /mnt/snap/var/log/cloud-init-output.log | tail -100
+cat /mnt/@/root/.ssh/authorized_keys
 ```
 
-**Expected:** `result.json` shows no errors, datasource is `DataSourceHetzner`.
-**If errors:** Read the full log to identify which module failed.
+Compare with your local pubkey. If missing, cloud-init failed to inject — check 5a logs.
 
 ### 5c. SSHD Configuration
 
-```bash
-# Main sshd config
-cat /mnt/snap/etc/ssh/sshd_config | grep -E "^(PermitRootLogin|PubkeyAuthentication|PasswordAuthentication|UsePAM|AuthorizedKeysFile)"
+Config loading order (first match wins):
 
-# Drop-in configs (cloud-init often writes here)
-ls /mnt/snap/etc/ssh/sshd_config.d/
-cat /mnt/snap/etc/ssh/sshd_config.d/*.conf
-
-# Host keys (must exist)
-ls -la /mnt/snap/etc/ssh/ssh_host_*
+```
+1. /etc/ssh/sshd_config.d/40-kube-hetzner-authorized-keys-command.conf
+2. /etc/ssh/sshd_config.d/50-cloud-init.conf
+3. /etc/ssh/sshd_config.d/kube-hetzner.conf           (MaxAuthTries 2)
+4. /usr/etc/ssh/sshd_config.d/40-suse-crypto-policies.conf
+5. /usr/etc/ssh/sshd_config                            (UsePAM yes)
 ```
 
-**Expected:** `PermitRootLogin` is `yes` or `prohibit-password`, `PubkeyAuthentication yes`.
-**If wrong:** Cloud-init or packer snapshot has bad sshd config.
-
-### 5d. Account Status (The Sneaky One)
-
 ```bash
-# Check if root account is locked
-grep '^root:' /mnt/snap/etc/shadow
-
-# Decode the password field:
-#   root:*:...     = unlocked, no password (pubkey works)
-#   root:!:...     = locked (pubkey BLOCKED with UsePAM yes)
-#   root:!*:...    = locked (pubkey BLOCKED with UsePAM yes)
-#   root::...      = empty password (dangerous)
-#   root:$6$...:   = has a password hash
+ls $SNAP/etc/ssh/sshd_config.d/
+cat $SNAP/etc/ssh/sshd_config.d/*.conf
+cat $SNAP/usr/etc/ssh/sshd_config
+ls -la $SNAP/etc/ssh/ssh_host_*
 ```
 
-**This is the #1 sneaky failure on Leap Micro Default.** The image ships with `root:!*` (locked), which makes sshd reject pubkey auth when `UsePAM yes` is set — even though the keys are correctly in authorized_keys.
-
-**Fix:** In the packer snapshot build, add:
-```bash
-usermod -p '*' root
-```
-This unlocks the account without setting a password.
-
-### 5e. SSHD Journal Logs
+### 5d. Account Status
 
 ```bash
-# If systemd journal is on the var subvolume
-journalctl --root=/mnt/snap -u sshd --no-pager | tail -50
-
-# Or check the binary journal directly
-ls /mnt/snap/var/log/journal/
+grep '^root:' $SNAP/etc/shadow
 ```
 
-**Look for:** `User root not allowed because account is locked` — confirms the locked account issue.
+| Pattern | Meaning | SSH pubkey works? |
+|---------|---------|-------------------|
+| `root:*:...` | Unlocked, no password | Yes |
+| `root:!*:...` or `root:!:...` | Locked | **No** (PAM rejects with `UsePAM yes`) |
 
-### 5f. Network Configuration
+This is fixed in packer (`usermod -p '*' root` inside transactional-update) with a cloud-init `bootcmd` safety net. If you see a locked account on a fresh node, the packer snapshot needs rebuilding.
+
+### 5e. Journal Logs
 
 ```bash
-# NetworkManager connections
-ls /mnt/snap/etc/NetworkManager/system-connections/
-cat /mnt/snap/etc/NetworkManager/system-connections/*.nmconnection
-
-# Network interfaces
-cat /mnt/snap/etc/sysconfig/network/ifcfg-* 2>/dev/null
-
-# Firewall rules (if iptables/nftables persisted)
-cat /mnt/snap/etc/nftables.conf 2>/dev/null
+journalctl -D /mnt/@/var/log/journal/ -u sshd --no-pager | tail -50
+journalctl -D /mnt/@/var/log/journal/ -u k3s --no-pager | tail -30
+journalctl -D /mnt/@/var/log/journal/ -u rke2-server --no-pager | tail -30
+journalctl -D /mnt/@/var/log/journal/ -u rke2-agent --no-pager | tail -30
 ```
 
-### 5g. Kubernetes State (if applicable)
+### 5f. Network
 
 ```bash
-# k3s config
-cat /mnt/snap/etc/rancher/k3s/config.yaml 2>/dev/null
-
-# k3s token
-cat /mnt/snap/var/lib/rancher/k3s/server/token 2>/dev/null
-
-# rke2 config
-cat /mnt/snap/etc/rancher/rke2/config.yaml 2>/dev/null
-
-# Service status (from journal)
-journalctl --root=/mnt/snap -u k3s --no-pager | tail -30
-journalctl --root=/mnt/snap -u rke2-server --no-pager | tail -30
-journalctl --root=/mnt/snap -u rke2-agent --no-pager | tail -30
+ls $SNAP/etc/NetworkManager/system-connections/
+cat $SNAP/etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null
 ```
 
-### 5h. SELinux State
+### 5g. Kubernetes
 
 ```bash
-# SELinux config
-cat /mnt/snap/etc/selinux/config
-
-# Check if SELinux packages are installed
-chroot /mnt/snap rpm -qa | grep -i selinux
-
-# Audit log for denials
-cat /mnt/snap/var/log/audit/audit.log | grep denied | tail -20
+cat $SNAP/etc/rancher/k3s/config.yaml 2>/dev/null
+cat $SNAP/etc/rancher/rke2/config.yaml 2>/dev/null
+cat /mnt/@/var/lib/rancher/k3s/server/token 2>/dev/null
 ```
 
-## Step 6: Apply a Fix (If Possible)
-
-Some fixes can be applied directly from rescue mode:
+### 5h. SELinux
 
 ```bash
-# Unlock root account
-chroot /mnt/snap usermod -p '*' root
+cat $SNAP/etc/selinux/config
+chroot $SNAP rpm -qa | grep -iE 'selinux|k3s|rke2'
+tail -20 /mnt/@/var/log/audit/audit.log | grep denied
+```
+
+## Step 6: Apply a Fix
+
+Edit files in the **active snapshot** (`$SNAP`), not in `@/` base.
+
+```bash
+# Unlock root account (if locked)
+sed -i 's/^root:!*/root:*/' $SNAP/etc/shadow
 
 # Fix authorized_keys
-mkdir -p /mnt/snap/root/.ssh
-echo "ssh-ed25519 AAAA... your-key" > /mnt/snap/root/.ssh/authorized_keys
-chmod 700 /mnt/snap/root/.ssh
-chmod 600 /mnt/snap/root/.ssh/authorized_keys
+mkdir -p /mnt/@/root/.ssh
+echo "ssh-ed25519 AAAA..." > /mnt/@/root/.ssh/authorized_keys
+chmod 700 /mnt/@/root/.ssh && chmod 600 /mnt/@/root/.ssh/authorized_keys
 
-# Fix sshd config
-sed -i 's/^PermitRootLogin no/PermitRootLogin yes/' /mnt/snap/etc/ssh/sshd_config
-
-# Regenerate host keys (if they were wiped)
-chroot /mnt/snap ssh-keygen -A
+# Regenerate host keys
+mount --bind /proc $SNAP/proc && mount --bind /sys $SNAP/sys && mount --bind /dev $SNAP/dev
+chroot $SNAP ssh-keygen -A
+umount $SNAP/proc $SNAP/sys $SNAP/dev
 ```
+
+**Note:** Rescue-mode edits are immediate fixes. The proper long-term fix belongs in the packer template or cloud-init.
 
 ## Step 7: Reboot to Normal
 
 ```bash
-# Unmount everything
-umount /mnt/snap/var /mnt/snap/root /mnt/snap /mnt/root 2>/dev/null
-
-# Exit rescue SSH
+umount /mnt 2>/dev/null
 exit
 ```
 
 ```bash
-# Disable rescue mode and reboot to normal OS
 hcloud server disable-rescue <SERVER_ID>
 hcloud server reboot <SERVER_ID>
-
-# Wait and test SSH
 sleep 60
-ssh -o StrictHostKeyChecking=no root@<SERVER_IP> 'echo "SSH works!"'
+ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 root@<SERVER_IP> 'echo ok'
 ```
 
 ## Common Diagnoses
 
 | Symptom | Likely Cause | Check | Fix |
 |---------|-------------|-------|-----|
-| SSH "Too many auth failures" | Root account locked | `/etc/shadow` shows `!*` | `usermod -p '*' root` in packer |
-| SSH timeout | Firewall blocking | Check Hetzner firewall rules | Open port 22 to your IP |
-| SSH "Connection refused" | sshd not running | Journal shows sshd crash | Check sshd config syntax |
+| SSH timeout | Firewall or network | Hetzner firewall rules | Open port 22 |
+| SSH "Connection refused" | sshd not running | Journal logs | Fix sshd config syntax |
 | SSH key rejected | Keys not injected | `authorized_keys` empty | Check cloud-init logs |
-| Provisioner hangs at "Still creating" | SSH can't connect | All of the above | Fix the SSH issue |
-| Cloud-init errors | Datasource issue | `result.json` / logs | Check userdata encoding |
-| k3s not starting | Config error | k3s journal logs | Fix config.yaml |
-| SELinux denials | Policy issue | audit.log | Check selinux packages |
+| SSH "Too many auth failures" | Agent offers too many keys | `MaxAuthTries 2` | Use `-o IdentitiesOnly=yes` |
+| SSH "unable to authenticate" | Root locked, or key mismatch | `/etc/shadow`, authorized_keys | Rebuild packer snapshot |
+| Provisioner hangs "Still creating" | SSH can't connect | All above | Fix underlying SSH issue |
+| Cloud-init skips modules | Already ran for instance-id | cloud-init.log | Clean `/var/lib/cloud/instance` |
+| k3s/rke2 not starting | Config or SELinux | Journal + audit.log | Fix config or policy |
+| `/etc` change vanished | Edited outside transactional-update | Check packer phase | Move change to phase 2 |
 
-## Btrfs Subvolume Quick Reference
+## Debugging SSH Manually
 
-MicroOS and Leap Micro use this btrfs layout:
+```bash
+# Verbose with specific key (avoids agent key spray hitting MaxAuthTries 2)
+ssh -vvv -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 root@<SERVER_IP>
 
+# In -vvv output:
+# "Offering public key: ..."              → key was offered
+# "Server accepts key: ..."               → success path
+# "Authentications that can continue: ..."  → key was REJECTED
+# "Too many authentication failures"       → agent sent too many keys
 ```
-@                          → base (usually empty overlay)
-@/.snapshots               → snapshot metadata
-@/.snapshots/1/snapshot    → initial snapshot (pre-transactional-update)
-@/.snapshots/2/snapshot    → after first transactional-update
-@/.snapshots/N/snapshot    → latest active snapshot ← THIS IS YOUR /etc
-@/root                     → /root home directory
-@/var                      → /var (logs, lib, etc.)
-@/srv                      → /srv
-@/opt                      → /opt
-@/boot/grub2/x86_64-efi   → GRUB modules
-```
-
-**Key insight:** `/etc` lives inside the active snapshot subvolume, NOT in the `@` base. Always mount the highest-numbered snapshot to see the current system state.
 
 ## Pro Tips
 
-1. **Always check shadow FIRST** — it's the most common sneaky failure on immutable distros
-2. **Mount the right snapshot** — `btrfs subvolume list` and pick the highest number
-3. **Journal is gold** — `journalctl --root=` gives you sshd/systemd logs without a running system
-4. **Don't forget var** — mount `@/var` separately or you'll miss logs
-5. **chroot works** — you can `chroot /mnt/snap` to run commands as if you're on the live system
-6. **Rescue mode is non-destructive** — the disk is untouched, you're just reading/writing files
+1. **Mount with `subvolid=5`** — gets the real btrfs root, navigate to `@/.snapshots/N/snapshot/`
+2. **Highest snapshot = active** — that's where `/etc` lives
+3. **`/var` is separate** — logs and cloud-init are at `/mnt/@/var/`, not inside the snapshot
+4. **Journal without a running system** — `journalctl -D /path/to/journal/`
+5. **Use `-o IdentitiesOnly=yes`** — kube-hetzner sets `MaxAuthTries 2`
+6. **Volatile overlay trap** — if rescue shows different content than the live system did, it was running on a volatile overlay that never got committed
+7. **After fixing packer, rebuild snapshots** — verify build logs show changes inside the `transactional-update` output
+8. **Rescue mode is non-destructive** — you're just reading/writing files on the disk
