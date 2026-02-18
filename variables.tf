@@ -1556,7 +1556,7 @@ variable "enable_longhorn" {
 variable "longhorn_version" {
   type        = string
   default     = "*"
-  description = "Version of longhorn."
+  description = "Longhorn Helm chart version."
 }
 
 variable "longhorn_helmchart_bootstrap" {
@@ -1602,13 +1602,13 @@ variable "longhorn_replica_count" {
 variable "longhorn_values" {
   type        = string
   default     = ""
-  description = "Additional helm values file to pass to longhorn as 'valuesContent' at the HelmChart."
+  description = "Helm values passed as valuesContent to the Longhorn HelmChart. When set, this replaces the module defaults."
 }
 
 variable "longhorn_merge_values" {
   type        = string
   default     = ""
-  description = "Additional Helm values to merge with defaults (or longhorn_values if set). User values take precedence. Requires valid YAML format."
+  description = "Helm values to merge with defaults (or longhorn_values if set). User values take precedence. Use for targeted overrides like image tags. Requires valid YAML format."
 
   validation {
     condition     = var.longhorn_merge_values == "" || can(yamldecode(var.longhorn_merge_values))

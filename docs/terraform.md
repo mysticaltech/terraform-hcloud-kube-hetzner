@@ -305,7 +305,7 @@
 | <a name="input_load_balancer_type"></a> [load\_balancer\_type](#input\_load\_balancer\_type) | Default load balancer server type. | `string` | `"lb11"` | no |
 | <a name="input_longhorn_fstype"></a> [longhorn\_fstype](#input\_longhorn\_fstype) | The longhorn fstype. | `string` | `"ext4"` | no |
 | <a name="input_longhorn_helmchart_bootstrap"></a> [longhorn\_helmchart\_bootstrap](#input\_longhorn\_helmchart\_bootstrap) | Whether the HelmChart longhorn shall be run on control-plane nodes. | `bool` | `false` | no |
-| <a name="input_longhorn_merge_values"></a> [longhorn\_merge\_values](#input\_longhorn\_merge\_values) | Additional Helm values to merge with defaults (or longhorn\_values if set). User values take precedence. Requires valid YAML format. | `string` | `""` | no |
+| <a name="input_longhorn_merge_values"></a> [longhorn\_merge\_values](#input\_longhorn\_merge\_values) | Helm values to merge with defaults (or longhorn\_values if set). User values take precedence. Use for targeted overrides like image tags. Requires valid YAML format. | `string` | `""` | no |
 | <a name="input_longhorn_namespace"></a> [longhorn\_namespace](#input\_longhorn\_namespace) | Namespace for longhorn deployment, defaults to 'longhorn-system' | `string` | `"longhorn-system"` | no |
 | <a name="input_longhorn_replica_count"></a> [longhorn\_replica\_count](#input\_longhorn\_replica\_count) | Number of replicas per longhorn volume. | `number` | `3` | no |
 | <a name="input_longhorn_repository"></a> [longhorn\_repository](#input\_longhorn\_repository) | By default the official chart which may be incompatible with rancher is used. If you need to fully support rancher switch to https://charts.rancher.io. | `string` | `"https://charts.longhorn.io"` | no |

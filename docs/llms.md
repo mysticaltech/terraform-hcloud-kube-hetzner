@@ -1004,7 +1004,7 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Benefits:** Provides resilient, replicated storage for stateful applications, snapshotting, backups, etc.
   * **Impact:** Deploys Longhorn components (manager, engine, UI) as pods in your cluster. It will also typically set up a default StorageClass for Longhorn.
   * **Dependencies:** As mentioned, enabling Longhorn implicitly enables `iscsid`.
-  * **Configuration:** Can be further customized via `longhorn_replica_count`, `longhorn_fstype`, and the advanced `longhorn_values` block.
+  * **Configuration:** Can be further customized via `longhorn_replica_count`, `longhorn_fstype`, `longhorn_values`, and `longhorn_merge_values`.
 
 ```terraform
   # By default, longhorn is pulled from https://charts.longhorn.io.
@@ -1058,7 +1058,8 @@ The example shows three control plane nodepools, each with one node, in differen
 
 * **Longhorn Customization Path:**
   * **Simple:** Use `enable_longhorn`, `longhorn_replica_count`, `longhorn_fstype`.
-  * **Advanced:** Provide a `longhorn_values` block (discussed later) with custom Helm values to override any aspect of the Longhorn chart. If `longhorn_values` is provided, it takes precedence.
+  * **Advanced (full override):** Provide a `longhorn_values` block (discussed later) with custom Helm values. This replaces the module defaults.
+  * **Advanced (targeted override):** Use `longhorn_merge_values` to merge selected keys on top of defaults (or on top of `longhorn_values` if set). Prefer this for small changes such as image tag overrides.
   * **Post-Deploy:** Kubernetes `HelmChartConfig` Custom Resource (if k3s supports/deploys it) can be used to modify Helm release values after the initial deployment by Terraform.
 
 ```terraform
@@ -2554,6 +2555,7 @@ controller:
 
 ```terraform
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
+  # longhorn_values replaces module defaults. Prefer longhorn_merge_values for targeted overrides.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   longhorn_values = <<-EOT
 defaultSettings:
@@ -2567,7 +2569,24 @@ persistence:
 
 * **`longhorn_values` (String, Optional, Heredoc/File Content):**
   * Provides custom Helm values for the Longhorn deployment if `enable_longhorn = true`.
+  * Replaces the module's default Longhorn values.
   * Example shows setting default data path, filesystem type, replica count, and whether Longhorn's StorageClass should be the cluster-wide default.
+
+```terraform
+  # Merge specific keys without replacing all defaults (recommended for hotfix image tags).
+  /*   longhorn_merge_values = <<-EOT
+image:
+  longhorn:
+    manager:
+      tag: v1.11.0-hotfix-1
+    instanceManager:
+      tag: v1.11.0-hotfix-1
+  EOT */
+```
+
+* **`longhorn_merge_values` (String, Optional, Heredoc/File Content):**
+  * Deep-merges your YAML on top of defaults (or on top of `longhorn_values` if set).
+  * Recommended when you only need to override a subset of values, such as specific image tags.
 
 ```terraform
   # If you want to use a specific Traefik helm chart version, set it below; otherwise, leave them as-is for the latest versions.

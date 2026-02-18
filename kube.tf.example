@@ -1425,6 +1425,7 @@ EOT */
 
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
   # If you want to merge extra values into defaults (or longhorn_values), use longhorn_merge_values.
+  # longhorn_values replaces the module defaults. For targeted overrides (for example hotfix image tags), prefer longhorn_merge_values.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   longhorn_values = <<-EOT
 defaultSettings:
@@ -1438,6 +1439,16 @@ persistence:
   /*   longhorn_merge_values = <<-EOT
 defaultSettings:
   defaultReplicaCount: 2
+  EOT */
+
+  # Example: apply upstream Longhorn hotfix tags without replacing all module defaults.
+  /*   longhorn_merge_values = <<-EOT
+image:
+  longhorn:
+    manager:
+      tag: v1.11.0-hotfix-1
+    instanceManager:
+      tag: v1.11.0-hotfix-1
   EOT */
 
   # If you want to use a specific Traefik helm chart version, set it below; otherwise, leave them as-is for the latest versions.

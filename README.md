@@ -435,13 +435,6 @@ Use the `kustomization_backup.yaml` file created during installation:
 
 Most components use [Helm Chart](https://rancher.com/docs/k3s/latest/en/helm/) definitions via k3s Helm Controller.
 
-Configure via helm values variables:
-- `cilium_values`
-- `traefik_values`
-- `nginx_values`
-- `longhorn_values`
-- `rancher_values`
-
 See `kube.tf.example` for examples.
 
 ---
