@@ -84,24 +84,27 @@ resource "hcloud_server" "server" {
   }
 
   provisioner "remote-exec" {
-    inline = concat([
+    inline = [
       "echo 'Waiting for system to become fully ready...'",
 
       # Wait until the system is fully booted and in a running state.
       "timeout 600 bash -c 'until systemctl is-system-running --quiet; do echo \"Waiting for system...\"; sleep 3; done'",
 
       "echo 'System is fully ready!'"
-      ],
-      var.automatically_upgrade_os ? [
-        <<-EOT
-        echo "Automatic OS updates are enabled"
-        EOT
-        ] : [
-        <<-EOT
-        echo "Automatic OS updates are disabled"
-        systemctl --now disable transactional-update.timer
-        EOT
-    ])
+    ]
+  }
+
+  provisioner "remote-exec" {
+    inline = var.automatically_upgrade_os ? [
+      <<-EOT
+      echo "Automatic OS updates are enabled"
+      EOT
+      ] : [
+      <<-EOT
+      echo "Automatic OS updates are disabled"
+      systemctl --now disable transactional-update.timer
+      EOT
+    ]
   }
 
 }

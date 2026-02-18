@@ -1387,14 +1387,14 @@ variable "extra_firewall_rules" {
 
 variable "firewall_kube_api_source" {
   type        = list(string)
-  default     = ["myipv4"]
-  description = "Source networks that have Kube API access to the servers. Default is the current apply runner public IPv4 (/32) via the myipv4 placeholder."
+  default     = ["0.0.0.0/0", "::/0"]
+  description = "Source networks that have Kube API access to the servers. WARNING: the 'myipv4' placeholder (auto-detected via icanhazip.com) can return an incorrect IP behind VPNs, proxies, CDNs, or CI/CD runners, silently locking you out. We recommend deploying with open access first, then tightening to your known CIDRs after the cluster is up."
 }
 
 variable "firewall_ssh_source" {
   type        = list(string)
-  default     = ["myipv4"]
-  description = "Source networks that have SSH access to the servers."
+  default     = ["0.0.0.0/0", "::/0"]
+  description = "Source networks that have SSH access to the servers. WARNING: the 'myipv4' placeholder (auto-detected via icanhazip.com) can return an incorrect IP behind VPNs, proxies, CDNs, or CI/CD runners, causing provisioning to hang indefinitely. We recommend deploying with open access first, then tightening to your known CIDRs after the cluster is up."
 }
 
 variable "extra_firewall_ids" {

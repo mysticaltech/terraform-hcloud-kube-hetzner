@@ -1017,22 +1017,23 @@ module "kube-hetzner" {
   # If you want to allow all outbound traffic you can set this to "false". Default is "true".
   # restrict_outbound_traffic = false
 
-  # Allow access to the Kube API from the specified networks. The default is ["0.0.0.0/0", "::/0"].
+  # Allow access to the Kube API from the specified networks. Default: ["0.0.0.0/0", "::/0"] (open).
   # Allowed values: null (disable Kube API rule entirely) or a list of allowed networks with CIDR notation.
-  # For maximum security, it's best to disable it completely by setting it to null. However, in that case, to get access to the kube api,
-  # you would have to connect to any control plane node via SSH, as you can run kubectl from within these.
-  # Please be advised that this setting has no effect on the load balancer when the use_control_plane_lb variable is set to true. This is
-  # because firewall rules cannot be applied to load balancers yet.
-  # Default is ["myipv4"] (resolved to your current public IPv4/32 during apply).
-  # Set to null to disable this rule entirely, or provide your own CIDR list.
-  # firewall_kube_api_source = ["myipv4", "203.0.113.10/32"]
+  # For maximum security, set to null (you'd need to SSH into a control plane node to use kubectl).
+  # Note: this has no effect on the load balancer when use_control_plane_lb = true (Hetzner LBs don't support firewall rules).
+  #
+  # IMPORTANT: You can use "myipv4" as a placeholder — it resolves to your current public IPv4/32 via icanhazip.com.
+  # However, this auto-detection is UNRELIABLE behind VPNs, proxies, CDNs, or CI/CD runners and can silently
+  # lock you out. We recommend deploying with open access first, then tightening to your known CIDRs.
+  # firewall_kube_api_source = ["1.2.3.4/32", "203.0.113.0/24"]
 
-  # Allow SSH access from the specified networks. Default: ["myipv4"]
+  # Allow SSH access from the specified networks. Default: ["0.0.0.0/0", "::/0"] (open).
   # Allowed values: null (disable SSH rule entirely) or a list of allowed networks with CIDR notation.
-  # Ideally you would set your IP there. And if it changes after cluster deploy, you can always update this variable and apply again.
-  # You can use "myipv4" as a placeholder and it will resolve to your current public IPv4/32 during apply.
-  # For CI/CD runners or dynamic office IP ranges, override this explicitly with the required CIDRs.
-  # firewall_ssh_source = ["myipv4", "1.2.3.4/32"]
+  #
+  # IMPORTANT: You can use "myipv4" as a placeholder — it resolves to your current public IPv4/32 via icanhazip.com.
+  # However, this auto-detection is UNRELIABLE behind VPNs, proxies, CDNs, or CI/CD runners and can cause
+  # provisioning to HANG INDEFINITELY (SSH cannot reach nodes). Deploy open first, then tighten.
+  # firewall_ssh_source = ["1.2.3.4/32"]
 
   # Optionally attach additional existing Hetzner firewalls to all control plane and agent nodes.
   # extra_firewall_ids = [123456]

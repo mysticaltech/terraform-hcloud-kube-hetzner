@@ -188,6 +188,8 @@ EOF
   clean_up = <<-EOT
     set -ex
     echo "Second reboot successful, cleaning-up..."
+    echo "Unlocking root account (LeapMicro Default ships with root locked)..."
+    usermod -p '*' root
     case "${var.selinux_package_to_install}" in
       k3s)
         rpm -q k3s-selinux
