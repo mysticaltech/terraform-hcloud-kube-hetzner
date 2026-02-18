@@ -2127,6 +2127,12 @@ cloudinit_runcmd_common = <<EOT
 - [setenforce, '0']
 %{endif}
 
+# Backup unlock for root SSH pubkey auth (belt-and-suspenders alongside the
+# systemd oneshot baked into the Packer image). cloud-init runcmd is
+# per-instance only, so the systemd unit is the real guard.
+- [sed, '-i', 's/^root:!/root:/', '/etc/shadow']
+- [systemctl, 'restart', 'sshd']
+
 EOT
 
 }

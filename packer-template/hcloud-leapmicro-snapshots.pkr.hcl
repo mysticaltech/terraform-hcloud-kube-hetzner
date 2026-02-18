@@ -189,6 +189,25 @@ locals {
     usermod -p "$_HASH" root
     unset _PW _HASH
 
+    # Bake a systemd oneshot that unlocks root on every boot, before sshd.
+    # This is the hard fix — survives transactional-updates, reboots, and
+    # cloud-init passwd -l root (which only fires per-instance anyway).
+    cat > /etc/systemd/system/unlock-root-ssh.service <<'UNIT'
+[Unit]
+Description=Ensure root account is unlocked for SSH pubkey auth
+Before=sshd.service ssh.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'sed -i "s/^root:!/root:/" /etc/shadow'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl enable unlock-root-ssh.service
+
     ${local.sysctl_commands}
 EOF
     sleep 1 && udevadm settle && reboot
