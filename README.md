@@ -9,7 +9,7 @@
 
 **HA by default • Auto-upgrading • Cost-optimized**
 
-A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k3s on MicroOS<br>deployed for peanuts on [Hetzner Cloud](https://hetzner.com)
+A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k3s on openSUSE Leap Micro (default) / MicroOS (legacy)<br>deployed for peanuts on [Hetzner Cloud](https://hetzner.com)
 
 [![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.10-844FBA?style=flat-square&logo=terraform)](https://terraform.io)&nbsp;&nbsp;
 [![OpenTofu](https://img.shields.io/badge/OpenTofu-Compatible-FFDA18?style=flat-square&logo=opentofu)](https://opentofu.org)&nbsp;&nbsp;
@@ -56,22 +56,25 @@ AI-powered config generation & debugging!
 > *We are not Hetzner affiliates, but we strive to be the optimal solution for deploying Kubernetes on their platform.*
 
 Built on the shoulders of giants:
-- **[openSUSE MicroOS](https://en.opensuse.org/Portal:MicroOS)** — Immutable container OS with automatic updates
+- **[openSUSE Leap Micro](https://en.opensuse.org/Portal:LeapMicro)** — Stable, immutable container OS with transactional updates
+- **[openSUSE MicroOS](https://en.opensuse.org/Portal:MicroOS)** — Rolling, immutable container OS (legacy/upgrade support)
 - **[k3s](https://k3s.io/)** — Certified, lightweight Kubernetes distribution
 
 <div align="center">
 <img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/kubectl-pod-all-17022022.png" alt="Kube-Hetzner Screenshot" width="700">
 </div>
 
-### Why MicroOS over Ubuntu?
+### Why Leap Micro over Ubuntu?
 
 | Feature | Benefit |
 |---------|---------|
 | **Immutable filesystem** | Most of the OS is read-only—hardened by design |
-| **Auto-ban abusive IPs** | SSH brute-force protection out of the box |
-| **Rolling release** | Piggybacks on openSUSE Tumbleweed—always current |
+| **Transactional updates** | Atomic upgrades with rollback |
+| **Stable release cadence** | Predictable base OS for production |
 | **BTRFS snapshots** | Automatic rollback if updates break something |
 | **[Kured](https://github.com/kubereboot/kured) support** | Safe, HA-aware node reboots |
+
+> MicroOS remains supported for upgrades/legacy nodes. If you want MicroOS for a new nodepool, set `os = "microos"` explicitly.
 
 ### Why k3s?
 
@@ -84,6 +87,21 @@ Built on the shoulders of giants:
 
 ---
 
+## 🔄 Upgrading
+
+Upgrading from `v2.x` to `v3.x`?
+
+Review the migration checklist in [`MIGRATION.md`](MIGRATION.md) first, then run:
+
+```bash
+terraform init -upgrade
+terraform plan
+```
+
+Only apply after reviewing all planned resource actions.
+
+---
+
 ## ✨ Features
 
 <table>
@@ -91,7 +109,7 @@ Built on the shoulders of giants:
 <td width="50%" valign="top">
 
 ### 🚀 Core Platform
-- [x] **Maintenance-free** — Auto-upgrades MicroOS & k3s with rollback
+- [x] **Maintenance-free** — Auto-upgrades OS & k3s with rollback
 - [x] **Multi-architecture** — Mix x86 and ARM (CAX) for cost savings
 - [x] **Private networking** — Secure, low-latency node communication
 - [x] **SELinux hardened** — Pre-configured security policies
@@ -135,6 +153,23 @@ Built on the shoulders of giants:
 
 ---
 
+## 🔐 Security
+
+### MicroOS / Leap Micro Hardening
+- **Immutable base OS:** Leap Micro and MicroOS use transactional updates and read-only system partitions by default, reducing host drift and limiting persistence for unauthorized changes.
+- **Reduced host surface:** Cluster nodes are treated as appliance-style Kubernetes hosts; operational changes should flow through Terraform and Kubernetes manifests rather than ad-hoc host mutation.
+- **SELinux integration:** The module includes SELinux handling for K3s/RKE2 bootstrap paths, with explicit controls and troubleshooting guidance for strict environments.
+
+### Network Isolation
+- **Default deny posture for cluster ingress:** Firewall rules are explicit and can be narrowed to trusted source ranges (`myipv4`/allowlists) for SSH and Kubernetes API exposure.
+- **Private cluster topology support:** You can run with private networking and NAT routing patterns to minimize directly exposed node interfaces.
+- **Load balancer boundary controls:** Control plane and ingress load balancer exposure can be restricted and combined with firewall source controls to reduce public attack surface.
+
+### RKE2 Security Posture
+- **CNCF-conformant distribution option:** RKE2 is supported as a first-class Kubernetes distribution choice in this module.
+- **Compliance-oriented operation:** RKE2 is designed for hardened, regulated environments and supports CIS-focused deployment patterns.
+- **Certification visibility:** For current security certifications/compliance mappings, reference the upstream RKE2 documentation and release notes as authoritative sources.
+
 ## 🏁 Getting Started
 
 ### Prerequisites
@@ -168,6 +203,8 @@ Built on the shoulders of giants:
 
 > **Required tools:** [terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [tofu](https://opentofu.org/docs/intro/install/), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli)
 
+OpenTofu is officially supported. Pull requests are validated in CI with both Terraform and OpenTofu.
+
 ---
 
 ### ⚡ Quick Start
@@ -183,7 +220,7 @@ Built on the shoulders of giants:
 </tr>
 <tr>
 <td>3️⃣</td>
-<td><strong>Run the setup script</strong> — creates your project folder and MicroOS snapshot:</td>
+<td><strong>Run the setup script</strong> — creates your project folder and OS snapshots (Leap Micro recommended):</td>
 </tr>
 </table>
 
@@ -214,10 +251,16 @@ alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw
 mkdir /path/to/your/new/folder
 cd /path/to/your/new/folder
 curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o kube.tf
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
 curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
 export HCLOUD_TOKEN="your_hcloud_token"
-packer init hcloud-microos-snapshots.pkr.hcl
-packer build hcloud-microos-snapshots.pkr.hcl
+packer init hcloud-leapmicro-snapshots.pkr.hcl
+for distro in k3s rke2; do
+  packer build -var "selinux_package_to_install=${distro}" hcloud-leapmicro-snapshots.pkr.hcl
+done
+# (optional legacy)
+# packer init hcloud-microos-snapshots.pkr.hcl
+# packer build hcloud-microos-snapshots.pkr.hcl
 hcloud context create <project-name>
 ```
 </details>
@@ -260,7 +303,7 @@ terraform output -json kubeconfig | jq
 ssh root@<control-plane-ip> -i /path/to/private_key -o StrictHostKeyChecking=no
 ```
 
-Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
+Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf (default is `["myipv4"]`). For CI/CD runners, override it with your runner CIDRs. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
 
 ### Connect via Kube API
 
@@ -336,7 +379,7 @@ See [Rancher's HA documentation](https://rancher.com/docs/k3s/latest/en/installa
 
 ## 🔄 Automatic Upgrades
 
-### OS Upgrades (MicroOS)
+### OS Upgrades (Leap Micro / MicroOS)
 
 Handled by [Kured](https://github.com/kubereboot/kured)—safe, HA-aware reboots. Configure timeframes via [Kured options](https://kured.dev/docs/configuration/).
 
@@ -491,6 +534,9 @@ egressGateway:
   enabled: true
 MTU: 1450
 EOT
+
+# Optional: keep selected egress policies pinned to a Ready egress node automatically
+cilium_egress_gateway_ha_enabled = true
 ```
 
 Example policy:
@@ -499,6 +545,8 @@ apiVersion: cilium.io/v2
 kind: CiliumEgressGatewayPolicy
 metadata:
   name: egress-sample
+  labels:
+    kube-hetzner.io/egress-ha: "true"
 spec:
   selectors:
     - podSelector:
@@ -561,7 +609,15 @@ spec:
 <details>
 <summary><strong>Managing snapshots</strong></summary>
 
-**Create:**
+**Create (recommended):**
+```sh
+export HCLOUD_TOKEN=<your-token>
+for distro in k3s rke2; do
+  packer build -var "selinux_package_to_install=${distro}" ./packer-template/hcloud-leapmicro-snapshots.pkr.hcl
+done
+```
+
+**Create (legacy MicroOS):**
 ```sh
 export HCLOUD_TOKEN=<your-token>
 packer build ./packer-template/hcloud-microos-snapshots.pkr.hcl
@@ -585,7 +641,7 @@ Uses k3s [service load balancer](https://rancher.com/docs/k3s/latest/en/networki
 <details>
 <summary><strong>Terraform Cloud deployment</strong></summary>
 
-1. Create MicroOS snapshot in your project first
+1. Create a Leap Micro snapshot in your project first (or MicroOS if you explicitly use it)
 2. Configure SSH keys as Terraform Cloud variables (mark private key as sensitive):
 
 ```tf
@@ -978,9 +1034,44 @@ Fully private setup with:
 </details>
 
 <details>
+<summary><strong>External overlay access (Tailscale/ZeroTier/WARP)</strong></summary>
+
+Overlay providers are intentionally kept outside of core kube-hetzner logic.
+Use your overlay setup in an outer module and then pass resulting endpoints
+back into kube-hetzner.
+
+```tf
+# Bootstrap overlay client on each node (example command only)
+preinstall_exec = [
+  "curl -fsSL https://tailscale.com/install.sh | sh",
+  "tailscale up --auth-key=${var.tailscale_auth_key} --ssh",
+]
+
+# After overlay IPs are known, route Terraform SSH through them
+# Keys must match final node names (with cluster prefix if enabled)
+node_connection_overrides = {
+  "k3s-control-plane" = "100.64.0.10"
+  "k3s-agent-0"       = "100.64.0.11"
+}
+
+# Optional: use an external control-plane endpoint exposed through overlay
+control_plane_endpoint = "https://cp.tailnet.example:6443"
+```
+
+Typical workflow:
+1. Apply once to bootstrap nodes and overlay agents.
+2. Resolve overlay addresses and set `node_connection_overrides`.
+3. Apply again and optionally tighten `firewall_ssh_source` / `firewall_kube_api_source`.
+
+See `/examples/external-overlay-tailscale/README.md` for a concrete outer-module pattern.
+</details>
+
+<details>
 <summary><strong>Fix SELinux issues with udica</strong></summary>
 
 Create targeted SELinux profiles instead of weakening cluster-wide security:
+
+> **Troubleshooting note:** When using large attached volumes (for example large Longhorn disks), first boot can hit cloud-init/systemd timeouts while SELinux relabeling completes. If you hit this repeatedly, a practical workaround is to disable SELinux only on the affected nodepool(s) instead of disabling it cluster-wide.
 
 ```sh
 # Find container
@@ -1084,10 +1175,12 @@ Update `version` in your kube.tf and run `terraform apply`.
 2. Create your branch: `git checkout -b AmazingFeature`
 3. Point your kube.tf `source` to local clone
 4. Useful commands:
-   ```sh
-   ../kube-hetzner/scripts/cleanup.sh
-   packer build ../kube-hetzner/packer-template/hcloud-microos-snapshots.pkr.hcl
-   ```
+	   ```sh
+	   ../kube-hetzner/scripts/cleanup.sh
+	   for distro in k3s rke2; do packer build -var "selinux_package_to_install=${distro}" ../kube-hetzner/packer-template/hcloud-leapmicro-snapshots.pkr.hcl; done
+	   # (legacy)
+	   # packer build ../kube-hetzner/packer-template/hcloud-microos-snapshots.pkr.hcl
+	   ```
 5. Update `kube.tf.example` if needed
 6. Commit: `git commit -m 'Add AmazingFeature'`
 7. Push: `git push origin AmazingFeature`
@@ -1134,6 +1227,13 @@ Your sponsorship directly funds:
 ---
 
 ## 🙏 Acknowledgements
+
+- **[k-andy](https://github.com/StarpTech/k-andy)** — The starting point for this project
+- **[Best-README-Template](https://github.com/othneildrew/Best-README-Template)** — README inspiration
+- **[Hetzner Cloud](https://www.hetzner.com)** — Outstanding infrastructure and Terraform provider
+- **[HashiCorp](https://www.hashicorp.com)** — The amazing Terraform framework
+- **[Rancher](https://www.rancher.com)** — k3s, the heart of this project
+- **[openSUSE](https://www.opensuse.org)** — Leap Micro & MicroOS, next-level container OS
 
 <div align="center">
 <a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>

@@ -3,16 +3,17 @@ resource "random_password" "k3s_token" {
   special = false
 }
 
-data "hcloud_image" "microos_x86_snapshot" {
-  with_selector     = "microos-snapshot=yes"
-  with_architecture = "x86"
-  most_recent       = true
+resource "random_password" "secrets_encryption_key" {
+  count   = var.secrets_encryption ? 1 : 0
+  length  = 32
+  special = false
 }
 
-data "hcloud_image" "microos_arm_snapshot" {
-  with_selector     = "microos-snapshot=yes"
-  with_architecture = "arm"
-  most_recent       = true
+check "encryption_mode_conflict" {
+  assert {
+    condition     = !(var.k3s_encryption_at_rest && var.secrets_encryption)
+    error_message = "k3s_encryption_at_rest and secrets_encryption are mutually exclusive. Enable only one encryption mode."
+  }
 }
 
 resource "hcloud_ssh_key" "k3s" {
@@ -35,23 +36,22 @@ data "hcloud_network" "k3s" {
 }
 
 
-# We start from the end of the subnets cidr array,
-# as we would have fewer control plane nodepools, than agent ones.
+# Shared cluster subnet used for auto-assigned node private IPv4 addresses.
 resource "hcloud_network_subnet" "control_plane" {
-  count        = length(var.control_plane_nodepools)
+  count        = 1
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
   network_zone = var.network_region
-  ip_range     = local.network_ipv4_subnets[var.subnet_amount - 1 - count.index]
+  ip_range     = local.network_ipv4_subnets[0]
 }
 
-# Here we start at the beginning of the subnets cidr array
+# Agent subnet allocation is consolidated into the shared control_plane subnet.
 resource "hcloud_network_subnet" "agent" {
-  count        = length(var.agent_nodepools)
+  count        = 0
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
   network_zone = var.network_region
-  ip_range     = coalesce(var.agent_nodepools[count.index].subnet_ip_range, local.network_ipv4_subnets[count.index])
+  ip_range     = local.network_ipv4_subnets[0]
 }
 
 # Subnet for NAT router and other peripherals
@@ -86,6 +86,13 @@ resource "hcloud_firewall" "k3s" {
       port            = lookup(rule.value, "port", null)
       destination_ips = lookup(rule.value, "destination_ips", [])
       source_ips      = lookup(rule.value, "source_ips", [])
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !local.is_ref_myipv4_used || local.my_public_ipv4_cidr != null
+      error_message = "Unable to resolve 'myipv4' to a valid public IPv4 address from https://ipv4.icanhazip.com."
     }
   }
 }

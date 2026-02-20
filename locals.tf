@@ -10,8 +10,54 @@ locals {
   # if given as a variable, we want to use the given token. This is needed to restore the cluster
   k3s_token = var.k3s_token == null ? random_password.k3s_token.result : var.k3s_token
 
+  kubernetes_distribution        = var.kubernetes_distribution_type
+  secrets_encryption_config_file = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/encryption-config.yaml" : "/etc/rancher/k3s/encryption-config.yaml"
+  secrets_encryption_config = var.secrets_encryption ? yamlencode({
+    apiVersion = "apiserver.config.k8s.io/v1"
+    kind       = "EncryptionConfiguration"
+    resources = [{
+      resources = ["secrets"]
+      providers = [
+        {
+          aescbc = {
+            keys = [{
+              name   = "key1"
+              secret = base64encode(random_password.secrets_encryption_key[0].result)
+            }]
+          }
+        },
+        {
+          identity = {}
+        }
+      ]
+    }]
+  }) : ""
+
+  k3s_encryption_config_path  = "/etc/rancher/k3s/encryption-config.yaml"
+  k3s_encryption_provider_key = base64sha256(local.k3s_token)
+  k3s_encryption_config       = <<-EOT
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: kube-hetzner
+              secret: ${local.k3s_encryption_provider_key}
+      - identity: {}
+EOT
+  k3s_encryption_write_files = var.k3s_encryption_at_rest && local.kubernetes_distribution == "k3s" ? [
+    {
+      path        = local.k3s_encryption_config_path
+      permissions = "0600"
+      content     = local.k3s_encryption_config
+    }
+  ] : []
+
   # k3s endpoint used for agent registration, respects control_plane_endpoint override
-  k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
+  k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:${var.kubeapi_port}")
 
   ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : data.github_release.hetzner_ccm[0].release_tag
   csi_version    = length(data.github_release.hetzner_csi) == 0 ? var.hetzner_csi_version : data.github_release.hetzner_csi[0].release_tag
@@ -35,6 +81,16 @@ locals {
   # Separate out IPv4 and IPv6 DNS hosts.
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
   dns_servers_ipv6 = [for ip in var.dns_servers : ip if provider::assert::ipv6(ip)]
+
+  is_ref_myipv4_used = (
+    contains(coalesce(var.firewall_kube_api_source, []), var.myipv4_ref) ||
+    contains(coalesce(var.firewall_ssh_source, []), var.myipv4_ref) ||
+    contains(flatten([
+      for rule in var.extra_firewall_rules : concat(lookup(rule, "source_ips", []), lookup(rule, "destination_ips", []))
+    ]), var.myipv4_ref)
+  )
+  my_public_ipv4      = try(trimspace(data.http.my_ipv4[0].response_body), null)
+  my_public_ipv4_cidr = can(cidrhost("${local.my_public_ipv4}/32", 0)) ? "${local.my_public_ipv4}/32" : null
 
   use_robot_ccm = var.robot_ccm_enabled && var.robot_user != "" && var.robot_password != ""
   # Key of the kube_system_secret-items is the name of the Secret. Values of those items are the key-value pairs of Secret.
@@ -90,6 +146,7 @@ locals {
       # move the config file into place and adjust permissions
       "[ -f /tmp/config.yaml ] && mv /tmp/config.yaml /etc/rancher/k3s/config.yaml",
       "chmod 0600 /etc/rancher/k3s/config.yaml",
+      "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/k3s/encryption-config.yaml && chmod 0600 /etc/rancher/k3s/encryption-config.yaml",
       # if the server has already been initialized just stop here
       "[ -e /etc/rancher/k3s/k3s.yaml ] && exit 0",
       local.install_additional_k3s_environment,
@@ -192,7 +249,50 @@ locals {
     ["timeout 180s /bin/sh -c 'while ! ping -c 1 ${var.address_for_connectivity_test} >/dev/null 2>&1; do echo \"Ready for k3s installation, waiting for a successful connection to the internet...\"; sleep 5; done; echo Connected'"]
   )
 
+  common_pre_install_rke2_commands = concat(
+    [
+      "set -ex",
+      # rename the private network interface to eth1
+      "/etc/cloud/rename_interface.sh",
+      # prepare the rke2 config directory
+      "mkdir -p /etc/rancher/rke2",
+      # move the config file into place and adjust permissions
+      "[ -f /tmp/config.yaml ] && mv /tmp/config.yaml /etc/rancher/rke2/config.yaml",
+      "chmod 0600 /etc/rancher/rke2/config.yaml",
+      "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml && chmod 0600 /etc/rancher/rke2/encryption-config.yaml",
+      # if the server has already been initialized just stop here
+      "[ -e /etc/rancher/rke2/rke2.yaml ] && exit 0",
+      local.install_additional_k3s_environment,
+      local.install_system_alias,
+      local.install_kubectl_bash_completion,
+    ],
+    length(local.dns_servers_ipv4) > 0 ? [
+      "nmcli con mod eth0 ipv4.dns ${join(",", local.dns_servers_ipv4)}"
+    ] : [],
+    length(local.dns_servers_ipv6) > 0 ? [
+      "nmcli con mod eth0 ipv6.dns ${join(",", local.dns_servers_ipv6)}"
+    ] : [],
+    local.has_dns_servers ? ["systemctl restart NetworkManager"] : [],
+    # User-defined commands to execute just before installing rke2.
+    var.preinstall_exec,
+    # Wait for a successful connection to the internet.
+    ["timeout 180s /bin/sh -c 'while ! ping -c 1 ${var.address_for_connectivity_test} >/dev/null 2>&1; do echo \"Ready for rke2 installation, waiting for a successful connection to the internet...\"; sleep 5; done; echo Connected'"]
+  )
+
+  common_pre_install_k8s_commands = var.kubernetes_distribution_type == "rke2" ? local.common_pre_install_rke2_commands : local.common_pre_install_k3s_commands
+
   common_post_install_k3s_commands = concat(var.postinstall_exec, ["restorecon -v /usr/local/bin/k3s"])
+  common_post_install_rke2_commands = concat(var.postinstall_exec, [<<-EOT
+if command -v restorecon >/dev/null 2>&1; then
+  [ -f /usr/local/bin/rke2 ] && restorecon -v /usr/local/bin/rke2 || true
+  [ -f /opt/rke2/bin/rke2 ] && restorecon -v /opt/rke2/bin/rke2 || true
+  [ -d /var/lib/rancher/rke2 ] && restorecon -RF /var/lib/rancher/rke2 || true
+else
+  echo "restorecon not available; skipping RKE2 relabel"
+fi
+EOT
+  ])
+  common_post_install_k8s_commands = var.kubernetes_distribution_type == "rke2" ? local.common_post_install_rke2_commands : local.common_post_install_k3s_commands
 
   kustomization_backup_yaml = yamlencode({
     apiVersion = "kustomize.config.k8s.io/v1beta1"
@@ -203,11 +303,13 @@ locals {
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/system-upgrade-controller.yaml",
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/crd.yaml"
       ],
-      var.hetzner_ccm_use_helm ? ["hcloud-ccm-helm.yaml"] : ["https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/download/${local.ccm_version}/ccm-networks.yaml"],
+      var.hetzner_ccm_use_helm ? [] : ["https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/download/${local.ccm_version}/ccm-networks.yaml"],
+      var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? ["load_balancer_monitoring.yaml"] : [],
       var.disable_hetzner_csi ? [] : ["hcloud-csi.yaml"],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
-      lookup(local.cni_install_resources, var.cni_plugin, []),
-      var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
+      local.kubernetes_distribution == "k3s" ? lookup(local.cni_install_resources, var.cni_plugin, []) : [],
+      var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled && var.cilium_egress_gateway_ha_enabled ? ["cilium_egress_gateway_ha.yaml"] : [],
+      local.kubernetes_distribution == "k3s" && var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
       var.enable_longhorn ? ["longhorn.yaml"] : [],
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
       var.enable_cert_manager || var.enable_rancher ? ["cert_manager.yaml"] : [],
@@ -233,16 +335,68 @@ locals {
     )
   })
 
-  apply_k3s_selinux = ["/sbin/semodule -v -i /usr/share/selinux/packages/k3s.pp"]
-  swap_node_label   = ["node.kubernetes.io/server-swap=enabled"]
+  apply_k3s_selinux = [<<-EOT
+echo "Checking k3s SELinux policy status..."
+if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && rpm -q k3s-selinux >/dev/null 2>&1; then
+  if [ -f /usr/share/selinux/packages/k3s.pp ]; then
+    echo "Applying k3s SELinux policy..."
+    semodule -v -i /usr/share/selinux/packages/k3s.pp || true
+  else
+    echo "k3s SELinux policy file not found at /usr/share/selinux/packages/k3s.pp; skipping"
+  fi
 
-  k3s_install_command = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.install_k3s_version == ""}INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}%{else}INSTALL_K3S_VERSION=${var.install_k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
+  if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = "Enforcing" ]; then
+    if ! semodule -l 2>/dev/null | awk '{print $1}' | grep -qx "k3s"; then
+      echo "ERROR: SELinux is enforcing but k3s module is not loaded"
+      exit 1
+    fi
+  fi
+else
+  echo "k3s-selinux package or semodule not available; skipping"
+fi
+EOT
+  ]
+  apply_rke2_selinux = [<<-EOT
+echo "Checking rke2 SELinux policy status..."
+if command -v semodule >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1; then
+  if rpm -q rke2-selinux >/dev/null 2>&1; then
+    if [ -f /usr/share/selinux/packages/rke2.pp ]; then
+      echo "Applying rke2 SELinux policy..."
+      semodule -v -i /usr/share/selinux/packages/rke2.pp || true
+    else
+      echo "rke2 SELinux policy file not found at /usr/share/selinux/packages/rke2.pp; skipping"
+    fi
+  else
+    echo "rke2-selinux package not installed; skipping policy apply"
+  fi
+
+  if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" = "Enforcing" ]; then
+    if ! semodule -l 2>/dev/null | awk '{print $1}' | grep -qx "rke2"; then
+      echo "ERROR: SELinux is enforcing but rke2 module is not loaded"
+      exit 1
+    fi
+  fi
+else
+  echo "rpm or semodule not available; skipping rke2 SELinux policy checks"
+fi
+EOT
+  ]
+  swap_node_label = ["node.kubernetes.io/server-swap=enabled"]
+
+  k3s_install_command  = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.install_k3s_version == ""}INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}%{else}INSTALL_K3S_VERSION=${var.install_k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
+  rke2_install_command = "curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION=${var.install_rke2_version} INSTALL_RKE2_EXEC='%s' sh -"
 
   install_k3s_server = concat(
     local.common_pre_install_k3s_commands,
     [format(local.k3s_install_command, "server ${var.k3s_exec_server_args}")],
     var.disable_selinux ? [] : local.apply_k3s_selinux,
-    local.common_post_install_k3s_commands
+    local.common_post_install_k8s_commands
+  )
+  install_rke2_server = concat(
+    local.common_pre_install_k8s_commands,
+    [format(local.rke2_install_command, "server ${var.k3s_exec_server_args}")],
+    var.disable_selinux ? [] : local.apply_rke2_selinux,
+    local.common_post_install_k8s_commands
   )
 
   install_k3s_agent = concat(
@@ -251,30 +405,247 @@ locals {
     var.disable_selinux ? [] : local.apply_k3s_selinux,
     local.common_post_install_k3s_commands
   )
+  install_rke2_agent = concat(
+    local.common_pre_install_k8s_commands,
+    [format(local.rke2_install_command, "agent ${var.k3s_exec_agent_args}")],
+    var.disable_selinux ? [] : local.apply_rke2_selinux,
+    local.common_post_install_k8s_commands
+  )
 
-  control_plane_nodes = merge([
+  install_k8s_server = var.kubernetes_distribution_type == "rke2" ? local.install_rke2_server : local.install_k3s_server
+  install_k8s_agent  = var.kubernetes_distribution_type == "rke2" ? local.install_rke2_agent : local.install_k3s_agent
+  kubectl_cli        = var.kubernetes_distribution_type == "rke2" ? "/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml" : "kubectl"
+
+  # Used for mapping existing node names (which include the random suffix) back into nodepool names.
+  cluster_prefix_for_node_names = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+
+  configured_control_plane_nodepool_names = distinct([for np in var.control_plane_nodepools : np.name])
+  configured_agent_nodepool_names         = distinct([for np in var.agent_nodepools : np.name])
+
+  # Union for any cluster-wide checks.
+  configured_nodepool_names = distinct(concat(
+    local.configured_control_plane_nodepool_names,
+    local.configured_agent_nodepool_names,
+  ))
+
+  existing_control_plane_servers_info = [
+    for s in data.hcloud_servers.existing_control_plane_nodes.servers : {
+      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
+      name_base = trimprefix(
+        length(split("-", s.name)) > 1
+        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
+        : s.name,
+        local.cluster_prefix_for_node_names,
+      )
+
+      # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
+      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
+    }
+  ]
+
+  existing_agent_servers_info = [
+    for s in data.hcloud_servers.existing_agent_nodes.servers : {
+      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
+      name_base = trimprefix(
+        length(split("-", s.name)) > 1
+        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
+        : s.name,
+        local.cluster_prefix_for_node_names,
+      )
+
+      # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
+      os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
+    }
+  ]
+
+  existing_servers_info = concat(local.existing_control_plane_servers_info, local.existing_agent_servers_info)
+
+  existing_control_plane_servers_nodepool_os = [
+    for s in local.existing_control_plane_servers_info : merge(s, {
+      # Choose the best-matching nodepool for this server name ("longest prefix wins") so that:
+      # - node name suffixes (e.g. "-0") don't break matching
+      # - nodepool "auto" doesn't incorrectly match "auto-large"
+      nodepool = (
+        length([
+          for np in local.configured_control_plane_nodepool_names :
+          np
+          if startswith(s.name_base, np) && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+        ]) > 0
+        ? one([
+          for np in local.configured_control_plane_nodepool_names :
+          np
+          if(
+            startswith(s.name_base, np)
+            && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+            && length(np) == max([
+              for np2 in local.configured_control_plane_nodepool_names :
+              length(np2)
+              if startswith(s.name_base, np2) && (length(s.name_base) == length(np2) || substr(s.name_base, length(np2), 1) == "-")
+            ]...)
+          )
+        ])
+        : null
+      )
+    })
+  ]
+
+  existing_agent_servers_nodepool_os = [
+    for s in local.existing_agent_servers_info : merge(s, {
+      # Choose the best-matching nodepool for this server name ("longest prefix wins") so that:
+      # - node name suffixes (e.g. "-0") don't break matching
+      # - nodepool "auto" doesn't incorrectly match "auto-large"
+      nodepool = (
+        length([
+          for np in local.configured_agent_nodepool_names :
+          np
+          if startswith(s.name_base, np) && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+        ]) > 0
+        ? one([
+          for np in local.configured_agent_nodepool_names :
+          np
+          if(
+            startswith(s.name_base, np)
+            && (length(s.name_base) == length(np) || substr(s.name_base, length(np), 1) == "-")
+            && length(np) == max([
+              for np2 in local.configured_agent_nodepool_names :
+              length(np2)
+              if startswith(s.name_base, np2) && (length(s.name_base) == length(np2) || substr(s.name_base, length(np2), 1) == "-")
+            ]...)
+          )
+        ])
+        : null
+      )
+    })
+  ]
+
+  existing_control_plane_nodepool_names = distinct(compact([for s in local.existing_control_plane_servers_nodepool_os : s.nodepool]))
+  existing_agent_nodepool_names         = distinct(compact([for s in local.existing_agent_servers_nodepool_os : s.nodepool]))
+
+  existing_os_labels_by_control_plane_nodepool = {
+    for np in local.configured_control_plane_nodepool_names :
+    np => distinct(compact([for s in local.existing_control_plane_servers_nodepool_os : s.os_label if s.nodepool == np]))
+  }
+
+  existing_os_labels_by_agent_nodepool = {
+    for np in local.configured_agent_nodepool_names :
+    np => distinct(compact([for s in local.existing_agent_servers_nodepool_os : s.os_label if s.nodepool == np]))
+  }
+
+  existing_cluster_os_labels = distinct(compact([for s in local.existing_servers_info : s.os_label]))
+
+  control_plane_nodepool_default_os = {
+    for nodepool_name in local.configured_control_plane_nodepool_names :
+    nodepool_name => (
+      !contains(local.existing_control_plane_nodepool_names, nodepool_name)
+      ? "leapmicro"
+      : (
+        length(local.existing_os_labels_by_control_plane_nodepool[nodepool_name]) == 1
+        ? local.existing_os_labels_by_control_plane_nodepool[nodepool_name][0]
+        : "microos"
+      )
+    )
+  }
+
+  agent_nodepool_default_os = {
+    for nodepool_name in local.configured_agent_nodepool_names :
+    nodepool_name => (
+      !contains(local.existing_agent_nodepool_names, nodepool_name)
+      ? "leapmicro"
+      : (
+        length(local.existing_os_labels_by_agent_nodepool[nodepool_name]) == 1
+        ? local.existing_os_labels_by_agent_nodepool[nodepool_name][0]
+        : "microos"
+      )
+    )
+  }
+
+  control_plane_nodes_from_integer_counts = merge([
     for pool_index, nodepool_obj in var.control_plane_nodepools : {
-      for node_index in range(nodepool_obj.count) :
+      for node_index in range(coalesce(nodepool_obj.count, 0)) :
       format("%s-%s-%s", pool_index, node_index, nodepool_obj.name) => {
         nodepool_name : nodepool_obj.name,
         server_type : nodepool_obj.server_type,
         location : nodepool_obj.location,
         labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+        hcloud_labels : nodepool_obj.hcloud_labels,
         taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints)),
         kubelet_args : nodepool_obj.kubelet_args,
         backups : nodepool_obj.backups,
+        floating_ip : nodepool_obj.floating_ip,
+        floating_ip_id : nodepool_obj.floating_ip_id,
+        append_random_suffix : nodepool_obj.append_random_suffix,
         swap_size : nodepool_obj.swap_size,
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
+        os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+        primary_ipv4_id : nodepool_obj.primary_ipv4_id,
+        primary_ipv6_id : nodepool_obj.primary_ipv6_id,
         network_id : nodepool_obj.network_id,
+        keep_disk : nodepool_obj.keep_disk,
+        join_endpoint_type : nodepool_obj.join_endpoint_type,
+        extra_write_files : nodepool_obj.extra_write_files,
+        extra_runcmd : nodepool_obj.extra_runcmd,
+        attached_volumes : nodepool_obj.attached_volumes,
       }
     }
   ]...)
+
+  control_plane_nodes_from_maps_for_counts = merge([
+    for pool_index, nodepool_obj in var.control_plane_nodepools : {
+      for node_key, node_obj in coalesce(nodepool_obj.nodes, {}) :
+      format("%s-%s-%s", pool_index, node_key, nodepool_obj.name) => merge(
+        {
+          nodepool_name : nodepool_obj.name,
+          server_type : nodepool_obj.server_type,
+          append_random_suffix : nodepool_obj.append_random_suffix,
+          location : nodepool_obj.location,
+          floating_ip : nodepool_obj.floating_ip,
+          floating_ip_id : nodepool_obj.floating_ip_id,
+          labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+          hcloud_labels : nodepool_obj.hcloud_labels,
+          taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints)),
+          kubelet_args : nodepool_obj.kubelet_args,
+          backups : nodepool_obj.backups,
+          swap_size : nodepool_obj.swap_size,
+          zram_size : nodepool_obj.zram_size,
+          selinux : nodepool_obj.selinux,
+          os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name]),
+          placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
+          placement_group : nodepool_obj.placement_group,
+          index : floor(tonumber(node_key)),
+          disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
+          disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+          primary_ipv4_id : nodepool_obj.primary_ipv4_id,
+          primary_ipv6_id : nodepool_obj.primary_ipv6_id,
+          network_id : nodepool_obj.network_id,
+          keep_disk : nodepool_obj.keep_disk,
+          join_endpoint_type : nodepool_obj.join_endpoint_type,
+          extra_write_files : nodepool_obj.extra_write_files,
+          extra_runcmd : nodepool_obj.extra_runcmd,
+          attached_volumes : nodepool_obj.attached_volumes,
+        },
+        { for key, value in node_obj : key => value if value != null },
+        {
+          labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
+          hcloud_labels : merge(nodepool_obj.hcloud_labels, coalesce(node_obj.hcloud_labels, {})),
+          taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
+          extra_write_files : concat(nodepool_obj.extra_write_files, coalesce(node_obj.extra_write_files, [])),
+          extra_runcmd : concat(nodepool_obj.extra_runcmd, coalesce(node_obj.extra_runcmd, [])),
+          attached_volumes : concat(nodepool_obj.attached_volumes, coalesce(node_obj.attached_volumes, [])),
+        }
+      )
+    }
+  ]...)
+
+  control_plane_nodes = merge(
+    local.control_plane_nodes_from_integer_counts,
+    local.control_plane_nodes_from_maps_for_counts,
+  )
 
   agent_nodes_from_integer_counts = merge([
     for pool_index, nodepool_obj in var.agent_nodepools : {
@@ -286,21 +657,33 @@ locals {
         longhorn_volume_size : coalesce(nodepool_obj.longhorn_volume_size, 0),
         longhorn_mount_path : nodepool_obj.longhorn_mount_path,
         floating_ip : lookup(nodepool_obj, "floating_ip", false),
+        floating_ip_type : nodepool_obj.floating_ip_type,
+        floating_ip_id : lookup(nodepool_obj, "floating_ip_id", null),
         floating_ip_rdns : lookup(nodepool_obj, "floating_ip_rdns", false),
         location : nodepool_obj.location,
         labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+        hcloud_labels : nodepool_obj.hcloud_labels,
         taints : compact(concat(local.default_agent_taints, nodepool_obj.taints)),
         kubelet_args : nodepool_obj.kubelet_args,
         backups : lookup(nodepool_obj, "backups", false),
+        append_random_suffix : nodepool_obj.append_random_suffix,
         swap_size : nodepool_obj.swap_size,
         zram_size : nodepool_obj.zram_size,
         index : node_index
         selinux : nodepool_obj.selinux
+        os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name])
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
         disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+        primary_ipv4_id : nodepool_obj.primary_ipv4_id,
+        primary_ipv6_id : nodepool_obj.primary_ipv6_id,
         network_id : nodepool_obj.network_id,
+        keep_disk : nodepool_obj.keep_disk,
+        join_endpoint_type : nodepool_obj.join_endpoint_type,
+        extra_write_files : nodepool_obj.extra_write_files,
+        extra_runcmd : nodepool_obj.extra_runcmd,
+        attached_volumes : nodepool_obj.attached_volumes,
       }
     }
   ]...)
@@ -316,26 +699,42 @@ locals {
           longhorn_volume_size : coalesce(nodepool_obj.longhorn_volume_size, 0),
           longhorn_mount_path : nodepool_obj.longhorn_mount_path,
           floating_ip : lookup(nodepool_obj, "floating_ip", false),
+          floating_ip_type : nodepool_obj.floating_ip_type,
+          floating_ip_id : lookup(nodepool_obj, "floating_ip_id", null),
           floating_ip_rdns : lookup(nodepool_obj, "floating_ip_rdns", false),
           location : nodepool_obj.location,
           labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+          hcloud_labels : nodepool_obj.hcloud_labels,
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints)),
           kubelet_args : nodepool_obj.kubelet_args,
           backups : lookup(nodepool_obj, "backups", false),
+          append_random_suffix : nodepool_obj.append_random_suffix,
           swap_size : nodepool_obj.swap_size,
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
+          os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name]),
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
           disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
           disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+          primary_ipv4_id : nodepool_obj.primary_ipv4_id,
+          primary_ipv6_id : nodepool_obj.primary_ipv6_id,
           network_id : nodepool_obj.network_id,
+          keep_disk : nodepool_obj.keep_disk,
+          join_endpoint_type : nodepool_obj.join_endpoint_type,
+          extra_write_files : nodepool_obj.extra_write_files,
+          extra_runcmd : nodepool_obj.extra_runcmd,
+          attached_volumes : nodepool_obj.attached_volumes,
         },
         { for key, value in node_obj : key => value if value != null },
         {
           labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
+          hcloud_labels : merge(nodepool_obj.hcloud_labels, coalesce(node_obj.hcloud_labels, {})),
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
+          extra_write_files : concat(nodepool_obj.extra_write_files, coalesce(node_obj.extra_write_files, [])),
+          extra_runcmd : concat(nodepool_obj.extra_runcmd, coalesce(node_obj.extra_runcmd, [])),
+          attached_volumes : concat(nodepool_obj.attached_volumes, coalesce(node_obj.attached_volumes, [])),
         },
         (
           node_obj.append_index_to_node_name ? { node_name_suffix : "-${floor(tonumber(node_key))}" } : {}
@@ -350,42 +749,128 @@ locals {
     local.agent_nodes_from_maps_for_counts,
   )
 
+  default_autoscaler_os = length(local.existing_servers_info) == 0 ? "leapmicro" : (
+    length(local.existing_cluster_os_labels) == 1 ? local.existing_cluster_os_labels[0] : "microos"
+  )
+
+  autoscaler_nodepools_os = [
+    for np in var.autoscaler_nodepools :
+    coalesce(np.os, local.default_autoscaler_os)
+  ]
+
+  node_os_arch_pairs = concat(
+    [
+      for n in values(local.control_plane_nodes) :
+      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+    [
+      for n in values(local.agent_nodes) :
+      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+    [
+      for np in var.autoscaler_nodepools :
+      { os = coalesce(np.os, local.default_autoscaler_os), arch = substr(np.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+    ],
+  )
+
+  os_arch_requirements = {
+    microos = {
+      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "x86"])
+    }
+    leapmicro = {
+      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "x86"])
+    }
+  }
+
+  snapshot_id_by_os = {
+    leapmicro = {
+      arm = var.leapmicro_arm_snapshot_id != "" ? var.leapmicro_arm_snapshot_id : try(data.hcloud_image.leapmicro_arm_snapshot[0].id, "")
+      x86 = var.leapmicro_x86_snapshot_id != "" ? var.leapmicro_x86_snapshot_id : try(data.hcloud_image.leapmicro_x86_snapshot[0].id, "")
+    }
+    microos = {
+      arm = var.microos_arm_snapshot_id != "" ? var.microos_arm_snapshot_id : try(data.hcloud_image.microos_arm_snapshot[0].id, "")
+      x86 = var.microos_x86_snapshot_id != "" ? var.microos_x86_snapshot_id : try(data.hcloud_image.microos_x86_snapshot[0].id, "")
+    }
+  }
+
   use_existing_network = length(var.existing_network_id) > 0
 
   use_nat_router = var.nat_router != null
 
-  ssh_bastion = local.use_nat_router ? {
-    bastion_host        = hcloud_server.nat_router[0].ipv4_address
-    bastion_port        = var.ssh_port
-    bastion_user        = "nat-router"
-    bastion_private_key = var.ssh_private_key
-    } : {
-    bastion_host        = null
-    bastion_port        = null
-    bastion_user        = null
-    bastion_private_key = null
-  }
+  ssh_bastion = coalesce(
+    local.use_nat_router ? {
+      bastion_host        = hcloud_server.nat_router[0].ipv4_address
+      bastion_port        = var.ssh_port
+      bastion_user        = "nat-router"
+      bastion_private_key = var.ssh_private_key
+    } : null,
+    var.optional_bastion_host,
+    {
+      bastion_host        = null
+      bastion_port        = null
+      bastion_user        = null
+      bastion_private_key = null
+    }
+  )
 
   # Create subnets from the base network CIDR.
   # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
   network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_amount, 2), index)]
 
+  cluster_ipv4_cidr_effective = var.cluster_ipv4_cidr != null && trimspace(var.cluster_ipv4_cidr) != "" ? var.cluster_ipv4_cidr : null
+  service_ipv4_cidr_effective = var.service_ipv4_cidr != null && trimspace(var.service_ipv4_cidr) != "" ? var.service_ipv4_cidr : null
+  cluster_ipv6_cidr_effective = var.cluster_ipv6_cidr != null && trimspace(var.cluster_ipv6_cidr) != "" ? var.cluster_ipv6_cidr : null
+  service_ipv6_cidr_effective = var.service_ipv6_cidr != null && trimspace(var.service_ipv6_cidr) != "" ? var.service_ipv6_cidr : null
+
+  cluster_cidrs = compact([
+    local.cluster_ipv4_cidr_effective,
+    local.cluster_ipv6_cidr_effective,
+  ])
+  service_cidrs = compact([
+    local.service_ipv4_cidr_effective,
+    local.service_ipv6_cidr_effective,
+  ])
+
+  cluster_cidr = join(",", local.cluster_cidrs)
+  service_cidr = join(",", local.service_cidrs)
+
   # By convention the DNS service (usually core-dns) is assigned the 10th IP address in the service CIDR block
-  cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : cidrhost(var.service_ipv4_cidr, 10)
+  cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : (local.service_ipv4_cidr_effective != null ? cidrhost(local.service_ipv4_cidr_effective, 10) : null)
+  cluster_dns_ipv6 = local.service_ipv6_cidr_effective != null ? cidrhost(local.service_ipv6_cidr_effective, 10) : null
+  cluster_dns_values = compact([
+    local.cluster_dns_ipv4,
+    local.cluster_dns_ipv6,
+  ])
+  cluster_dns = join(",", local.cluster_dns_values)
 
   # The gateway's IP address is always the first IP address of the subnet's IP range
   network_gw_ipv4 = cidrhost(var.network_ipv4_cidr, 1)
 
   # if we are in a single cluster config, we use the default klipper lb instead of Hetzner LB
-  control_plane_count    = sum([for v in var.control_plane_nodepools : v.count])
+  control_plane_count    = length(var.control_plane_nodepools) > 0 ? sum([for v in var.control_plane_nodepools : length(coalesce(v.nodes, {})) + coalesce(v.count, 0)]) : 0
   agent_count            = length(var.agent_nodepools) > 0 ? sum([for v in var.agent_nodepools : length(coalesce(v.nodes, {})) + coalesce(v.count, 0)]) : 0
   autoscaler_max_count   = length(var.autoscaler_nodepools) > 0 ? sum([for v in var.autoscaler_nodepools : v.max_nodes]) : 0
   is_single_node_cluster = (local.control_plane_count + local.agent_count + local.autoscaler_max_count) == 1
 
   using_klipper_lb = var.enable_klipper_metal_lb || local.is_single_node_cluster
 
-  has_external_load_balancer = local.using_klipper_lb || var.ingress_controller == "none"
+  has_external_load_balancer_base = local.using_klipper_lb || var.ingress_controller == "none"
+  combine_load_balancers_effective = (
+    var.combine_load_balancers &&
+    var.use_control_plane_lb &&
+    !local.has_external_load_balancer_base
+  )
+  has_external_load_balancer = local.has_external_load_balancer_base || local.combine_load_balancers_effective
+  skip_ingress_lb_wait       = local.has_external_load_balancer_base
   load_balancer_name         = "${var.cluster_name}-${var.ingress_controller}"
+  managed_ingress_controllers = [
+    "traefik",
+    "nginx",
+    "haproxy"
+  ]
+  is_managed_ingress_controller = contains(local.managed_ingress_controllers, var.ingress_controller)
 
   ingress_controller_service_names = {
     "traefik" = "traefik"
@@ -401,16 +886,20 @@ locals {
 
   default_ingress_namespace_mapping = {
     "traefik" = "traefik"
-    "nginx"   = "nginx"
+    "nginx"   = "ingress-nginx"
     "haproxy" = "haproxy"
   }
 
-  ingress_controller_namespace = var.ingress_target_namespace != "" ? var.ingress_target_namespace : lookup(local.default_ingress_namespace_mapping, var.ingress_controller, "")
-  ingress_replica_count        = (var.ingress_replica_count > 0) ? var.ingress_replica_count : (local.agent_count > 2) ? 3 : (local.agent_count == 2) ? 2 : 1
-  ingress_max_replica_count    = (var.ingress_max_replica_count > local.ingress_replica_count) ? var.ingress_max_replica_count : local.ingress_replica_count
+  ingress_controller_namespace = var.ingress_target_namespace != "" ? var.ingress_target_namespace : (
+    var.ingress_controller_use_system_namespace ? "kube-system" : lookup(local.default_ingress_namespace_mapping, var.ingress_controller, "")
+  )
+  ingress_replica_count     = (var.ingress_replica_count > 0) ? var.ingress_replica_count : (local.agent_count > 2) ? 3 : (local.agent_count == 2) ? 2 : 1
+  ingress_max_replica_count = (var.ingress_max_replica_count > local.ingress_replica_count) ? var.ingress_max_replica_count : local.ingress_replica_count
 
   # disable k3s extras
-  disable_extras = concat(var.enable_local_storage ? [] : ["local-storage"], local.using_klipper_lb ? [] : ["servicelb"], ["traefik"], var.enable_metrics_server ? [] : ["metrics-server"])
+  # TODO: Extend to work with rke2
+  disable_extras      = concat(var.enable_local_storage ? [] : ["local-storage"], local.using_klipper_lb ? [] : ["servicelb"], ["traefik"], var.enable_metrics_server ? [] : ["metrics-server"])
+  disable_rke2_extras = ["rke2-ingress-nginx"]
 
   # Determine if scheduling should be allowed on control plane nodes, which will be always true for single node clusters and clusters or if scheduling is allowed on control plane nodes
   allow_scheduling_on_control_plane = local.is_single_node_cluster ? true : var.allow_scheduling_on_control_plane
@@ -424,12 +913,15 @@ locals {
     [local.labels_agent_node]
   )
 
-  # Default k3s node labels
+  upgrade_label = local.kubernetes_distribution == "rke2" ? "rke2_upgrade=true" : "k3s_upgrade=true"
+
+  # Default node labels
   default_agent_labels = concat(
     var.exclude_agents_from_external_load_balancers ? ["node.kubernetes.io/exclude-from-external-load-balancers=true"] : [],
-    var.automatically_upgrade_k3s ? ["k3s_upgrade=true"] : []
+    var.automatically_upgrade_k3s ? [local.upgrade_label] : []
   )
-  default_control_plane_labels = concat(local.allow_loadbalancer_target_on_control_plane ? [] : ["node.kubernetes.io/exclude-from-external-load-balancers=true"], var.automatically_upgrade_k3s ? ["k3s_upgrade=true"] : [])
+  default_control_plane_labels = concat(local.allow_loadbalancer_target_on_control_plane ? [] : ["node.kubernetes.io/exclude-from-external-load-balancers=true"], var.automatically_upgrade_k3s ? [local.upgrade_label] : [])
+  default_autoscaler_labels    = concat([], var.automatically_upgrade_k3s ? [local.upgrade_label] : [])
 
   # Default k3s node taints
   default_control_plane_taints = concat([], local.allow_scheduling_on_control_plane ? [] : ["node-role.kubernetes.io/control-plane:NoSchedule"])
@@ -451,8 +943,17 @@ locals {
         description = "Allow Incoming Requests to Kube API Server"
         direction   = "in"
         protocol    = "tcp"
-        port        = "6443"
+        port        = tostring(var.kubeapi_port)
         source_ips  = var.firewall_kube_api_source
+      }
+    ],
+    length(var.cluster_autoscaler_metrics_firewall_source) == 0 || length(var.autoscaler_nodepools) == 0 ? [] : [
+      {
+        description = "Allow Incoming Requests to Cluster Autoscaler Metrics NodePort"
+        direction   = "in"
+        protocol    = "tcp"
+        port        = "30085"
+        source_ips  = var.cluster_autoscaler_metrics_firewall_source
       }
     ],
     !var.restrict_outbound_traffic ? [] : [
@@ -546,12 +1047,19 @@ locals {
   # merge the two lists
   firewall_rules_merged = merge(local.firewall_rules, local.extra_firewall_rules)
 
-  # convert the merged list back to a list
-  firewall_rules_list = values(local.firewall_rules_merged)
+  # convert the merged map back to a list and resolve the myipv4 placeholder
+  firewall_rules_list = [for _, rule in local.firewall_rules_merged : {
+    description     = rule.description
+    direction       = rule.direction
+    protocol        = rule.protocol
+    port            = lookup(rule, "port", null)
+    source_ips      = compact([for ip in lookup(rule, "source_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+    destination_ips = compact([for ip in lookup(rule, "destination_ips", []) : ip == var.myipv4_ref ? local.my_public_ipv4_cidr : ip])
+  } if rule != null]
 
   labels = {
     "provisioner" = "terraform",
-    "engine"      = "k3s"
+    "engine"      = local.kubernetes_distribution
     "cluster"     = var.cluster_name
   }
 
@@ -573,10 +1081,6 @@ locals {
 
   prefer_bundled_bin_config = var.k3s_prefer_bundled_bin ? { "prefer-bundled-bin" = true } : {}
 
-  cni_install_resource_patches = {
-    "calico" = ["calico.yaml"]
-  }
-
   cni_k3s_settings = {
     "flannel" = {
       disable-network-policy = var.disable_network_policy
@@ -592,20 +1096,42 @@ locals {
     }
   }
 
+  # TODO: Needs review, straight copy & pasted from cni_k3s_settings
+  #  Result: It seems that none of the settings are supported in rke2
+  # cni_rke2_settings = {
+  #   "flannel" = {
+  #     disable-network-policy = var.disable_network_policy
+  #     flannel-backend        = var.enable_wireguard ? "wireguard-native" : "vxlan"
+  #   }
+  #   "calico" = {
+  #     disable-network-policy = true
+  #     flannel-backend        = "none"
+  #   }
+  #   "cilium" = {
+  #     disable-network-policy = true
+  #     flannel-backend        = "none"
+  #   }
+  # }
+
   etcd_s3_snapshots = length(keys(var.etcd_s3_backup)) > 0 ? merge(
     {
       "etcd-s3" = true
     },
   var.etcd_s3_backup) : {}
 
-  kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.k3s_kubelet_config != "" ? ["config=/etc/rancher/k3s/kubelet-config.yaml"] : [])
+  kubelet_config_file         = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/kubelet-config.yaml" : "/etc/rancher/k3s/kubelet-config.yaml"
+  kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.k3s_kubelet_config != "" ? ["config=${local.kubelet_config_file}"] : [])
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
   flannel_iface               = "eth1"
+  authentication_config_file  = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/authentication_config.yaml" : "/etc/rancher/k3s/authentication_config.yaml"
+  audit_policy_file           = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/audit-policy.yaml" : "/etc/rancher/k3s/audit-policy.yaml"
+  control_plane_service_name  = local.kubernetes_distribution == "rke2" ? "rke2-server" : "k3s"
+  agent_service_name          = local.kubernetes_distribution == "rke2" ? "rke2-agent" : "k3s-agent"
 
   kube_apiserver_arg = concat(
-    var.authentication_config != "" ? ["authentication-config=/etc/rancher/k3s/authentication_config.yaml"] : [],
+    var.authentication_config != "" ? ["authentication-config=${local.authentication_config_file}"] : [],
     var.k3s_audit_policy_config != "" ? [
-      "audit-policy-file=/etc/rancher/k3s/audit-policy.yaml",
+      "audit-policy-file=${local.audit_policy_file}",
       "audit-log-path=${var.k3s_audit_log_path}",
       "audit-log-maxage=${var.k3s_audit_log_maxage}",
       "audit-log-maxbackup=${var.k3s_audit_log_maxbackup}",
@@ -630,7 +1156,7 @@ kubeProxyReplacementHealthzBindAddr: "0.0.0.0:10256"
 
 # Access to Kube API Server (mandatory if kube-proxy is disabled)
 k8sServiceHost: "127.0.0.1"
-k8sServicePort: "6444"
+k8sServicePort: "${local.kubernetes_distribution == "rke2" ? tostring(var.kubeapi_port) : "6444"}"
 
 # Set Tunnel Mode or Native Routing Mode (supported by Hetzner CCM Route Controller)
 routingMode: "${var.cilium_routing_mode}"
@@ -715,6 +1241,16 @@ spec:
 
   EOT
 
+  desired_cni_values  = var.cni_plugin == "cilium" ? local.cilium_values : local.calico_values
+  desired_cni_version = var.cni_plugin == "cilium" ? var.cilium_version : var.calico_version
+  # RKE2 supports built-in CNI selections. We only inject a custom manifest for cilium.
+  rke2_cni = (
+    var.cni_plugin == "cilium"
+    ? "none"
+    : (var.cni_plugin == "calico" ? "calico" : "canal")
+  )
+  rke2_manifest_cni_plugin = var.cni_plugin == "cilium" ? "cilium" : "rke2-noop"
+
   longhorn_values_default = <<EOT
 defaultSettings:
 %{if length(var.autoscaler_nodepools) != 0~}
@@ -729,10 +1265,12 @@ persistence:
 
   longhorn_values = module.values_merger_longhorn.values
 
-  csi_driver_smb_values = var.csi_driver_smb_values != "" ? var.csi_driver_smb_values : <<EOT
-  EOT
+  csi_driver_smb_values_default = <<EOT
+EOT
 
-  hetzner_csi_values = var.hetzner_csi_values != "" ? var.hetzner_csi_values : <<-EOT
+  csi_driver_smb_values = module.values_merger_csi_driver_smb.values
+
+  hetzner_csi_values_default = <<-EOT
 node:
   affinity:
     nodeAffinity:
@@ -749,6 +1287,8 @@ node:
                   - robot
 EOT
 
+  hetzner_csi_values = module.values_merger_hetzner_csi.values
+
   nginx_values_default = <<EOT
 controller:
   watchIngressWithoutClass: "true"
@@ -761,7 +1301,11 @@ controller:
 %{if !local.using_klipper_lb~}
   service:
     annotations:
+%{if local.combine_load_balancers_effective~}
+      "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
       "load-balancer.hetzner.cloud/use-private-ip": "true"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -813,6 +1357,18 @@ env:
 %{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
+
+# The chart hardcodes base tolerations in its template and uses
+# additionalTolerations for extras. The defaults miss not-ready:NoSchedule
+# and cilium agent-not-ready, creating a bootstrap deadlock on fresh clusters
+# where nodes are NotReady (no CNI) and Cilium hasn't started.
+additionalTolerations:
+  - key: "node.kubernetes.io/not-ready"
+    effect: "NoSchedule"
+  - key: "node.cilium.io/agent-not-ready"
+    effect: "NoSchedule"
+  - key: "node.cilium.io/agent-not-ready"
+    effect: "NoExecute"
   EOT
 
   hetzner_ccm_values = module.values_merger_hetzner_ccm.values
@@ -846,7 +1402,11 @@ controller:
       prometheus: false
 %{if !local.using_klipper_lb~}
     annotations:
+%{if local.combine_load_balancers_effective~}
+      "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
       "load-balancer.hetzner.cloud/use-private-ip": "true"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -876,7 +1436,11 @@ service:
   type: LoadBalancer
 %{if !local.using_klipper_lb~}
   annotations:
+%{if local.combine_load_balancers_effective~}
+    "load-balancer.hetzner.cloud/id": "${hcloud_load_balancer.control_plane.*.id[0]}"
+%{else~}
     "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
+%{endif~}
     "load-balancer.hetzner.cloud/use-private-ip": "true"
     "load-balancer.hetzner.cloud/disable-private-ingress": "true"
     "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
@@ -944,7 +1508,7 @@ ports:
     expose:
       default: true
     exposedPort: ${option.exposedPort}
-    protocol: TCP
+    protocol: ${upper(option.protocol)}
     observability:
       metrics: false
       accessLogs: false
@@ -1038,14 +1602,18 @@ kured_options = merge({
   "period" : "5m",
   "reboot-sentinel" : "/sentinel/reboot-required"
 }, var.kured_options)
+kured_reboot_sentinel = lookup(local.kured_options, "reboot-sentinel", "/sentinel/reboot-required")
 
 k3s_registries_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/k3s
 if cmp -s /tmp/registries.yaml /etc/rancher/k3s/registries.yaml; then
   echo "No update required to the registries.yaml file"
 else
-  echo "Backing up /etc/rancher/k3s/registries.yaml to /tmp/registries_$DATE.yaml"
-  cp /etc/rancher/k3s/registries.yaml /tmp/registries_$DATE.yaml
+  if [ -f /etc/rancher/k3s/registries.yaml ]; then
+    echo "Backing up /etc/rancher/k3s/registries.yaml to /tmp/registries_$DATE.yaml"
+    cp /etc/rancher/k3s/registries.yaml /tmp/registries_$DATE.yaml
+  fi
   echo "Updated registries.yaml detected, restart of k3s service required"
   cp /tmp/registries.yaml /etc/rancher/k3s/registries.yaml
   if systemctl is-active --quiet k3s; then
@@ -1064,6 +1632,7 @@ set -e
 DATE=`date +%Y-%m-%d_%H-%M-%S`
 BACKUP_FILE="/tmp/kubelet-config_$DATE.yaml"
 HAS_BACKUP=false
+mkdir -p /etc/rancher/k3s
 
 if cmp -s /tmp/kubelet-config.yaml /etc/rancher/k3s/kubelet-config.yaml; then
   echo "No update required to the kubelet-config.yaml file"
@@ -1104,8 +1673,68 @@ else
 fi
 EOF
 
+rke2_kubelet_config_update_script = <<EOF
+set -e
+DATE=`date +%Y-%m-%d_%H-%M-%S`
+BACKUP_FILE="/tmp/kubelet-config_$DATE.yaml"
+HAS_BACKUP=false
+mkdir -p /etc/rancher/rke2
+
+if cmp -s /tmp/kubelet-config.yaml /etc/rancher/rke2/kubelet-config.yaml; then
+  echo "No update required to the kubelet-config.yaml file"
+else
+  if [ -f "/etc/rancher/rke2/kubelet-config.yaml" ]; then
+    echo "Backing up /etc/rancher/rke2/kubelet-config.yaml to $BACKUP_FILE"
+    cp /etc/rancher/rke2/kubelet-config.yaml "$BACKUP_FILE"
+    HAS_BACKUP=true
+  fi
+  echo "Updated kubelet-config.yaml detected, restart of rke2 service required"
+  cp /tmp/kubelet-config.yaml /etc/rancher/rke2/kubelet-config.yaml
+
+  restart_failed() {
+    local SERVICE_NAME="$1"
+    echo "Error: Failed to restart $SERVICE_NAME"
+    if [ "$HAS_BACKUP" = true ]; then
+      echo "Restoring from backup $BACKUP_FILE"
+      cp "$BACKUP_FILE" /etc/rancher/rke2/kubelet-config.yaml
+      echo "Attempting to restart $SERVICE_NAME with restored config..."
+      systemctl restart "$SERVICE_NAME" || echo "Warning: Restart after restore also failed"
+    else
+      echo "No backup available to restore (first-time config)"
+      rm -f /etc/rancher/rke2/kubelet-config.yaml
+      echo "Attempting to restart $SERVICE_NAME without kubelet config..."
+      systemctl restart "$SERVICE_NAME" || echo "Warning: Restart without config also failed"
+    fi
+    exit 1
+  }
+
+  if systemctl is-active --quiet rke2-server; then
+    systemctl restart rke2-server || restart_failed rke2-server
+  elif systemctl is-active --quiet rke2-agent; then
+    systemctl restart rke2-agent || restart_failed rke2-agent
+  else
+    echo "Warning: No active rke2-server or rke2-agent service found, skipping restart"
+  fi
+  echo "rke2-server service or rke2-agent service (re)started successfully"
+fi
+EOF
+
 k3s_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/k3s
+
+restart_or_signal_update() {
+  local SERVICE_NAME="$1"
+  if ${var.k8s_config_updates_use_kured_sentinel}; then
+    SENTINEL="${local.kured_reboot_sentinel}"
+    mkdir -p "$(dirname "$SENTINEL")"
+    touch "$SENTINEL"
+    echo "Triggered Kured reboot sentinel at $SENTINEL instead of restarting $SERVICE_NAME"
+    return 0
+  fi
+  systemctl restart "$SERVICE_NAME"
+}
+
 if cmp -s /tmp/config.yaml /etc/rancher/k3s/config.yaml; then
   echo "No update required to the config.yaml file"
 else
@@ -1115,10 +1744,14 @@ else
   fi
   echo "Updated config.yaml detected, restart of k3s service required"
   cp /tmp/config.yaml /etc/rancher/k3s/config.yaml
+  if [ -s /tmp/encryption-config.yaml ]; then
+    cp /tmp/encryption-config.yaml /etc/rancher/k3s/encryption-config.yaml
+    chmod 0600 /etc/rancher/k3s/encryption-config.yaml
+  fi
   if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s)
+    restart_or_signal_update k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && restart_or_signal_update k3s)
   elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && systemctl restart k3s-agent)
+    restart_or_signal_update k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/k3s/config.yaml && restart_or_signal_update k3s-agent)
   else
     echo "No active k3s or k3s-agent service found"
   fi
@@ -1128,6 +1761,12 @@ EOF
 
 k3s_audit_policy_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+AUDIT_POLICY_FILE="${local.audit_policy_file}"
+SERVICE_NAME="${local.control_plane_service_name}"
+BACKUP_FILE="/tmp/audit-policy_$DATE.yaml"
+HAS_BACKUP=false
+mkdir -p "$(dirname "$AUDIT_POLICY_FILE")"
+
 if [ -z "${var.k3s_audit_policy_config}" ] || [ "${var.k3s_audit_policy_config}" = " " ]; then
   echo "No audit policy config provided via Terraform, skipping audit policy setup"
   # Note: We intentionally DO NOT remove existing audit policies here.
@@ -1136,21 +1775,30 @@ if [ -z "${var.k3s_audit_policy_config}" ] || [ "${var.k3s_audit_policy_config}"
 fi
 
 # Config is provided, proceed with audit policy setup
-if cmp -s /tmp/audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml; then
+if cmp -s /tmp/audit-policy.yaml "$AUDIT_POLICY_FILE"; then
   echo "No update required to the audit-policy.yaml file"
 else
-  if [ -f "/etc/rancher/k3s/audit-policy.yaml" ]; then
-    echo "Backing up /etc/rancher/k3s/audit-policy.yaml to /tmp/audit-policy_$DATE.yaml"
-    cp /etc/rancher/k3s/audit-policy.yaml /tmp/audit-policy_$DATE.yaml
+  if [ -f "$AUDIT_POLICY_FILE" ]; then
+    echo "Backing up $AUDIT_POLICY_FILE to $BACKUP_FILE"
+    cp "$AUDIT_POLICY_FILE" "$BACKUP_FILE"
+    HAS_BACKUP=true
   fi
-  echo "Updated audit-policy.yaml detected, restart of k3s service required"
-  cp /tmp/audit-policy.yaml /etc/rancher/k3s/audit-policy.yaml
-  if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/audit-policy.yaml from backup" && cp /tmp/audit-policy_$DATE.yaml /etc/rancher/k3s/audit-policy.yaml && systemctl restart k3s)
+  echo "Updated audit-policy.yaml detected, restart of $SERVICE_NAME service required"
+  cp /tmp/audit-policy.yaml "$AUDIT_POLICY_FILE"
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+    if ! systemctl restart "$SERVICE_NAME"; then
+      echo "Error: Failed to restart $SERVICE_NAME"
+      if [ "$HAS_BACKUP" = true ]; then
+        echo "Restoring $AUDIT_POLICY_FILE from backup $BACKUP_FILE"
+        cp "$BACKUP_FILE" "$AUDIT_POLICY_FILE"
+        systemctl restart "$SERVICE_NAME" || true
+      fi
+      exit 1
+    fi
   else
-    echo "k3s service is not active, skipping restart"
+    echo "$SERVICE_NAME is not active, skipping restart"
   fi
-  echo "k3s service restarted successfully with new audit policy"
+  echo "$SERVICE_NAME restarted successfully with new audit policy"
 fi
 
 # Ensure audit log directory exists with proper permissions
@@ -1161,25 +1809,117 @@ EOF
 
 k3s_authentication_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
-if cmp -s /tmp/authentication_config.yaml /etc/rancher/k3s/authentication_config.yaml; then
+mkdir -p "$(dirname "${local.authentication_config_file}")"
+if cmp -s /tmp/authentication_config.yaml ${local.authentication_config_file}; then
   echo "No update required to the authentication_config.yaml file"
 else
-  if [ -f "/etc/rancher/k3s/authentication_config.yaml" ]; then
-    echo "Backing up /etc/rancher/k3s/authentication_config.yaml to /tmp/authentication_config_$DATE.yaml"
-    cp /etc/rancher/k3s/authentication_config.yaml /tmp/authentication_config_$DATE.yaml
+  if [ -f "${local.authentication_config_file}" ]; then
+    echo "Backing up ${local.authentication_config_file} to /tmp/authentication_config_$DATE.yaml"
+    cp "${local.authentication_config_file}" /tmp/authentication_config_$DATE.yaml
   fi
-  echo "Updated authentication_config.yaml detected, restart of k3s service required"
-  cp /tmp/authentication_config.yaml /etc/rancher/k3s/authentication_config.yaml
-  if systemctl is-active --quiet k3s; then
-    systemctl restart k3s || (echo "Error: Failed to restart k3s. Restoring /etc/rancher/k3s/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/k3s/authentication_config.yaml && systemctl restart k3s)
-  elif systemctl is-active --quiet k3s-agent; then
-    systemctl restart k3s-agent || (echo "Error: Failed to restart k3s-agent. Restoring /etc/rancher/k3s/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/k3s/authentication_config.yaml && systemctl restart k3s-agent)
+  echo "Updated authentication_config.yaml detected, restart of kubernetes service required"
+  cp /tmp/authentication_config.yaml "${local.authentication_config_file}"
+  if systemctl is-active --quiet ${local.control_plane_service_name}; then
+    systemctl restart ${local.control_plane_service_name} || (echo "Error: Failed to restart ${local.control_plane_service_name}. Restoring ${local.authentication_config_file} from backup" && cp /tmp/authentication_config_$DATE.yaml "${local.authentication_config_file}" && systemctl restart ${local.control_plane_service_name})
+  elif systemctl is-active --quiet ${local.agent_service_name}; then
+    systemctl restart ${local.agent_service_name} || (echo "Error: Failed to restart ${local.agent_service_name}. Restoring ${local.authentication_config_file} from backup" && cp /tmp/authentication_config_$DATE.yaml "${local.authentication_config_file}" && systemctl restart ${local.agent_service_name})
   else
-    echo "No active k3s or k3s-agent service found"
+    echo "No active ${local.control_plane_service_name} or ${local.agent_service_name} service found"
   fi
-  echo "k3s service or k3s-agent service (re)started successfully"
+  echo "${local.control_plane_service_name} service or ${local.agent_service_name} service (re)started successfully"
 fi
 EOF
+
+rke2_registries_update_script = <<EOF
+DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/rke2
+if cmp -s /tmp/registries.yaml /etc/rancher/rke2/registries.yaml; then
+  echo "No update required to the registries.yaml file"
+else
+  if [ -f /etc/rancher/rke2/registries.yaml ]; then
+    echo "Backing up /etc/rancher/rke2/registries.yaml to /tmp/registries_$DATE.yaml"
+    cp /etc/rancher/rke2/registries.yaml /tmp/registries_$DATE.yaml
+  fi
+  echo "Updated registries.yaml detected, restart of rke2 service required"
+  cp /tmp/registries.yaml /etc/rancher/rke2/registries.yaml
+  if systemctl is-active --quiet rke2-server; then
+    systemctl restart rke2-server || (echo "Error: Failed to restart rke2-server. Restoring /etc/rancher/rke2/registries.yaml from backup" && cp /tmp/registries_$DATE.yaml /etc/rancher/rke2/registries.yaml && systemctl restart rke2-server)
+  elif systemctl is-active --quiet rke2-agent; then
+    systemctl restart rke2-agent || (echo "Error: Failed to restart rke2-agent. Restoring /etc/rancher/rke2/registries.yaml from backup" && cp /tmp/registries_$DATE.yaml /etc/rancher/rke2/registries.yaml && systemctl restart rke2-agent)
+  else
+    echo "No active rke2-server or rke2-agent service found"
+  fi
+  echo "rke2-server service or rke2-agent service restarted successfully"
+fi
+EOF
+
+rke2_config_update_script = <<EOF
+DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/rke2
+
+restart_or_signal_update() {
+  local SERVICE_NAME="$1"
+  if ${var.k8s_config_updates_use_kured_sentinel}; then
+    SENTINEL="${local.kured_reboot_sentinel}"
+    mkdir -p "$(dirname "$SENTINEL")"
+    touch "$SENTINEL"
+    echo "Triggered Kured reboot sentinel at $SENTINEL instead of restarting $SERVICE_NAME"
+    return 0
+  fi
+  systemctl restart "$SERVICE_NAME"
+}
+
+if cmp -s /tmp/config.yaml /etc/rancher/rke2/config.yaml; then
+  echo "No update required to the config.yaml file"
+else
+  if [ -f "/etc/rancher/rke2/config.yaml" ]; then
+    echo "Backing up /etc/rancher/rke2/config.yaml to /tmp/config_$DATE.yaml"
+    cp /etc/rancher/rke2/config.yaml /tmp/config_$DATE.yaml
+  fi
+  echo "Updated config.yaml detected, restart of rke2-server service required"
+  cp /tmp/config.yaml /etc/rancher/rke2/config.yaml
+  if [ -s /tmp/encryption-config.yaml ]; then
+    cp /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml
+    chmod 0600 /etc/rancher/rke2/encryption-config.yaml
+  fi
+  if systemctl is-active --quiet rke2-server; then
+    restart_or_signal_update rke2-server || (echo "Error: Failed to restart rke2-server. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && restart_or_signal_update rke2-server)
+  elif systemctl is-active --quiet rke2-agent; then
+    restart_or_signal_update rke2-agent || (echo "Error: Failed to restart rke2-agent. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && restart_or_signal_update rke2-agent)
+  else
+    echo "No active rke2-server or rke2-agent service found"
+  fi
+  echo "rke2-server service or rke2-agent service (re)started successfully"
+fi
+EOF
+
+rke2_authentication_config_update_script = <<EOF
+DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/rke2
+if cmp -s /tmp/authentication_config.yaml /etc/rancher/rke2/authentication_config.yaml; then
+  echo "No update required to the authentication_config.yaml file"
+else
+  if [ -f "/etc/rancher/rke2/authentication_config.yaml" ]; then
+    echo "Backing up /etc/rancher/rke2/authentication_config.yaml to /tmp/authentication_config_$DATE.yaml"
+    cp /etc/rancher/rke2/authentication_config.yaml /tmp/authentication_config_$DATE.yaml
+  fi
+  echo "Updated authentication_config.yaml detected, restart of rke2-server service required"
+  cp /tmp/authentication_config.yaml /etc/rancher/rke2/authentication_config.yaml
+  if systemctl is-active --quiet rke2-server; then
+    systemctl restart rke2-server || (echo "Error: Failed to restart rke2-server. Restoring /etc/rancher/rke2/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/rke2/authentication_config.yaml && systemctl restart rke2-server)
+  elif systemctl is-active --quiet rke2-agent; then
+    systemctl restart rke2-agent || (echo "Error: Failed to restart rke2-agent. Restoring /etc/rancher/rke2/authentication_config.yaml from backup" && cp /tmp/authentication_config_$DATE.yaml /etc/rancher/rke2/authentication_config.yaml && systemctl restart rke2-agent)
+  else
+    echo "No active rke2-server or rke2-agent service found"
+  fi
+  echo "rke2-server service or rke2-agent service (re)started successfully"
+fi
+EOF
+
+k8s_registries_update_script            = local.kubernetes_distribution == "k3s" ? local.k3s_registries_update_script : local.rke2_registries_update_script
+k8s_kubelet_config_update_script        = local.kubernetes_distribution == "k3s" ? local.k3s_kubelet_config_update_script : local.rke2_kubelet_config_update_script
+k8s_config_update_script                = local.kubernetes_distribution == "k3s" ? local.k3s_config_update_script : local.rke2_config_update_script
+k8s_authentication_config_update_script = local.kubernetes_distribution == "k3s" ? local.k3s_authentication_config_update_script : local.rke2_authentication_config_update_script
 
 cloudinit_write_files_common = <<EOT
 # Script to rename the private interface to eth1 and unify NetworkManager connection naming
@@ -1298,12 +2038,23 @@ cloudinit_write_files_common = <<EOT
     gpgkey=https://rpm.rancher.io/public.key
   path: /etc/zypp/repos.d/rancher-k3s-common.repo
 
+# Create Rancher rke2 repo config
+# TODO: Finish this if its needed like the above one? When is this used? Don't we just use the URL installation method?
+# - content: |
+
+
 # Create the kube_hetzner_selinux.te file, that allows in SELinux to not interfere with various needed services
 - path: /root/kube_hetzner_selinux.te
   encoding: base64
   content: ${base64encode(file("${path.module}/templates/kube-hetzner-selinux.te"))}
 
+# Shared Leap Micro policy used by host and autoscaler templates
+- path: /root/k8s_custom_policies.te
+  encoding: base64
+  content: ${base64encode(file("${path.module}/templates/k8s-custom-policies.te"))}
+
 # Create the k3s registries file if needed
+# TODO: Review that this can stay and behaves the same in rke2 as with k3s
 %{if var.k3s_registries != ""}
 # Create k3s registries file
 - content: ${base64encode(var.k3s_registries)}
@@ -1316,7 +2067,7 @@ cloudinit_write_files_common = <<EOT
 # Create k3s kubelet config file
 - content: ${base64encode(var.k3s_kubelet_config)}
   encoding: base64
-  path: /etc/rancher/k3s/kubelet-config.yaml
+  path: ${local.kubelet_config_file}
 %{endif}
 EOT
 
@@ -1324,10 +2075,16 @@ cloudinit_runcmd_common = <<EOT
 # ensure that /var uses full available disk size, thanks to btrfs this is easy
 - [btrfs, 'filesystem', 'resize', 'max', '/var']
 
+# ensure iSCSI daemon is always enabled for storage workloads
+- [systemctl, enable, '--now', iscsid]
+
 # SELinux permission for the SSH alternative port
 %{if var.ssh_port != 22}
 # SELinux permission for the SSH alternative port.
-- [semanage, port, '-a', '-t', ssh_port_t, '-p', tcp, '${var.ssh_port}']
+- |
+  semanage port -a -t ssh_port_t -p tcp ${var.ssh_port} 2>/dev/null || \
+  semanage port -m -t ssh_port_t -p tcp ${var.ssh_port} 2>/dev/null || \
+  echo "Port ${var.ssh_port} already configured for SSH"
 %{endif}
 
 # Create and apply the necessary SELinux module for kube-hetzner
@@ -1341,17 +2098,34 @@ cloudinit_runcmd_common = <<EOT
 - [systemctl, disable, '--now', 'rebootmgr.service']
 
 # Bounds the amount of logs that can survive on the system
-- [sed, '-i', 's/#SystemMaxUse=/SystemMaxUse=3G/g', /etc/systemd/journald.conf]
-- [sed, '-i', 's/#MaxRetentionSec=/MaxRetentionSec=1week/g', /etc/systemd/journald.conf]
+- |
+  if [ -f /etc/systemd/journald.conf ]; then
+    sed -i 's/#SystemMaxUse=/SystemMaxUse=3G/g' /etc/systemd/journald.conf
+    sed -i 's/#MaxRetentionSec=/MaxRetentionSec=1week/g' /etc/systemd/journald.conf
+  elif [ -f /usr/lib/systemd/journald.conf ]; then
+    mkdir -p /etc/systemd/journald.conf.d/
+    printf '%s\n' "[Journal]" "SystemMaxUse=3G" "MaxRetentionSec=1week" > /etc/systemd/journald.conf.d/kube-hetzner.conf
+  else
+    echo "journald.conf not found, skipping journal size configuration"
+  fi
 
 # Reduces the default number of snapshots from 2-10 number limit, to 4 and from 4-10 number limit important, to 2
-- [sed, '-i', 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g', /etc/snapper/configs/root]
-- [sed, '-i', 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g', /etc/snapper/configs/root]
+- |
+  if [ -f /etc/snapper/configs/root ]; then
+    sed -i 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g' /etc/snapper/configs/root
+    sed -i 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g' /etc/snapper/configs/root
+  else
+    echo "Snapper config not found, skipping snapshot limit configuration"
+  fi
 
 # Allow network interface
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
 
-# Restart the sshd service to apply the new config
+# Ensure sshd includes config.d directory and restart to apply the new config
+- |
+  if ! grep -q "^Include /etc/ssh/sshd_config.d/\\*.conf" /etc/ssh/sshd_config 2>/dev/null; then
+    echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+  fi
 - [systemctl, 'restart', 'sshd']
 
 # Make sure the network is up
@@ -1373,6 +2147,12 @@ cloudinit_runcmd_common = <<EOT
 - [setenforce, '0']
 %{endif}
 
+# Backup unlock for root SSH pubkey auth (belt-and-suspenders alongside the
+# systemd oneshot baked into the Packer image). cloud-init runcmd is
+# per-instance only, so the systemd unit is the real guard.
+- [sed, '-i', 's/^root:!/root:/', '/etc/shadow']
+- [systemctl, 'restart', 'sshd']
+
 EOT
 
 }
@@ -1385,10 +2165,24 @@ check "nat_router_requires_control_plane_lb" {
   }
 }
 
+check "combine_load_balancers_requires_control_plane_lb" {
+  assert {
+    condition     = !var.combine_load_balancers || var.use_control_plane_lb
+    error_message = "combine_load_balancers requires use_control_plane_lb=true."
+  }
+}
+
 check "ccm_lb_has_eligible_targets" {
   assert {
     condition     = !(var.exclude_agents_from_external_load_balancers && !local.allow_loadbalancer_target_on_control_plane)
     error_message = "Warning: exclude_agents_from_external_load_balancers=true with allow_scheduling_on_control_plane=false leaves NO eligible targets for CCM-managed LoadBalancer services. Either set allow_scheduling_on_control_plane=true or disable exclude_agents_from_external_load_balancers."
+  }
+}
+
+check "autoscaler_nodepools_os_consistent" {
+  assert {
+    condition     = length(distinct(local.autoscaler_nodepools_os)) <= 1
+    error_message = "All autoscaler_nodepools must use the same effective OS. Set 'os' explicitly per autoscaler_nodepool (or omit it everywhere) so the module can select a single image set."
   }
 }
 
@@ -1398,5 +2192,19 @@ check "system_upgrade_window_requires_supported_controller_version" {
       try(provider::semvers::compare(trimprefix(var.sys_upgrade_controller_version, "v"), "0.15.0"), -1) >= 0
     )
     error_message = "system_upgrade_schedule_window requires sys_upgrade_controller_version v0.15.0 or newer."
+  }
+}
+
+check "disabled_x86_arch_must_not_be_used" {
+  assert {
+    condition     = var.enable_x86 || !anytrue([for pair in local.node_os_arch_pairs : pair.arch == "x86"])
+    error_message = "enable_x86 is false, but x86 node definitions were found in control_plane_nodepools, agent_nodepools, or autoscaler_nodepools."
+  }
+}
+
+check "disabled_arm_arch_must_not_be_used" {
+  assert {
+    condition     = var.enable_arm || !anytrue([for pair in local.node_os_arch_pairs : pair.arch == "arm"])
+    error_message = "enable_arm is false, but ARM node definitions were found in control_plane_nodepools, agent_nodepools, or autoscaler_nodepools."
   }
 }

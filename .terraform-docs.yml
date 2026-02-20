@@ -29,7 +29,7 @@ settings:
   hide-empty: false
   html: true
   indent: 3
-  lockfile: true
+  lockfile: false
   read-comments: true
   required: true
   sensitive: true

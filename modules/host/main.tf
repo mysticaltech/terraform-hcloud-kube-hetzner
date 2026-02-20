@@ -22,24 +22,37 @@ variable "network" {
 
 resource "hcloud_server" "server" {
   name               = local.name
-  image              = var.microos_snapshot_id
+  image              = var.os_snapshot_id
   server_type        = var.server_type
   location           = var.location
   ssh_keys           = var.ssh_keys
-  firewall_ids       = var.firewall_ids
+  firewall_ids       = local.effective_firewall_ids
   placement_group_id = var.placement_group_id
   backups            = var.backups
   user_data          = data.cloudinit_config.config.rendered
   keep_disk          = var.keep_disk_size
   public_net {
     ipv4_enabled = !var.disable_ipv4
+    ipv4         = var.disable_ipv4 ? null : var.primary_ipv4_id
     ipv6_enabled = !var.disable_ipv6
+    ipv6         = var.disable_ipv6 ? null : var.primary_ipv6_id
   }
 
-  network {
-    network_id = var.network_id
-    ip         = var.private_ipv4
-    alias_ips  = []
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [1] : []
+    content {
+      network_id = var.network_id
+      alias_ips  = []
+    }
+  }
+
+  dynamic "network" {
+    for_each = var.private_ipv4 == null ? [] : [1]
+    content {
+      network_id = var.network_id
+      ip         = var.private_ipv4
+      alias_ips  = []
+    }
   }
 
   labels = var.labels
@@ -96,6 +109,58 @@ resource "hcloud_server" "server" {
 
 }
 
+resource "hcloud_server_network" "extra_networks" {
+  for_each = {
+    for network_id in local.extra_network_ids : tostring(network_id) => network_id
+  }
+
+  server_id  = hcloud_server.server.id
+  network_id = each.value
+}
+
+resource "terraform_data" "ssh_authorized_keys" {
+  triggers_replace = {
+    server_id           = hcloud_server.server.id
+    ssh_public_key      = sha1(var.ssh_public_key)
+    ssh_additional_keys = sha1(join("\n", var.ssh_additional_public_keys))
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.provisioner_connection_host
+    port           = var.ssh_port
+
+    bastion_host        = var.ssh_bastion.bastion_host
+    bastion_port        = var.ssh_bastion.bastion_port
+    bastion_user        = var.ssh_bastion.bastion_user
+    bastion_private_key = var.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "file" {
+    content = format(
+      "%s\n",
+      join("\n", distinct(compact(concat(
+        [trimspace(var.ssh_public_key)],
+        [for key in var.ssh_additional_public_keys : trimspace(key)]
+      ))))
+    )
+    destination = "/tmp/authorized_keys"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "install -d -m 0700 /root/.ssh",
+      "install -m 0600 /tmp/authorized_keys /root/.ssh/authorized_keys",
+      "chown root:root /root/.ssh /root/.ssh/authorized_keys",
+      "rm -f /tmp/authorized_keys",
+    ]
+  }
+
+  depends_on = [hcloud_server.server]
+}
+
 resource "terraform_data" "registries" {
   triggers_replace = {
     registries = var.k3s_registries
@@ -105,7 +170,7 @@ resource "terraform_data" "registries" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -142,7 +207,7 @@ resource "terraform_data" "kubelet_config" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -178,7 +243,7 @@ resource "terraform_data" "audit_policy" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -237,7 +302,10 @@ data "cloudinit_config" "config" {
         sshAuthorizedKeys            = concat([var.ssh_public_key], var.ssh_additional_public_keys)
         cloudinit_write_files_common = var.cloudinit_write_files_common
         cloudinit_runcmd_common      = var.cloudinit_runcmd_common
+        cloudinit_write_files_extra  = var.cloudinit_write_files_extra
+        cloudinit_runcmd_extra       = var.cloudinit_runcmd_extra
         swap_size                    = var.swap_size
+        os                           = var.os
         private_network_only         = (var.disable_ipv4 && var.disable_ipv6)
         network_gw_ipv4              = var.network_gw_ipv4
       }
@@ -254,7 +322,7 @@ resource "terraform_data" "zram" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -346,7 +414,7 @@ resource "terraform_data" "os_upgrade_toggle" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(hcloud_server.server.ipv4_address, hcloud_server.server.ipv6_address, try(one(hcloud_server.server.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
