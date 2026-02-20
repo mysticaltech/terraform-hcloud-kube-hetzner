@@ -245,7 +245,7 @@ resource "null_resource" "control_plane_setup_rke2" {
           cluster-cidr                = local.cluster_cidr
           service-cidr                = local.service_cidr
           cluster-dns                 = local.cluster_dns
-          cni                         = "none"
+          cni                         = local.rke2_cni
         },
         var.use_control_plane_lb ? {
           tls-san = concat(
@@ -280,7 +280,7 @@ resource "null_resource" "control_plane_setup_rke2" {
     content = templatefile(
       "${path.module}/templates/${local.rke2_manifest_cni_plugin}.yaml.tpl",
       {
-        values  = indent(4, trimspace(local.desired_cni_values))
+        values  = local.rke2_manifest_cni_plugin == "cilium" ? indent(4, trimspace(local.desired_cni_values)) : ""
         version = local.desired_cni_version
     })
     destination = "/var/lib/rancher/rke2/server/manifests/${local.rke2_manifest_cni_plugin}.yaml"

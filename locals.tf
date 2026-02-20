@@ -285,7 +285,8 @@ EOT
   common_post_install_rke2_commands = concat(var.postinstall_exec, [<<-EOT
 if command -v restorecon >/dev/null 2>&1; then
   [ -f /usr/local/bin/rke2 ] && restorecon -v /usr/local/bin/rke2 || true
-  [ -d /var/lib/rancher/rke2/bin ] && restorecon -Rv /var/lib/rancher/rke2/bin || true
+  [ -f /opt/rke2/bin/rke2 ] && restorecon -v /opt/rke2/bin/rke2 || true
+  [ -d /var/lib/rancher/rke2 ] && restorecon -RF /var/lib/rancher/rke2 || true
 else
   echo "restorecon not available; skipping RKE2 relabel"
 fi
@@ -308,7 +309,7 @@ EOT
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
       local.kubernetes_distribution == "k3s" ? lookup(local.cni_install_resources, var.cni_plugin, []) : [],
       var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled && var.cilium_egress_gateway_ha_enabled ? ["cilium_egress_gateway_ha.yaml"] : [],
-      var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
+      local.kubernetes_distribution == "k3s" && var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],
       var.enable_longhorn ? ["longhorn.yaml"] : [],
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
       var.enable_cert_manager || var.enable_rancher ? ["cert_manager.yaml"] : [],
@@ -1240,9 +1241,15 @@ spec:
 
   EOT
 
-  desired_cni_values       = var.cni_plugin == "cilium" ? local.cilium_values : local.calico_values
-  desired_cni_version      = var.cni_plugin == "cilium" ? var.cilium_version : var.calico_version
-  rke2_manifest_cni_plugin = var.cni_plugin == "flannel" ? "calico" : var.cni_plugin
+  desired_cni_values  = var.cni_plugin == "cilium" ? local.cilium_values : local.calico_values
+  desired_cni_version = var.cni_plugin == "cilium" ? var.cilium_version : var.calico_version
+  # RKE2 supports built-in CNI selections. We only inject a custom manifest for cilium.
+  rke2_cni = (
+    var.cni_plugin == "cilium"
+    ? "none"
+    : (var.cni_plugin == "calico" ? "calico" : "canal")
+  )
+  rke2_manifest_cni_plugin = var.cni_plugin == "cilium" ? "cilium" : "rke2-noop"
 
   longhorn_values_default = <<EOT
 defaultSettings:
@@ -1599,11 +1606,14 @@ kured_reboot_sentinel = lookup(local.kured_options, "reboot-sentinel", "/sentine
 
 k3s_registries_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/k3s
 if cmp -s /tmp/registries.yaml /etc/rancher/k3s/registries.yaml; then
   echo "No update required to the registries.yaml file"
 else
-  echo "Backing up /etc/rancher/k3s/registries.yaml to /tmp/registries_$DATE.yaml"
-  cp /etc/rancher/k3s/registries.yaml /tmp/registries_$DATE.yaml
+  if [ -f /etc/rancher/k3s/registries.yaml ]; then
+    echo "Backing up /etc/rancher/k3s/registries.yaml to /tmp/registries_$DATE.yaml"
+    cp /etc/rancher/k3s/registries.yaml /tmp/registries_$DATE.yaml
+  fi
   echo "Updated registries.yaml detected, restart of k3s service required"
   cp /tmp/registries.yaml /etc/rancher/k3s/registries.yaml
   if systemctl is-active --quiet k3s; then
@@ -1622,6 +1632,7 @@ set -e
 DATE=`date +%Y-%m-%d_%H-%M-%S`
 BACKUP_FILE="/tmp/kubelet-config_$DATE.yaml"
 HAS_BACKUP=false
+mkdir -p /etc/rancher/k3s
 
 if cmp -s /tmp/kubelet-config.yaml /etc/rancher/k3s/kubelet-config.yaml; then
   echo "No update required to the kubelet-config.yaml file"
@@ -1667,6 +1678,7 @@ set -e
 DATE=`date +%Y-%m-%d_%H-%M-%S`
 BACKUP_FILE="/tmp/kubelet-config_$DATE.yaml"
 HAS_BACKUP=false
+mkdir -p /etc/rancher/rke2
 
 if cmp -s /tmp/kubelet-config.yaml /etc/rancher/rke2/kubelet-config.yaml; then
   echo "No update required to the kubelet-config.yaml file"
@@ -1709,6 +1721,7 @@ EOF
 
 k3s_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/k3s
 
 restart_or_signal_update() {
   local SERVICE_NAME="$1"
@@ -1752,6 +1765,7 @@ AUDIT_POLICY_FILE="${local.audit_policy_file}"
 SERVICE_NAME="${local.control_plane_service_name}"
 BACKUP_FILE="/tmp/audit-policy_$DATE.yaml"
 HAS_BACKUP=false
+mkdir -p "$(dirname "$AUDIT_POLICY_FILE")"
 
 if [ -z "${var.k3s_audit_policy_config}" ] || [ "${var.k3s_audit_policy_config}" = " " ]; then
   echo "No audit policy config provided via Terraform, skipping audit policy setup"
@@ -1795,6 +1809,7 @@ EOF
 
 k3s_authentication_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p "$(dirname "${local.authentication_config_file}")"
 if cmp -s /tmp/authentication_config.yaml ${local.authentication_config_file}; then
   echo "No update required to the authentication_config.yaml file"
 else
@@ -1817,11 +1832,14 @@ EOF
 
 rke2_registries_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/rke2
 if cmp -s /tmp/registries.yaml /etc/rancher/rke2/registries.yaml; then
   echo "No update required to the registries.yaml file"
 else
-  echo "Backing up /etc/rancher/rke2/registries.yaml to /tmp/registries_$DATE.yaml"
-  cp /etc/rancher/rke2/registries.yaml /tmp/registries_$DATE.yaml
+  if [ -f /etc/rancher/rke2/registries.yaml ]; then
+    echo "Backing up /etc/rancher/rke2/registries.yaml to /tmp/registries_$DATE.yaml"
+    cp /etc/rancher/rke2/registries.yaml /tmp/registries_$DATE.yaml
+  fi
   echo "Updated registries.yaml detected, restart of rke2 service required"
   cp /tmp/registries.yaml /etc/rancher/rke2/registries.yaml
   if systemctl is-active --quiet rke2-server; then
@@ -1837,6 +1855,7 @@ EOF
 
 rke2_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/rke2
 
 restart_or_signal_update() {
   local SERVICE_NAME="$1"
@@ -1876,6 +1895,7 @@ EOF
 
 rke2_authentication_config_update_script = <<EOF
 DATE=`date +%Y-%m-%d_%H-%M-%S`
+mkdir -p /etc/rancher/rke2
 if cmp -s /tmp/authentication_config.yaml /etc/rancher/rke2/authentication_config.yaml; then
   echo "No update required to the authentication_config.yaml file"
 else

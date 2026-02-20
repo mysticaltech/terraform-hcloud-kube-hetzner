@@ -44,8 +44,18 @@ locals {
     :
     (can(local.first_control_plane_ip) ? local.first_control_plane_ip : "unknown")
   )
-  kubeconfig_external = replace(replace(ssh_sensitive_resource.kubeconfig.result, "127.0.0.1", local.kubeconfig_server_address), "default", var.cluster_name)
-  kubeconfig_parsed   = yamldecode(local.kubeconfig_external)
+  kubeconfig_server_host = can(ipv6(local.kubeconfig_server_address)) ? "[${local.kubeconfig_server_address}]" : local.kubeconfig_server_address
+  kubeconfig_server      = "https://${local.kubeconfig_server_host}:${var.kubeapi_port}"
+  kubeconfig_external = replace(
+    replace(
+      ssh_sensitive_resource.kubeconfig.result,
+      "https://127.0.0.1:6443",
+      local.kubeconfig_server
+    ),
+    "default",
+    var.cluster_name
+  )
+  kubeconfig_parsed = yamldecode(local.kubeconfig_external)
   kubeconfig_data = {
     host                   = local.kubeconfig_parsed["clusters"][0]["cluster"]["server"]
     client_certificate     = base64decode(local.kubeconfig_parsed["users"][0]["user"]["client-certificate-data"])

@@ -230,7 +230,8 @@ resource "hcloud_load_balancer_service" "control_plane" {
 
   load_balancer_id = hcloud_load_balancer.control_plane.*.id[0]
   protocol         = "tcp"
-  destination_port = var.kubeapi_port
+  # k3s always serves external API traffic on 6443; kubeapi_port is a frontend override.
+  destination_port = local.kubernetes_distribution == "k3s" ? 6443 : var.kubeapi_port
   listen_port      = var.kubeapi_port
 }
 
@@ -338,7 +339,7 @@ locals {
       service-cidr                = local.service_cidr
       cluster-dns                 = local.cluster_dns
       write-kubeconfig-mode       = "0644" # needed for import into rancher
-      cni                         = "none"
+      cni                         = local.rke2_cni
     },
     lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
       node-external-ip = local.control_plane_external_ipv4_by_node[k]
@@ -483,7 +484,7 @@ resource "null_resource" "control_plane_config_rke2" {
     content = templatefile(
       "${path.module}/templates/${local.rke2_manifest_cni_plugin}.yaml.tpl",
       {
-        values  = indent(4, trimspace(local.desired_cni_values))
+        values  = local.rke2_manifest_cni_plugin == "cilium" ? indent(4, trimspace(local.desired_cni_values)) : ""
         version = local.desired_cni_version
     })
     destination = "/var/lib/rancher/rke2/server/manifests/${local.rke2_manifest_cni_plugin}.yaml"
