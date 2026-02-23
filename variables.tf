@@ -174,7 +174,7 @@ variable "nat_router" {
   })
 
   validation {
-    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router.standby_location != ""
+    condition     = var.nat_router == null || !try(var.nat_router.enable_redundancy, false) || try(var.nat_router.standby_location, "") != ""
     error_message = "When nat_router.enable_redundancy is true, standby_location must be provided."
   }
 }
