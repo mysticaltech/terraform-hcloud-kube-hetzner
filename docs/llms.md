@@ -2452,6 +2452,13 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Valid values:** `leapmicro` or `microos`.
   * **Where:** `control_plane_nodepools[].os`, `agent_nodepools[].os`, `agent_nodepools[].nodes[*].os`, and `autoscaler_nodepools[].os`.
   * **Defaulting:** Existing nodepools keep their current OS on upgrade (MicroOS by default when unknown). New nodepools default to Leap Micro.
+* **Per-nodepool snapshot override (`os_snapshot_id`) (Optional):**
+  * **Type:** `string`, default `null`.
+  * **Where:** `control_plane_nodepools[].os_snapshot_id`, `control_plane_nodepools[].nodes[*].os_snapshot_id`, `agent_nodepools[].os_snapshot_id`, `agent_nodepools[].nodes[*].os_snapshot_id`.
+  * **Purpose:** Use a custom Hetzner snapshot (e.g. with LVM partitions or other pre-configured disk layouts) instead of the global snapshot looked up by `os` and architecture.
+  * **Fallback:** When `null` (default), the module selects the snapshot via `local.snapshot_id_by_os` based on the node's `os` and architecture — existing behavior is preserved.
+  * **Per-node override:** In map-based nodepools (`nodes = {}`), a node-level `os_snapshot_id` overrides the nodepool-level value.
+  * **Important:** The `os` field is still required even when `os_snapshot_id` is set — it drives cloud-init templates, hcloud labels, and other OS-specific logic. You are responsible for ensuring the snapshot matches the declared `os` type and node architecture (x86 for `cx*`/`cpx*`, ARM for `cax*`).
 
 ---
 

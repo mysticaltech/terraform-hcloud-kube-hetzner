@@ -631,6 +631,38 @@ hcloud image delete <image-id>
 </details>
 
 <details>
+<summary><strong>Custom OS snapshots per nodepool</strong></summary>
+
+Override the default OS snapshot on any nodepool or individual node with `os_snapshot_id`:
+
+```tf
+agent_nodepools = [
+  {
+    name        = "storage",
+    server_type = "cx33",
+    location    = "nbg1",
+    labels      = ["node.kubernetes.io/server-usage=storage"],
+    taints      = [],
+    count       = 1
+    os_snapshot_id = "348644983"  # Custom snapshot with LVM partitions
+  },
+]
+```
+
+Per-node override (in a `nodes` map):
+```tf
+nodes = {
+  "0" : { os_snapshot_id = "348644983" },
+  "1" : {},  # uses nodepool or global default
+}
+```
+
+> **Caution:** You are responsible for ensuring the snapshot ID matches the correct `os` type (`leapmicro`/`microos`) and node architecture (x86 for `cx*`/`cpx*` servers, ARM for `cax*` servers). A mismatched snapshot will cause provisioning failures.
+
+When not set, the module automatically selects the most recent snapshot matching the node's `os` and architecture.
+</details>
+
+<details>
 <summary><strong>Single-node development cluster</strong></summary>
 
 Set `automatically_upgrade_os = false` (attached volumes don't handle auto-reboots well).
