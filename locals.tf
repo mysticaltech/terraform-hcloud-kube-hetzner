@@ -579,6 +579,7 @@ EOT
         index : node_index
         selinux : nodepool_obj.selinux
         os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name])
+        os_snapshot_id : nodepool_obj.os_snapshot_id
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -615,6 +616,7 @@ EOT
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
           os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name]),
+          os_snapshot_id : nodepool_obj.os_snapshot_id,
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
@@ -672,6 +674,7 @@ EOT
         index : node_index
         selinux : nodepool_obj.selinux
         os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name])
+        os_snapshot_id : nodepool_obj.os_snapshot_id
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -713,6 +716,7 @@ EOT
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
           os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name]),
+          os_snapshot_id : nodepool_obj.os_snapshot_id,
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
