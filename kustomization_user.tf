@@ -31,7 +31,9 @@ resource "terraform_data" "kustomization_user" {
   }
 
   triggers_replace = {
-    manifest_sha1 = "${sha1(templatefile("${var.extra_kustomize_folder}/${each.key}", var.extra_kustomize_parameters))}"
+    manifest_sha1      = sha1(templatefile("${var.extra_kustomize_folder}/${each.key}", var.extra_kustomize_parameters))
+    control_plane_id   = terraform_data.first_control_plane.id
+    kustomization_sha1 = sha1(templatefile("${var.extra_kustomize_folder}/kustomization.yaml.tpl", var.extra_kustomize_parameters))
   }
 
   depends_on = [
