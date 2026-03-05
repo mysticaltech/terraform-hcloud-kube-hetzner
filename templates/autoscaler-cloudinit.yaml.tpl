@@ -140,7 +140,6 @@ ${cloudinit_runcmd_common}
   cat <<'  EOF' > /etc/systemd/system/zram.service
   [Unit]
   Description=Swap with zram
-  After=multi-user.target
 
   [Service]
   Type=oneshot
