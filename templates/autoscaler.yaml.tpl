@@ -117,6 +117,25 @@ subjects:
     namespace: kube-system
 
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cluster-autoscaler-metrics
+  namespace: kube-system
+  labels:
+    app: cluster-autoscaler
+spec:
+  type: NodePort
+  selector:
+    app: cluster-autoscaler
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 8085
+      targetPort: 8085
+      nodePort: 30085
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -141,6 +160,9 @@ spec:
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/control-plane
+        %{~ if length(cluster_autoscaler_tolerations) > 0 ~}
+${indent(8, yamlencode(cluster_autoscaler_tolerations))}
+        %{~ endif ~}
 
       # Node affinity is used to force cluster-autoscaler to stick
       # to the control-plane node. This allows the cluster to reliably downscale

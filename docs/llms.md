@@ -73,10 +73,10 @@ module "kube-hetzner" {
   source = "kube-hetzner/kube-hetzner/hcloud"
   #    When using the terraform registry as source, you can optionally specify a version number.
   #    See https://registry.terraform.io/modules/kube-hetzner/kube-hetzner/hcloud for the available versions
-  # version = "2.15.3"
+  # version = "3.0.0"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
-  # 3. If you want to use the latest master branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
+  # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
   # source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"
 ```
 
@@ -84,7 +84,7 @@ module "kube-hetzner" {
   * **Purpose:** This tells Terraform where to find the `kube-hetzner` module code.
   * **Option 1 (Terraform Registry - Recommended for Users):** `kube-hetzner/kube-hetzner/hcloud`
     * This is the standard way to use published modules. Terraform will download it from the public Terraform Registry.
-    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "2.15.3"`). This ensures:
+    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "3.0.0"`). This ensures:
       * **Reproducibility:** Your infrastructure builds are consistent over time.
       * **Stability:** Prevents unexpected changes or breakages if a new, incompatible version of the module is released.
       * **Controlled Upgrades:** You can consciously decide when to upgrade the module version after reviewing its changelog.
@@ -92,7 +92,7 @@ module "kube-hetzner" {
     * Used when you have a local copy of the module's source code, typically for development or testing modifications to the module itself. The path is relative to this `main.tf` file.
   * **Option 3 (Direct Git Repository - For Bleeding Edge/Specific Commits):** `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"`
     * Pulls the module directly from the `master` branch of the GitHub repository. This is generally **not recommended for production** as `master` can be unstable.
-    * You can also specify a specific branch, tag, or commit hash using the `ref` query parameter (e.g., `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner?ref=v2.15.3"`).
+    * You can also specify a specific branch, tag, or commit hash using the `ref` query parameter (e.g., `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner?ref=v3.0.0"`).
 
 ```terraform
   # Note that some values, notably "location" and "public_key" have no effect after initializing the cluster.
@@ -496,8 +496,9 @@ The example shows three control plane nodepools, each with one node, in differen
         "node.kubernetes.io/role=egress:NoSchedule" # Ensures only egress gateway pods run here
       ],
       floating_ip = true # Special attribute for this module
+      # floating_ip_type = "ipv6" # Optional: "ipv4" (default) or "ipv6"
       # Optionally associate a reverse DNS entry with the floating IP(s).
-      # floating_ip_rns = "my.domain.com"
+      # floating_ip_rdns = "my.domain.com"
       count = 1
     },
     # Arm based nodes
@@ -554,7 +555,11 @@ The example shows three control plane nodepools, each with one node, in differen
       * If `true`, the module will provision a Hetzner Floating IP and associate it with the node(s) in this pool. If `count > 1`, how the floating IP is managed across multiple nodes needs clarification from module docs (e.g., active/passive, or one FIP per node).
       * **Use Case (Egress Gateway):** As shown in the "egress" nodepool example, this is used with Cilium's Egress Gateway feature. This allows you to have a stable, predictable public IP address for outbound traffic originating from your cluster, which can be useful for whitelisting with external services.
       * The `labels` and `taints` on the "egress" pool ensure that only specific egress gateway pods (which would have tolerations for the taint) are scheduled there.
-    * **`floating_ip_rns` (String, Optional):**
+    * **`floating_ip_type` (String, Optional):**
+      * Default: `"ipv4"`.
+      * Allowed values: `"ipv4"`, `"ipv6"`.
+      * **Purpose:** Chooses which floating IP family to allocate and configure on the node.
+    * **`floating_ip_rdns` (String, Optional):**
       * If `floating_ip = true`, this allows you to set a reverse DNS (PTR record) for the provisioned floating IP.
       * Use Case: Email servers or services where reverse DNS is important for reputation.
     * **`nodes` (Map of Maps, Optional, replaces `count`):**
@@ -762,21 +767,26 @@ The example shows three control plane nodepools, each with one node, in differen
     * **`server_type` (String, Obligatory):** The Hetzner server type for nodes created in this pool (e.g., `cx33`, `cax21`). Must adhere to the single-architecture constraint mentioned above.
     * **`location` (String, Obligatory):** Hetzner location for nodes in this pool.
     * **`min_nodes` (Number, Obligatory):** The minimum number of nodes this pool can scale down to. Can be `0`.
+      * Must be a non-negative integer and must be less than or equal to `max_nodes`.
     * **`max_nodes` (Number, Obligatory):** The maximum number of nodes this pool can scale up to.
+      * Must be a non-negative integer and greater than or equal to `min_nodes`.
     * **`labels` (Map of Strings, Optional):**
       * Kubernetes labels to apply to nodes provisioned by the autoscaler in this pool.
       * **Format Difference:** Note that this `labels` attribute is a *map* (`key: value`), unlike the `labels` in `control_plane_nodepools` and `agent_nodepools` which are lists of strings (`["key=value"]`). This is likely due to how the Cluster Autoscaler itself expects these definitions.
     * **`taints` (List of Maps, Optional):**
       * Kubernetes taints to apply to nodes provisioned by the autoscaler in this pool.
       * **Format:** Each element in the list is a map with `key`, `value`, and `effect` (e.g., `NoSchedule`, `NoExecute`, `PreferNoSchedule`).
+      * `effect` must be one of: `NoSchedule`, `PreferNoSchedule`, `NoExecute`.
     * **`kubelet_args` (List of Strings, Optional):** Same purpose as in other nodepools, for passing custom arguments to kubelet on autoscaled nodes.
     * **`swap_size` (String, Optional):**
       * Examples: `"512M"`, `"2G"`, `"4G"`.
+      * Validation format: empty string, or a value matching `[1-9][0-9]{0,3}(M|G)`.
       * Configures a swap file of the specified size on autoscaled nodes.
       * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled. Make sure you set `"feature-gates=NodeSwap=true"` in `k3s_global_kubelet_args` or `k3s_autoscaler_kubelet_args`.
       * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
     * **`zram_size` (String, Optional):**
       * Examples: `"512M"`, `"1G"`.
+      * Validation format: empty string, or a value matching `[1-9][0-9]{0,3}(M|G)`.
       * Configures zRAM (compressed RAM block device used for swap) on autoscaled nodes.
       * Uses zstd compression algorithm for optimal performance.
       * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
@@ -861,6 +871,10 @@ The example shows three control plane nodepools, each with one node, in differen
     * **Purpose:** Whether to apply resource requests/limits to the autoscaler pod.
   * **`cluster_autoscaler_resource_values` (Map, Optional):**
     * **Purpose:** Customizes the specific CPU and memory requests/limits for the autoscaler pod.
+  * **`cluster_autoscaler_metrics_firewall_source` (List of Strings, Optional):**
+    * **Default:** `[]`.
+    * **Purpose:** Optional CIDR allowlist for external scraping of autoscaler metrics.
+    * **Details:** Enables an HCloud firewall rule to port `30085` (autoscaler metrics `NodePort`), which forwards to autoscaler container port `8085`.
 
 ```terraform
   # Additional Cluster Autoscaler binary configuration
@@ -973,20 +987,9 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Default:** The module likely picks the latest stable version of the driver.
   * **Purpose:** Allows you to pin the `csi-driver-smb` to a specific version. Useful for stability or if you need a particular feature/fix from a specific version. The GitHub releases link provides available versions.
 
-```terraform
-  # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
-  # you install your own version of longhorn outside of this module.
-  # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
-  # enable_iscsid = true
-```
-
-* **`enable_iscsid` (Boolean, Optional):**
-  * **Default:** `false`.
-  * **Purpose:** Ensures that the iSCSI daemon (`iscsid` or `open-iscsi`) and related tools are installed and running on your cluster nodes.
-  * **Relevance:** iSCSI is a protocol used by some storage solutions (like Longhorn, and potentially others you might install manually) to connect to block storage devices over a network.
-  * **Logic:**
-    * If `enable_longhorn = true` (a global module setting for Longhorn), `iscsid` is automatically enabled by the module because Longhorn requires it. This `enable_iscsid` variable is then ignored.
-    * If you are *not* using the module's Longhorn integration (`enable_longhorn = false`) but plan to install Longhorn (or another iSCSI-dependent storage solution) *manually*, you would set `enable_iscsid = true` here to ensure the necessary OS-level iSCSI support is present.
+* **iSCSI daemon behavior:**
+  * kube-hetzner always enables `iscsid` on all nodes.
+  * This avoids post-reboot storage failures for iSCSI-backed workloads (including Longhorn and manual storage setups).
 
 ```terraform
   # To use local storage on the nodes, you can enable Longhorn, default is "false".
@@ -1312,9 +1315,10 @@ Excellent! Let's continue our meticulous dissection.
   * **If `false`:** Traefik pods might run without specific requests/limits, relying on defaults or potentially being less predictable in resource consumption.
 
 ```terraform
-  # If you want to configure additional ports for traefik, enter them here as a list of objects with name, port, and exposedPort properties.
+  # If you want to configure additional ports for traefik, enter them here as a list of objects with
+  # name, port, exposedPort, and optional protocol (TCP or UDP; default TCP).
   # Example:
-  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234}]
+  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234, protocol = "TCP"}]
 ```
 
 * **`traefik_additional_ports` (List of Maps, Optional, specific to `ingress_controller = "traefik"`):**
@@ -1323,7 +1327,7 @@ Excellent! Let's continue our meticulous dissection.
     * `name` (String): A unique name for this entrypoint (e.g., "tcp-echo", "metrics").
     * `port` (Number): The port number Traefik will listen on internally for this entrypoint.
     * `exposedPort` (Number): The port number on the Traefik service (and thus on the Hetzner Load Balancer) that will map to the internal `port`. Often these are the same.
-    * You might also need to specify `protocol` (e.g., `TCP`, `UDP`) if not HTTP/S, depending on how the Traefik Helm chart handles this.
+    * `protocol` (String, Optional): `TCP` or `UDP`. Defaults to `TCP`.
   * **Use Case:** Exposing non-HTTP services (e.g., TCP or UDP applications, metrics endpoints on custom ports) through Traefik.
 
 ```terraform
@@ -1807,7 +1811,7 @@ Excellent! Let's continue our meticulous dissection.
 
 * **`disable_selinux` (Boolean, Optional):**
   * **Default:** `false` (meaning SELinux is *enabled* in enforcing mode).
-  * **Background:** The base OS image used by this module (openSUSE MicroOS) comes with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
+  * **Background:** The base OS images used by this module (openSUSE Leap Micro or openSUSE MicroOS) come with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
   * **Purpose:**
     * `false`: Keeps SELinux enabled. This is generally better for security but can sometimes cause issues if containers are not SELinux-aware or if their default SELinux policies are too restrictive for their needs.
     * `true`: Disables SELinux (likely sets it to permissive or fully disabled) on the nodes. This can make it easier to get problematic containers running but reduces the overall security posture.
@@ -2028,16 +2032,17 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Interaction with Nodepool `placement_group`:** If a nodepool definition has its own `placement_group = "group_name"` attribute, that would likely take precedence for that specific nodepool, allowing for more granular control even if global placement groups are enabled.
 
 ```terraform
-  # By default, we allow ICMP ping in to the nodes, to check for liveness for instance. If you do not want to allow that, you can. Just set this flag to true (false by default).
-  # block_icmp_ping_in = true
+  # By default, incoming ICMP ping is blocked.
+  # Set this to false only if you explicitly want external ping-based liveness checks.
+  # block_icmp_ping_in = false
 ```
 
 * **`block_icmp_ping_in` (Boolean, Optional):**
-  * **Default:** `false` (meaning ICMP ping requests *are allowed* to the nodes by the Hetzner Firewall).
+  * **Default:** `true` (meaning ICMP ping requests are blocked by the Hetzner Firewall).
   * **Purpose:** Controls whether the Hetzner Firewall rule for ICMP (specifically echo-request, "ping") is configured to allow or block incoming pings to your cluster nodes.
-    * `false`: Nodes will respond to pings. Useful for basic liveness checks and network troubleshooting.
     * `true`: Nodes will not respond to pings from external sources (blocked at the Hetzner Firewall level).
-  * **Security Consideration:** Blocking ICMP can make it slightly harder for attackers to discover live hosts (though there are other methods). However, it also hinders legitimate network diagnostics. The security benefit is often considered minor compared to the operational inconvenience.
+    * `false`: Nodes will respond to pings. Useful for basic liveness checks and network troubleshooting.
+  * **Security Consideration:** Keeping this enabled by default reduces unnecessary network surface while still allowing users to opt in to ping-based diagnostics when needed.
 
 ```terraform
   # You can enable cert-manager (installed by Helm behind the scenes) with the following flag, the default is "true".
@@ -2156,6 +2161,22 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Default:** `null`.
   * **Purpose:** Specifies a custom external URL for the Kubernetes API server.
   * **Use Case:** When using an external load balancer (not managed by this module) or a specific DNS alias for your control plane, set this to ensure agents register correctly against that endpoint.
+
+```terraform
+  # Optional map of node name => SSH host override.
+  # Useful when an external overlay network (Tailscale, ZeroTier, Cloudflare WARP, etc.)
+  # is managed outside this module and Terraform should connect through overlay IPs.
+  # node_connection_overrides = {
+  #   "k3s-control-plane" = "100.64.0.10"
+  #   "k3s-agent-0"       = "100.64.0.11"
+  # }
+```
+
+* **`node_connection_overrides` (Map of Strings, Optional):**
+  * **Default:** `{}`.
+  * **Purpose:** Overrides the SSH host used by Terraform provisioners per node.
+  * **Key Format:** Node name exactly as created by the module (including cluster prefix when `use_cluster_name_in_node_name = true`).
+  * **Use Case:** External connectivity layers where node management should happen over overlay addresses instead of public IPs.
 
 ```terraform
   # K3S audit-policy.yaml contents. Used to configure Kubernetes audit logging.
@@ -2320,33 +2341,34 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.21: Kustomize and Post-Deployment Operations**
 
 ```terraform
-  # Extra commands to be executed after the `kubectl apply -k` (useful for post-install actions, e.g. wait for CRD, apply additional manifests, etc.).
-  # extra_kustomize_deployment_commands=""
+  # You can add user kustomizations to be deployed in sequence by setting the `user_kustomizations` variable. 
+  # The Kustomization "sets" are run in sequential order (by numeric key) so that you can for example install a CRD and wait for it to be deployed.
+  #
+  # Properties of each value:
+  # - source_folder: Sets the source folder for *.yaml.tpl and Kustomization.yaml.tpl
+  # - kustomize_parameters: Key-value map for passing variables into Kustomization. Applies only to the Kustomization-set in the object, but to all files defined in the source_folder of the "set". Defaults to {}.
+  # - pre_commands: Commands to be executed before applying the Kustomization ("kubectl apply -k"). Defaults to "".
+  # - post_commands: Commands to be executed after applying the Kustomization ("kubectl apply -k"). You can use it to wait for CRD deployment etc. Defaults to "".
+  # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
+  # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
+  # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
+  # 
+  # An example:
+  # user_kustomizations = {
+  #   "1" = {
+  #     source_folder        = "extra-manifests"
+  #     kustomize_parameters = { myvar = "myvalue" }
+  #     pre_commands         = ""
+  #     post_commands        = "kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true"
+  #   }
+  # }
 ```
 
-* **`extra_kustomize_deployment_commands` (String or List of Strings, Optional):**
-  * **Purpose:** Allows you to specify shell commands that will be executed *after* the module has run its main Kustomize deployment (which applies manifests for core components like CCM, CSI, Ingress, etc., based on your selections).
-  * **Mechanism:** The module likely uses a `local-exec` or `remote-exec` provisioner (if commands need to run on a node) to execute these. If they are `kubectl` commands, they'd run from where Terraform is executed, using the generated kubeconfig.
+* **`user_kustomizations` (Map of Objects, Optional):**
+  * **Purpose:** Allows you to specify Kustomization sets that are run sequentially, with each set containing its own source_folder, pre_commands, post_commands and kustomize_parameters
   * **Use Cases:**
-    * **Waiting for CRDs:** Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
-    * Applying additional Kubernetes manifests that depend on the core setup.
-    * Running post-install scripts or triggering initial application setup jobs.
-  * **Format:** Can be a single string with commands separated by `&&` or `\n`, or a list of individual command strings.
-
-```terraform
-  # Extra values that will be passed to the `extra-manifests/kustomization.yaml.tpl` if its present.
-  # extra_kustomize_parameters={}
-```
-
-* **`extra_kustomize_parameters` (Map of Strings, Optional):**
-  * **Purpose:** If you are using the module's "extra manifests" feature (where you can provide your own Kustomize setup in an `extra-manifests` directory), this map allows you to pass key-value parameters into a `kustomization.yaml.tpl` template file within that directory.
-  * **Mechanism:** The module would process `extra-manifests/kustomization.yaml.tpl` as a template, substituting placeholders with values from this map, and then run `kustomize build` on the result.
-  * **Use Case:** Parameterizing your custom Kustomize deployments based on Terraform inputs or computed values from the `kube-hetzner` module (e.g., passing in the cluster name, node IPs, etc., to your custom manifests).
-  * **Reference:** The comment points to examples in the module's repository for how to use this feature.
-
-```terraform
-  # See working examples for extra manifests or a HelmChart in examples/kustomization_user_deploy/README.md
-```
+    * Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
+    * The `user_kustomizations`-map allows you to define steps of install where e.g. the first step installs CRDs, checks for their proper existence and then second step that install further CRs.
 
 * **Documentation Pointer:** This directs users to example usage of the "extra manifests" feature, which is crucial for extending the module's capabilities with custom deployments.
 
@@ -2403,25 +2425,33 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.23: Base OS Image Configuration**
 
 ```terraform
-  # MicroOS snapshot IDs to be used. Per default empty, the most recent image created using createkh will be used.
-  # We recommend the default, but if you want to use specific IDs you can.
+  # Leap Micro snapshot IDs to be used (recommended). Per default empty, the most recent image created using createkh will be used.
+  # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'leapmicro-snapshot=yes'" command.
+  # leapmicro_x86_snapshot_id = "1234567"
+  # leapmicro_arm_snapshot_id = "1234567"
+
+  # MicroOS snapshot IDs to be used (legacy/upgrade). Per default empty, the most recent image created using createkh will be used.
   # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'microos-snapshot=yes'" command.
   # microos_x86_snapshot_id = "1234567"
   # microos_arm_snapshot_id = "1234567"
 ```
 
-* **Background:** This module uses openSUSE MicroOS as the base operating system for the cluster nodes. MicroOS is a transactional, immutable-style OS designed for container workloads. The `createkh` tool (mentioned in the comment, part of the `kube-hetzner` project) is likely used to prepare and snapshot customized MicroOS images suitable for this module.
-* **`microos_x86_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated x86 snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for x86-based nodes (e.g., `cx` series).
-* **`microos_arm_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated ARM snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for ARM-based nodes (e.g., `cax` series).
-* **Recommendation:** "We recommend the default". Using the default ensures you get the latest tested and prepared image from the module maintainers.
-* **Use Case for Pinning:**
-  * Ensuring absolute reproducibility if you need to rebuild a cluster exactly as it was.
-  * If a new default snapshot introduces an issue, you can temporarily pin to a known good older snapshot ID.
-* **Fetching IDs:** The `hcloud image list --selector 'microos-snapshot=yes'` command helps you find available snapshot IDs created by `createkh` in your Hetzner project.
+* **Background:** This module supports two immutable openSUSE base OS options for nodes:
+  * **Leap Micro** (`leapmicro`, recommended for new nodepools): stable, transactional updates.
+  * **MicroOS** (`microos`, legacy/upgrade support): rolling, transactional updates.
+* **Snapshots:** The module expects you to have snapshots in your Hetzner project labeled `leapmicro-snapshot=yes` and/or `microos-snapshot=yes` (typically created via the packer templates in `packer-template/`).
+* **`leapmicro_x86_snapshot_id` / `leapmicro_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `leapmicro-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for Leap Micro nodes (x86 for `cx*`, ARM for `cax*`).
+  * **Fetching IDs:** `hcloud image list --selector 'leapmicro-snapshot=yes'`
+* **`microos_x86_snapshot_id` / `microos_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `microos-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for MicroOS nodes (legacy/upgrade scenarios).
+  * **Fetching IDs:** `hcloud image list --selector 'microos-snapshot=yes'`
+* **OS selection (`os`) on nodepools (Optional):**
+  * **Valid values:** `leapmicro` or `microos`.
+  * **Where:** `control_plane_nodepools[].os`, `agent_nodepools[].os`, `agent_nodepools[].nodes[*].os`, and `autoscaler_nodepools[].os`.
+  * **Defaulting:** Existing nodepools keep their current OS on upgrade (MicroOS by default when unknown). New nodepools default to Leap Micro.
 
 ---
 

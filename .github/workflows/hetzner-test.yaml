@@ -1,0 +1,102 @@
+name: Test in Hetzner
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hetzner-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+  HCLOUD_CONTEXT: ${{ secrets.HCLOUD_CONTEXT }}
+  SNAPSHOT_ID_ARM: ${{ secrets.SNAPSHOT_ID_ARM }}
+  SNAPSHOT_ID_X86: ${{ secrets.SNAPSHOT_ID_X86 }}
+  LEAPMICRO_SNAPSHOT_ID_ARM: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM }}
+  LEAPMICRO_SNAPSHOT_ID_X86: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 }}
+  TF_VAR_microos_arm_snapshot_id: ${{ secrets.SNAPSHOT_ID_ARM }}
+  TF_VAR_microos_x86_snapshot_id: ${{ secrets.SNAPSHOT_ID_X86 }}
+  TF_VAR_leapmicro_arm_snapshot_id: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM != '' && secrets.LEAPMICRO_SNAPSHOT_ID_ARM || secrets.SNAPSHOT_ID_ARM }}
+  TF_VAR_leapmicro_x86_snapshot_id: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 != '' && secrets.LEAPMICRO_SNAPSHOT_ID_X86 || secrets.SNAPSHOT_ID_X86 }}
+
+jobs:
+  tests:
+    name: Run Hetzner Tests (${{ matrix.preset }})
+    runs-on: ubuntu-latest
+    environment: hetzner-test
+    if: ${{ vars.TEST_IN_HETZNER == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [default, nginx_ingress, rke2]
+
+    steps:
+      - name: Add env mask
+        run: |
+          echo "::add-mask::${{ secrets.HCLOUD_TOKEN }}"
+          echo "::add-mask::${{ secrets.HCLOUD_CONTEXT }}"
+          echo "::add-mask::${{ secrets.SNAPSHOT_ID_ARM }}"
+          echo "::add-mask::${{ secrets.SNAPSHOT_ID_X86 }}"
+          echo "::add-mask::${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM }}"
+          echo "::add-mask::${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 }}"
+
+      - name: Check prerequisites
+        id: prerequisites
+        run: |
+          ARM_SNAPSHOT="${LEAPMICRO_SNAPSHOT_ID_ARM:-$SNAPSHOT_ID_ARM}"
+          X86_SNAPSHOT="${LEAPMICRO_SNAPSHOT_ID_X86:-$SNAPSHOT_ID_X86}"
+
+          if [ -z "$ARM_SNAPSHOT" ] || [ -z "$X86_SNAPSHOT" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Neither MicroOS nor LeapMicro snapshots are configured, skipping workflow."
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.prerequisites.outputs.enabled == 'true'
+        uses: actions/checkout@v6
+
+      - name: Install Terraform
+        if: steps.prerequisites.outputs.enabled == 'true'
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Install kubectl
+        if: steps.prerequisites.outputs.enabled == 'true'
+        uses: azure/setup-kubectl@v4
+
+      - name: Create SSH keys
+        if: steps.prerequisites.outputs.enabled == 'true'
+        run: ssh-keygen -f ~/.ssh/id_ed25519 -N ""
+
+      - name: Apply preset
+        if: steps.prerequisites.outputs.enabled == 'true'
+        timeout-minutes: 20
+        run: |
+          TEST_CLUSTER_NAME="kh-ci-${{ matrix.preset }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "TEST_CLUSTER_NAME=${TEST_CLUSTER_NAME}" >> "$GITHUB_ENV"
+          cp kube.tf.example kube.tf
+          cp "tests/presets/${{ matrix.preset }}.tfvars" tests.auto.tfvars
+          terraform init
+          terraform validate
+          terraform apply -auto-approve -var="cluster_name=${TEST_CLUSTER_NAME}"
+
+      - name: Basic cluster health
+        if: steps.prerequisites.outputs.enabled == 'true'
+        timeout-minutes: 5
+        run: |
+          KUBECONFIG_FILE="${TEST_CLUSTER_NAME}_kubeconfig.yaml"
+          test -f "${KUBECONFIG_FILE}"
+          kubectl --kubeconfig "${KUBECONFIG_FILE}" get nodes -o wide
+          kubectl --kubeconfig "${KUBECONFIG_FILE}" get pods -A
+
+      - name: Destroy cluster
+        if: steps.prerequisites.outputs.enabled == 'true' && always()
+        run: terraform destroy -auto-approve -var="cluster_name=${TEST_CLUSTER_NAME}"

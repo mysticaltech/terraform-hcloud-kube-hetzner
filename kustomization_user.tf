@@ -34,21 +34,22 @@ resource "terraform_data" "kustomization_user" {
     manifest_sha1      = sha1(templatefile("${var.extra_kustomize_folder}/${each.key}", var.extra_kustomize_parameters))
     control_plane_id   = terraform_data.first_control_plane.id
     kustomization_sha1 = sha1(templatefile("${var.extra_kustomize_folder}/kustomization.yaml.tpl", var.extra_kustomize_parameters))
+
+  processed_kustomizes = {
+    for key, config in var.user_kustomizations : key => merge(config, {
+      # kustomize_parameters, pre_commands, and post_commands may contain secrets
+      kustomize_parameters = sensitive(config.kustomize_parameters),
+      pre_commands         = sensitive(config.pre_commands),
+      post_commands        = sensitive(config.post_commands)
+    })
   }
-
-  depends_on = [
-    terraform_data.kustomization
-  ]
-}
-moved {
-  from = null_resource.kustomization_user
-  to   = terraform_data.kustomization_user
 }
 
-resource "terraform_data" "kustomization_user_deploy" {
-  count = length(local.user_kustomization_templates) > 0 ? 1 : 0
+module "user_kustomizations" {
 
-  connection {
+  source = "./modules/user_kustomizations"
+
+  ssh_connection = {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
@@ -59,31 +60,13 @@ resource "terraform_data" "kustomization_user_deploy" {
     bastion_port        = local.ssh_bastion.bastion_port
     bastion_user        = local.ssh_bastion.bastion_user
     bastion_private_key = local.ssh_bastion.bastion_private_key
-
   }
 
-  # Remove templates after rendering, and apply changes.
-  provisioner "remote-exec" {
-    # Debugging: "sh -c 'for file in $(find /var/user_kustomize -type f -name \"*.yaml\" | sort -n); do echo \"\n### Template $${file}.tpl after rendering:\" && cat $${file}; done'",
-    inline = compact([
-      "rm -f /var/user_kustomize/**/*.yaml.tpl",
-      "echo 'Applying user kustomization...'",
-      "kubectl apply -k /var/user_kustomize/ --wait=true",
-      var.extra_kustomize_deployment_commands
-    ])
-  }
-
-  lifecycle {
-    replace_triggered_by = [
-      terraform_data.kustomization_user
-    ]
-  }
+  kustomizations_map = local.processed_kustomizes
+  kubectl_cli        = local.kubectl_cli
 
   depends_on = [
-    terraform_data.kustomization_user
+    terraform_data.kustomization,
+    null_resource.rke2_kustomization,
   ]
-}
-moved {
-  from = null_resource.kustomization_user_deploy
-  to   = terraform_data.kustomization_user_deploy
 }

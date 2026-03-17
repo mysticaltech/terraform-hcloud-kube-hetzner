@@ -68,6 +68,7 @@ data "cloudinit_config" "nat_router_config" {
         ssh_max_auth_tries         = var.ssh_max_auth_tries
         enable_cp_lb_port_forward  = var.use_control_plane_lb && !var.control_plane_lb_enable_public_interface
         cp_lb_private_ip           = try(hcloud_load_balancer_network.control_plane[0].ip, "")
+        kubeapi_port               = var.kubeapi_port
       }
     )
   }
@@ -147,6 +148,22 @@ resource "hcloud_server" "nat_router" {
     ignore_changes = [network]
   }
 
+}
+
+resource "hcloud_rdns" "nat_router_primary_ipv4" {
+  count = (var.nat_router != null && var.base_domain != "") ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
+
+  primary_ip_id = hcloud_primary_ip.nat_router_primary_ipv4[count.index].id
+  ip_address    = hcloud_primary_ip.nat_router_primary_ipv4[count.index].ip_address
+  dns_ptr       = "${hcloud_server.nat_router[count.index].name}.${var.base_domain}"
+}
+
+resource "hcloud_rdns" "nat_router_primary_ipv6" {
+  count = (var.nat_router != null && var.base_domain != "") ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
+
+  primary_ip_id = hcloud_primary_ip.nat_router_primary_ipv6[count.index].id
+  ip_address    = hcloud_primary_ip.nat_router_primary_ipv6[count.index].ip_address
+  dns_ptr       = "${hcloud_server.nat_router[count.index].name}.${var.base_domain}"
 }
 
 resource "terraform_data" "nat_router_await_cloud_init" {

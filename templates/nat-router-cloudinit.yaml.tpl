@@ -17,8 +17,8 @@ write_files:
           post-up echo 1 > /proc/sys/net/ipv4/ip_forward
           post-up iptables -t nat -A POSTROUTING -s '${ private_network_ipv4_range }' ! -d '${ private_network_ipv4_range }' -o eth0 -j MASQUERADE
 %{ if enable_cp_lb_port_forward ~}
-          post-up iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 6443 -j DNAT --to-destination ${ cp_lb_private_ip }:6443
-          post-up iptables -t nat -A POSTROUTING -d ${ cp_lb_private_ip } -p tcp --dport 6443 -j MASQUERADE
+          post-up iptables -t nat -A PREROUTING -i eth0 -p tcp --dport ${ kubeapi_port } -j DNAT --to-destination ${ cp_lb_private_ip }:${ kubeapi_port }
+          post-up iptables -t nat -A POSTROUTING -d ${ cp_lb_private_ip } -p tcp --dport ${ kubeapi_port } -j MASQUERADE
 %{ endif ~}
     append: true
 
