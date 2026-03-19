@@ -258,6 +258,17 @@ variable "nat_router" {
   }
 }
 
+variable "use_private_bastion" {
+  type        = bool
+  default     = false
+  description = "Use the NAT router's private IP as the SSH bastion instead of its public IP. Requires the operator to have network-level access to the private network (e.g. via Tailscale, Cloudflare Tunnel, WireGuard VPN, etc)."
+
+  validation {
+    condition     = !var.use_private_bastion || var.nat_router != null
+    error_message = "use_private_bastion requires nat_router to be configured."
+  }
+}
+
 variable "nat_router_hcloud_token" {
   description = "API Token used by the nat-router to change ip assignment when nat_router.enable_redundancy is true."
   type        = string

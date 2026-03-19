@@ -801,7 +801,7 @@ EOT
 
   ssh_bastion = coalesce(
     local.use_nat_router ? {
-      bastion_host        = hcloud_server.nat_router[0].ipv4_address
+      bastion_host        = var.use_private_bastion ? local.nat_router_ip[0] : hcloud_server.nat_router[0].ipv4_address
       bastion_port        = var.ssh_port
       bastion_user        = "nat-router"
       bastion_private_key = var.ssh_private_key
