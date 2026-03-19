@@ -69,6 +69,7 @@ data "cloudinit_config" "nat_router_config" {
         enable_cp_lb_port_forward  = var.use_control_plane_lb && !var.control_plane_lb_enable_public_interface
         cp_lb_private_ip           = try(hcloud_load_balancer_network.control_plane[0].ip, "")
         kubeapi_port               = var.kubeapi_port
+        extra_runcmd               = var.nat_router.extra_runcmd
       }
     )
   }

@@ -2907,6 +2907,9 @@ The following variables have been added to the `kube-hetzner` module since the i
     * `location`: The location where the NAT router should be deployed
     * `labels`: (Optional) Additional labels for the NAT router
     * `enable_sudo`: (Optional, default: false) Enable sudo access for the nat-router user
+    * `enable_redundancy`: (Optional, default: false) Deploy two NAT routers with keepalived for failover
+    * `standby_location`: (Optional, default: "") Location for the standby NAT router; required when `enable_redundancy` is true
+    * `extra_runcmd`: (Optional, default: []) List of extra shell commands appended to the NAT router's cloud-init `runcmd` section. Useful for installing additional packages, fetching certificates, or running custom setup scripts.
   * **Port Forwarding:** When the control plane LB has no public interface (`control_plane_lb_enable_public_interface = false`), the NAT router automatically configures iptables rules to forward incoming traffic on port 6443 to the control plane LB's private IP. This allows external kubectl access while keeping the control plane LB completely private.
 
 **k3s Binary Configuration**

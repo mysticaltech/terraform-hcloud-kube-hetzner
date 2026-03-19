@@ -239,3 +239,6 @@ runcmd:
   - [systemctl, 'enable', 'keepalived']
   - [systemctl, 'restart', 'keepalived']
 %{ endif ~}
+%{ for command in extra_runcmd ~}
+  - ${command}
+%{ endfor ~}
