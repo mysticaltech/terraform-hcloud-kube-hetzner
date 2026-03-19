@@ -239,6 +239,6 @@ runcmd:
   - [systemctl, 'enable', 'keepalived']
   - [systemctl, 'restart', 'keepalived']
 %{ endif ~}
-%{ for command in extra_runcmd ~}
-  - ${command}
-%{ endfor ~}
+%{~ if length(extra_runcmd) > 0 ~}
+${yamlencode(extra_runcmd)}
+%{~ endif ~}
