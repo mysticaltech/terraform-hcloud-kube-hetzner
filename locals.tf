@@ -1344,9 +1344,21 @@ cloudinit_runcmd_common = <<EOT
 - [sed, '-i', 's/#SystemMaxUse=/SystemMaxUse=3G/g', /etc/systemd/journald.conf]
 - [sed, '-i', 's/#MaxRetentionSec=/MaxRetentionSec=1week/g', /etc/systemd/journald.conf]
 
-# Reduces the default number of snapshots from 2-10 number limit, to 4 and from 4-10 number limit important, to 2
+# Reduces the default number of snapshots from 2-10 number limit, to 4 and from 4-10 number limit important, to 3
 - [sed, '-i', 's/NUMBER_LIMIT="2-10"/NUMBER_LIMIT="4"/g', /etc/snapper/configs/root]
 - [sed, '-i', 's/NUMBER_LIMIT_IMPORTANT="4-10"/NUMBER_LIMIT_IMPORTANT="3"/g', /etc/snapper/configs/root]
+
+# Reduce timeline snapshot limits to prevent disk fill on small Hetzner VMs (40-80GB).
+# Default MicroOS values (10 hourly, 10 daily, 10 monthly, 10 yearly) are too aggressive
+# for typical cloud VMs and cause DiskPressure within weeks.
+# See: discussions #1319, #1310, #1078, #1993
+- [sed, '-i', 's/TIMELINE_LIMIT_HOURLY="10"/TIMELINE_LIMIT_HOURLY="0"/g', /etc/snapper/configs/root]
+- [sed, '-i', 's/TIMELINE_LIMIT_DAILY="10"/TIMELINE_LIMIT_DAILY="3"/g', /etc/snapper/configs/root]
+- [sed, '-i', 's/TIMELINE_LIMIT_MONTHLY="10"/TIMELINE_LIMIT_MONTHLY="0"/g', /etc/snapper/configs/root]
+- [sed, '-i', 's/TIMELINE_LIMIT_YEARLY="10"/TIMELINE_LIMIT_YEARLY="0"/g', /etc/snapper/configs/root]
+
+# Disable timeline snapshots entirely — transactional-update already creates pre/post snapshots
+- [systemctl, disable, '--now', 'snapper-timeline.timer']
 
 # Allow network interface
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
