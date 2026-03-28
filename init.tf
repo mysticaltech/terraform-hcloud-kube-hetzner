@@ -109,12 +109,12 @@ resource "terraform_data" "first_control_plane" {
           kubelet-arg                 = local.kubelet_arg
           kube-controller-manager-arg = local.kube_controller_manager_arg
           flannel-iface               = local.flannel_iface
-          node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+          node-ip                     = local.enable_dualstack ? "${module.control_planes[keys(module.control_planes)[0]].private_ipv4_address},${module.control_planes[keys(module.control_planes)[0]].ipv6_address}" : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           node-taint                  = local.control_plane_nodes[keys(module.control_planes)[0]].taints
           node-label                  = local.control_plane_nodes[keys(module.control_planes)[0]].labels
-          cluster-cidr                = var.cluster_ipv4_cidr
-          service-cidr                = var.service_ipv4_cidr
+          cluster-cidr                = local.dualstack_cluster_cidr
+          service-cidr                = local.dualstack_service_cidr
           cluster-dns                 = local.cluster_dns_ipv4
         },
         lookup(local.cni_k3s_settings, var.cni_plugin, {}),
@@ -371,9 +371,10 @@ resource "terraform_data" "kustomization" {
     content = var.hetzner_ccm_use_helm ? "" : templatefile(
       "${path.module}/templates/ccm.yaml.tpl",
       {
-        cluster_cidr_ipv4   = var.cluster_ipv4_cidr
+        cluster_cidr        = local.dualstack_cluster_cidr
         default_lb_location = var.load_balancer_location
         using_klipper_lb    = local.using_klipper_lb
+        enable_dualstack    = local.enable_dualstack
     })
     destination = "/var/post_install/ccm.yaml"
   }

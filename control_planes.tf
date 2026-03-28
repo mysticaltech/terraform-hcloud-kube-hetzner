@@ -137,13 +137,13 @@ locals {
       kube-apiserver-arg          = local.kube_apiserver_arg
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface
-      node-ip                     = module.control_planes[k].private_ipv4_address
+      node-ip                     = local.enable_dualstack ? "${module.control_planes[k].private_ipv4_address},${module.control_planes[k].ipv6_address}" : module.control_planes[k].private_ipv4_address
       advertise-address           = module.control_planes[k].private_ipv4_address
       node-label                  = v.labels
       node-taint                  = v.taints
       selinux                     = var.disable_selinux ? false : (v.selinux == true ? true : false)
-      cluster-cidr                = var.cluster_ipv4_cidr
-      service-cidr                = var.service_ipv4_cidr
+      cluster-cidr                = local.dualstack_cluster_cidr
+      service-cidr                = local.dualstack_service_cidr
       cluster-dns                 = local.cluster_dns_ipv4
       write-kubeconfig-mode       = "0644" # needed for import into rancher
     },

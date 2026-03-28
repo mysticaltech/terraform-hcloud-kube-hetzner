@@ -15,7 +15,7 @@ spec:
             - "--allow-untagged-cloud"
             - "--route-reconciliation-period=30s"
             - "--allocate-node-cidrs=true"
-            - "--cluster-cidr=${cluster_cidr_ipv4}"
+            - "--cluster-cidr=${cluster_cidr}"
             - "--webhook-secure-port=0"
 %{if using_klipper_lb~}
             - "--secure-port=10288"
@@ -29,3 +29,24 @@ spec:
               value: "${!using_klipper_lb}"
             - name: "HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS"
               value: "true"
+%{if enable_dualstack~}
+            - name: "HCLOUD_INSTANCES_ADDRESS_FAMILY"
+              value: "dualstack"
+%{endif~}
+      tolerations:
+        - key: "node.cloudprovider.kubernetes.io/uninitialized"
+          value: "true"
+          effect: "NoSchedule"
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node.kubernetes.io/not-ready"
+          effect: "NoExecute"
+        - key: "node.cilium.io/agent-not-ready"
+          operator: "Exists"
+          effect: "NoSchedule"

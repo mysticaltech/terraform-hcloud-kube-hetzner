@@ -23,6 +23,11 @@ locals {
 
   cilium_ipv4_native_routing_cidr = coalesce(var.cilium_ipv4_native_routing_cidr, var.cluster_ipv4_cidr)
 
+  # Dual-stack helpers — when IPv6 CIDRs are set, append them with comma separator
+  enable_dualstack       = var.cluster_ipv6_cidr != ""
+  dualstack_cluster_cidr = var.cluster_ipv6_cidr != "" ? "${var.cluster_ipv4_cidr},${var.cluster_ipv6_cidr}" : var.cluster_ipv4_cidr
+  dualstack_service_cidr = var.service_ipv6_cidr != "" ? "${var.service_ipv4_cidr},${var.service_ipv6_cidr}" : var.service_ipv4_cidr
+
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
 
@@ -619,6 +624,11 @@ ipam:
   mode: kubernetes
 k8s:
   requireIPv4PodCIDR: true
+%{if var.cluster_ipv6_cidr != ""~}
+  requireIPv6PodCIDR: true
+ipv6:
+  enabled: true
+%{endif~}
 
 # Replace kube-proxy with Cilium
 kubeProxyReplacement: true
@@ -784,7 +794,7 @@ controller:
   hetzner_ccm_values_default = <<EOT
 networking:
   enabled: true
-  clusterCIDR: "${var.cluster_ipv4_cidr}"
+  clusterCIDR: "${local.dualstack_cluster_cidr}"
 %{if local.use_robot_ccm~}
 robot:
   enabled: true
@@ -811,8 +821,17 @@ env:
   HCLOUD_NETWORK_ROUTES_ENABLED:
     value: "false"
 %{endif~}
+%{if local.enable_dualstack~}
+  HCLOUD_INSTANCES_ADDRESS_FAMILY:
+    value: "dualstack"
+%{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
+# Tolerate Cilium not-ready taint so CCM can initialize nodes before CNI is up
+tolerations:
+  - key: "node.cilium.io/agent-not-ready"
+    operator: "Exists"
+    effect: "NoSchedule"
   EOT
 
   hetzner_ccm_values = module.values_merger_hetzner_ccm.values

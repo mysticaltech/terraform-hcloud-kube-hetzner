@@ -153,6 +153,28 @@ variable "service_ipv4_cidr" {
   default     = "10.43.0.0/16"
 }
 
+variable "cluster_ipv6_cidr" {
+  description = "IPv6 pod CIDR for dual-stack networking. Leave empty for single-stack IPv4 only."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cluster_ipv6_cidr == "" || can(cidrhost(var.cluster_ipv6_cidr, 0))
+    error_message = "cluster_ipv6_cidr must be a valid IPv6 CIDR (e.g. fd00:42::/48) or empty."
+  }
+}
+
+variable "service_ipv6_cidr" {
+  description = "IPv6 service CIDR for dual-stack networking. Leave empty for single-stack IPv4 only."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.service_ipv6_cidr == "" || can(cidrhost(var.service_ipv6_cidr, 0))
+    error_message = "service_ipv6_cidr must be a valid IPv6 CIDR (e.g. fd00:43::/112) or empty."
+  }
+}
+
 variable "cluster_dns_ipv4" {
   description = "Internal Service IPv4 address of core-dns."
   type        = string

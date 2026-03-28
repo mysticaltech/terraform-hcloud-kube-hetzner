@@ -67,7 +67,7 @@ locals {
         var.k3s_agent_kubelet_args
       )
       flannel-iface = local.flannel_iface
-      node-ip       = module.agents[k].private_ipv4_address
+      node-ip       = local.enable_dualstack ? "${module.agents[k].private_ipv4_address},${module.agents[k].ipv6_address}" : module.agents[k].private_ipv4_address
       node-label    = v.labels
       node-taint    = v.taints
     },
