@@ -540,11 +540,11 @@ resource "terraform_data" "kustomization" {
         # Ready, set, go for the kustomization
         "kubectl apply -k /var/post_install",
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
-        "kubectl -n system-upgrade wait --for=condition=available --timeout=900s deployment/system-upgrade-controller",
+        "kubectl -n system-upgrade wait --for=condition=available --timeout=1800s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml",
         # Wait for system namespace deployments to become available
-        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
+        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns wait deployment --all --for=condition=Available --timeout=600s || true; done",
         # Wait for helm install jobs to complete (only in namespaces that have jobs)
         "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns get job -o name 2>/dev/null | grep -q . && kubectl -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
       ],
