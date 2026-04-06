@@ -138,7 +138,9 @@ data "cloudinit_config" "autoscaler_config" {
         cloudinit_write_files_common = local.cloudinit_write_files_common
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
-        network_gw_ipv4              = local.network_gw_ipv4
+        network_gw_ipv4              = local.network_gw_ipv4,
+        enable_dualstack             = local.enable_dualstack,
+        flannel_iface                = local.flannel_iface
       }
     )
   }
@@ -181,6 +183,8 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
         private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
         network_gw_ipv4              = local.network_gw_ipv4,
+        enable_dualstack             = local.enable_dualstack,
+        flannel_iface                = local.flannel_iface
       }
     )
   }

@@ -49,6 +49,7 @@ kube-hetzner-knowledge.jsondata
 
 # Misc
 .DS_Store
+.hcloud_token.tmp
 
 requirements/*
 

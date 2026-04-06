@@ -236,7 +236,7 @@ resource "terraform_data" "kube_system_secrets" {
           echo "kubectl not ready yet, waiting $RETRY_INTERVAL seconds..."
           sleep $RETRY_INTERVAL
         fi
-        
+
         if [ $attempt -eq $MAX_ATTEMPTS ]; then
           echo "Failed to establish kubectl connectivity after $MAX_ATTEMPTS attempts"
           exit 1

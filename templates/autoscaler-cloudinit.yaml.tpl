@@ -155,5 +155,20 @@ ${cloudinit_runcmd_common}
   systemctl enable --now zram.service
 %{endif~}
 
+%{if enable_dualstack~}
+# Dual-stack: detect IPv4 + IPv6 and inject node-ip into k3s config
+# This runs BEFORE k3s starts. Without it, k3s fails with:
+# "cluster-cidr and node-ip must share the same IP version"
+- |
+  PRIV_IPV4=$(ip -4 addr show ${flannel_iface} | grep "inet " | awk '{print $2}' | cut -d/ -f1 | head -1)
+  GLOB_IPV6=$(ip -6 addr show scope global | grep "inet6" | awk '{print $2}' | cut -d/ -f1 | head -1)
+  if [ -n "$PRIV_IPV4" ] && [ -n "$GLOB_IPV6" ]; then
+    echo "\"node-ip\": \"$${PRIV_IPV4},$${GLOB_IPV6}\"" >> /tmp/config.yaml
+    echo "Dual-stack node-ip set: $${PRIV_IPV4},$${GLOB_IPV6}"
+  else
+    echo "WARN: Could not detect dual-stack IPs (v4=$${PRIV_IPV4}, v6=$${GLOB_IPV6}), k3s may fail" >&2
+  fi
+%{endif~}
+
 # Start the install-k3s-agent service
 - ['/bin/bash', '/var/pre_install/install-k3s-agent.sh']
