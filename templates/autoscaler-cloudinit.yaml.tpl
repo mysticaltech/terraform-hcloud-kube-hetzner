@@ -157,16 +157,21 @@ ${cloudinit_runcmd_common}
 
 %{if enable_dualstack~}
 # Dual-stack: detect IPv4 + IPv6 and inject node-ip into k3s config
-# This runs BEFORE k3s starts. Without it, k3s fails with:
-# "cluster-cidr and node-ip must share the same IP version"
+# This runs BEFORE k3s starts and BEFORE rename_interface.sh renames to eth1.
+# Use route-based detection (not hardcoded interface name) since eth1 may not exist yet.
 - |
-  PRIV_IPV4=$(ip -4 addr show ${flannel_iface} | grep "inet " | awk '{print $2}' | cut -d/ -f1 | head -1)
+  PRIV_IF=$(ip -4 route get 10.0.0.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
+  if [ -z "$PRIV_IF" ]; then
+    echo "WARN: Could not detect private interface via route to 10.0.0.1" >&2
+    PRIV_IF="${flannel_iface}"
+  fi
+  PRIV_IPV4=$(ip -4 addr show "$PRIV_IF" 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1 | head -1)
   GLOB_IPV6=$(ip -6 addr show scope global | grep "inet6" | awk '{print $2}' | cut -d/ -f1 | head -1)
   if [ -n "$PRIV_IPV4" ] && [ -n "$GLOB_IPV6" ]; then
     echo "\"node-ip\": \"$${PRIV_IPV4},$${GLOB_IPV6}\"" >> /tmp/config.yaml
-    echo "Dual-stack node-ip set: $${PRIV_IPV4},$${GLOB_IPV6}"
+    echo "Dual-stack node-ip set: $${PRIV_IPV4},$${GLOB_IPV6} (detected on $PRIV_IF)"
   else
-    echo "WARN: Could not detect dual-stack IPs (v4=$${PRIV_IPV4}, v6=$${GLOB_IPV6}), k3s may fail" >&2
+    echo "WARN: Could not detect dual-stack IPs (iface=$PRIV_IF, v4=$${PRIV_IPV4}, v6=$${GLOB_IPV6}), k3s may fail" >&2
   fi
 %{endif~}
 
