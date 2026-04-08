@@ -136,8 +136,10 @@ variable "subnet_amount" {
     error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_amount or use a larger network."
   }
   validation {
-    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : (var.nat_router.enable_redundancy == false ? 1 : 2))
-    error_message = "Subnet amount must be large enough so that a subnet for each agent pool, each control plane pool and (if enabled) the nat router can be created in the network."
+    # Only agent pools with custom subnet_ip_range need their own subnet slot.
+    # Pools without it share the control plane subnet.
+    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length([for p in var.agent_nodepools : p if p.subnet_ip_range != null]) + (var.nat_router == null ? 0 : (var.nat_router.enable_redundancy == false ? 1 : 2))
+    error_message = "Subnet amount must be large enough for each control plane pool, each agent pool with a custom subnet_ip_range, and (if enabled) the nat router."
   }
 }
 

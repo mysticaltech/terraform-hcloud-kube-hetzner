@@ -375,6 +375,31 @@ locals {
   # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
   network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_amount, 2), index)]
 
+  # Agent pool subnet resolution: use control plane subnet by default,
+  # or a custom agent subnet if subnet_ip_range is specified.
+  # This ensures K3s kubelet proxy works (it fails across different subnets).
+  agent_pool_subnet_id = {
+    for pool in var.agent_nodepools : pool.name => (
+      pool.subnet_ip_range != null
+      ? hcloud_network_subnet.agent[pool.name].id
+      : hcloud_network_subnet.control_plane[0].id
+    )
+  }
+  agent_pool_subnet_ip_range = {
+    for pool in var.agent_nodepools : pool.name => (
+      pool.subnet_ip_range != null
+      ? pool.subnet_ip_range
+      : hcloud_network_subnet.control_plane[0].ip_range
+    )
+  }
+  # IP offset per pool: .201+ when sharing CP subnet (avoid collision with
+  # CP nodes at .101+), .101+ when pool has its own subnet (no collision risk)
+  agent_pool_ip_offset = {
+    for pool in var.agent_nodepools : pool.name => (
+      pool.subnet_ip_range != null ? 101 : 201
+    )
+  }
+
   # By convention the DNS service (usually core-dns) is assigned the 10th IP address in the service CIDR block
   cluster_dns_ipv4 = var.cluster_dns_ipv4 != null ? var.cluster_dns_ipv4 : cidrhost(var.service_ipv4_cidr, 10)
 

@@ -45,13 +45,19 @@ resource "hcloud_network_subnet" "control_plane" {
   ip_range     = local.network_ipv4_subnets[var.subnet_amount - 1 - count.index]
 }
 
-# Here we start at the beginning of the subnets cidr array
+# Agent nodes use the control plane subnet by default to ensure K3s
+# kubelet proxy connectivity works (K3s proxy fails across subnets).
+# A custom subnet_ip_range creates a separate subnet for that pool.
+# When sharing the CP subnet, agent IPs are offset to .201+ to avoid
+# collisions with control plane nodes at .101+.
 resource "hcloud_network_subnet" "agent" {
-  count        = length(var.agent_nodepools)
+  # Only create a separate subnet when a custom subnet_ip_range is specified.
+  # Pools without it share the control plane subnet (fixes K3s proxy 502).
+  for_each     = { for p in var.agent_nodepools : p.name => p if p.subnet_ip_range != null }
   network_id   = data.hcloud_network.k3s.id
   type         = "cloud"
   network_zone = var.network_region
-  ip_range     = coalesce(var.agent_nodepools[count.index].subnet_ip_range, local.network_ipv4_subnets[count.index])
+  ip_range     = each.value.subnet_ip_range
 }
 
 # Subnet for NAT router and other peripherals

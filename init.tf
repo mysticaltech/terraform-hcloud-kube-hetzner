@@ -25,18 +25,9 @@ resource "hcloud_load_balancer_network" "cluster" {
 
   load_balancer_id = hcloud_load_balancer.cluster.*.id[0]
   # Use -2 to get the last usable IP in the subnet
-  ip = cidrhost(
-    (
-      length(hcloud_network_subnet.agent) > 0
-      ? hcloud_network_subnet.agent.*.ip_range[0]
-      : hcloud_network_subnet.control_plane.*.ip_range[0]
-    )
-  , -2)
-  subnet_id = (
-    length(hcloud_network_subnet.agent) > 0
-    ? hcloud_network_subnet.agent.*.id[0]
-    : hcloud_network_subnet.control_plane.*.id[0]
-  )
+  # Always use the control plane subnet for the load balancer
+  ip        = cidrhost(hcloud_network_subnet.control_plane[0].ip_range, -2)
+  subnet_id = hcloud_network_subnet.control_plane[0].id
   enable_public_interface = true
 
   lifecycle {
