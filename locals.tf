@@ -2011,6 +2011,33 @@ cloudinit_write_files_common = <<EOT
     systemctl restart NetworkManager
   permissions: "0744"
 
+# Systemd oneshot that re-runs rename_interface.sh on every boot. The
+# cloud-init run above only fires at first boot and freezes the current NIC
+# MAC into /etc/udev/rules.d/70-persistent-net.rules. If Hetzner later
+# reassigns that MAC (NIC detach/reattach, network reconfig, MicroOS
+# transactional-update wiping the overlay, etc.) the udev rule no longer
+# matches, eth1 never appears, and k3s/rke2 fails with
+# `unable to find interface eth1`. The rename script is idempotent
+# (early-exits when eth1 already exists), so re-running it each boot is
+# cheap and self-heals the node.
+- path: /etc/systemd/system/kh-rename-interface.service
+  content: |
+    [Unit]
+    Description=Ensure Hetzner private NIC is renamed to eth1
+    DefaultDependencies=no
+    After=systemd-udev-settle.service network-pre.target
+    Before=network.target NetworkManager.service k3s.service k3s-agent.service rke2-server.service rke2-agent.service
+    ConditionPathExists=/etc/cloud/rename_interface.sh
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    ExecStart=/etc/cloud/rename_interface.sh
+
+    [Install]
+    WantedBy=multi-user.target
+  permissions: "0644"
+
 # Disable ssh password authentication
 - content: |
     Port ${var.ssh_port}
@@ -2120,6 +2147,12 @@ cloudinit_runcmd_common = <<EOT
 
 # Allow network interface
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
+
+# Enable the self-heal oneshot so it runs on every subsequent boot. We don't
+# start it here — first-boot rename happens via remote-exec before k3s/rke2
+# install, and starting it now while eth1 already exists is a no-op.
+- [systemctl, daemon-reload]
+- [systemctl, enable, kh-rename-interface.service]
 
 # Ensure sshd includes config.d directory and restart to apply the new config
 - |
