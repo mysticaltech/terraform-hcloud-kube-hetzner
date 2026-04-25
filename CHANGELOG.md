@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 📋 v2.19.3 Patch Release
+
+This is a patch release for the v2.19 series focused on upgrade-safe reliability fixes.
+
+**Patch fixes:**
+- **Terraform Legacy Module Regression** - Removed the child-module GitHub provider configuration that prevented callers from using `count`, `for_each`, or `depends_on`; release lookups now use unauthenticated HTTP requests instead (#2155).
+- **SSH Public Key Normalization** - Trimmed trailing whitespace from SSH public keys to avoid Hetzner provider apply inconsistencies when users pass keys with `file(...)`.
+- **NAT Router Validation** - Made NAT router validations null-safe when `nat_router = null` (#2152, #2153).
+- **Autoscaler ZRAM Bootstrap** - Fixed autoscaler nodes hanging in cloud-init when `zram_size` is configured (#2161, #2162).
+- **NAT Router Fail2ban** - Fixed the Debian 12 SSH jail by applying journald/systemd backend support and starting/restarting fail2ban during NAT router provisioning (#2163).
+- **MicroOS Snapshot Growth** - Reduced snapper timeline retention to avoid disk pressure on small nodes (#2167).
+- **Longhorn Volume Reconfiguration** - Re-runs Longhorn volume setup on volume identity/size/path/fstype changes, grows filesystems correctly, and stores fstab entries by filesystem UUID instead of mutable Hetzner volume device IDs (#2174, #2180).
+- **System Upgrade Plans** - Re-applies system-upgrade-controller Plans when `system_upgrade_use_drain` or `system_upgrade_enable_eviction` changes after initial provisioning (#2172).
+- **Control Plane LB Health Check** - Added an explicit HTTPS `/readyz` health check for the control-plane load balancer while keeping the service TCP passthrough (#2176).
+- **Hetzner CSI Values Docs** - Documented existing `hetzner_csi_values` support for custom CSI Helm values (#2168).
+- **Longhorn RWX Guidance** - Documented the upstream Longhorn RWX/NFS 4.1 issue and the NFS 4.0 workaround (#2169).
+
+---
+
 ### 📋 v2.19.1 Patch Release
 
 This is a patch release for v2.19.0. **If upgrading from v2.18.x**, please review the full release notes below including upgrade notes, new features, and breaking changes.

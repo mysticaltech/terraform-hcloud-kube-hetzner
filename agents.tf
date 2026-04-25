@@ -12,9 +12,9 @@ module "agents" {
   base_domain                      = var.base_domain
   ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
   ssh_port                         = var.ssh_port
-  ssh_public_key                   = var.ssh_public_key
+  ssh_public_key                   = local.ssh_public_key
   ssh_private_key                  = var.ssh_private_key
-  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
+  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
   firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
   placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_compat_idx].id : hcloud_placement_group.agent_named[each.value.placement_group].id)
   location                         = each.value.location
@@ -198,19 +198,61 @@ resource "terraform_data" "configure_longhorn_volume" {
   for_each = { for k, v in local.agent_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
 
   triggers_replace = {
-    agent_id = module.agents[each.key].id
+    agent_id             = module.agents[each.key].id
+    longhorn_fstype      = var.longhorn_fstype
+    longhorn_mount_path  = each.value.longhorn_mount_path
+    longhorn_volume_size = hcloud_volume.longhorn_volume[each.key].size
+    volume_id            = hcloud_volume.longhorn_volume[each.key].id
   }
 
-  # Start the k3s agent and wait for it to have started
+  # Configure and resize the longhorn volume
   provisioner "remote-exec" {
     inline = [
-      "set -e",
-      "mkdir -p '${each.value.longhorn_mount_path}' >/dev/null",
-      "mountpoint -q '${each.value.longhorn_mount_path}' || mount -o discard,defaults ${hcloud_volume.longhorn_volume[each.key].linux_device} '${each.value.longhorn_mount_path}'",
-      "${var.longhorn_fstype == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.longhorn_volume[each.key].linux_device}",
-      # Match any non-comment line (^[^#]) with any first field, followed by a space and your mount path in the second column.
-      # This prevents false positives like /data matching /data1.
-      "awk -v path='${each.value.longhorn_mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.longhorn_volume[each.key].linux_device} ${each.value.longhorn_mount_path} ${var.longhorn_fstype} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
+      <<-EOT
+      set -e
+
+      device='${hcloud_volume.longhorn_volume[each.key].linux_device}'
+      mount_path='${each.value.longhorn_mount_path}'
+      fstype='${var.longhorn_fstype}'
+
+      mkdir -p "$mount_path" >/dev/null
+      uuid="$(blkid -s UUID -o value "$device")"
+      if [ -z "$uuid" ]; then
+        echo "Unable to determine filesystem UUID for $device" >&2
+        exit 1
+      fi
+
+      {
+        findmnt -rn -S "$device" -o TARGET || true
+        findmnt -rn -S "UUID=$uuid" -o TARGET || true
+      } | sort -u | while read -r current_mount; do
+        if [ -n "$current_mount" ] && [ "$current_mount" != "$mount_path" ]; then
+          umount "$current_mount"
+        fi
+      done
+
+      if mountpoint -q "$mount_path"; then
+        mounted_source="$(findmnt -rn -T "$mount_path" -o SOURCE)"
+        mounted_uuid="$(blkid -s UUID -o value "$mounted_source" 2>/dev/null || true)"
+        if [ "$mounted_uuid" != "$uuid" ]; then
+          umount "$mount_path"
+        fi
+      fi
+
+      mountpoint -q "$mount_path" || mount -o discard,defaults "$device" "$mount_path"
+
+      case "$fstype" in
+        ext4) resize2fs "$device" ;;
+        xfs) xfs_growfs "$mount_path" ;;
+        *) echo "Unsupported Longhorn filesystem type: $fstype" >&2; exit 1 ;;
+      esac
+
+      tmp_fstab="$(mktemp)"
+      awk -v path="$mount_path" -v uuid="$uuid" -v device="$device" '$0 ~ /^#/ || ($1 != "UUID=" uuid && $1 != device && $2 != path) { print }' /etc/fstab > "$tmp_fstab"
+      cat "$tmp_fstab" > /etc/fstab
+      rm -f "$tmp_fstab"
+      printf 'UUID=%s %s %s discard,nofail,defaults 0 0\n' "$uuid" "$mount_path" "$fstype" >> /etc/fstab
+      EOT
     ]
   }
 

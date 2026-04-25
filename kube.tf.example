@@ -587,6 +587,9 @@ module "kube-hetzner" {
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
   # hetzner_csi_version = ""
 
+  # To pass custom Helm values to the Hetzner CSI driver, use hetzner_csi_values.
+  # hetzner_csi_values = file("${path.module}/chart-values/hcloud-csi.yaml")
+
   # If you want to specify the Kured version, set it below - otherwise it'll use the latest version available.
   # See https://github.com/kubereboot/kured/releases for the available versions.
   # kured_version = ""
@@ -1247,6 +1250,8 @@ controller:
   # Longhorn, all Longhorn helm values can be found at https://github.com/longhorn/longhorn/blob/master/chart/values.yaml
   # If you want to merge extra values into defaults (or longhorn_values), use longhorn_merge_values.
   # longhorn_values replaces the module defaults. For targeted overrides (for example hotfix image tags), prefer longhorn_merge_values.
+  # Longhorn RWX volumes may be affected by upstream NFS 4.1/4.2 client hangs.
+  # Workaround: create a dedicated StorageClass for affected RWX PVCs with parameters.nfsOptions = "vers=4.0,noresvport,softerr,timeo=600,retrans=5".
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   longhorn_values = <<-EOT
 defaultSettings:

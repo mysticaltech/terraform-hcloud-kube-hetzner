@@ -95,7 +95,7 @@ $(git diff $LATEST..HEAD --stat)"
 Use Codex for breaking change analysis:
 
 ```bash
-codex exec -m gpt-5.2-codex -s read-only -c model_reasoning_effort="xhigh" \
+codex exec -m gpt-5.5 -s read-only -c model_reasoning_effort="xhigh" \
   "Analyze these changes for breaking changes affecting existing deployments: $(git diff $LATEST..HEAD -- variables.tf locals.tf)"
 ```
 

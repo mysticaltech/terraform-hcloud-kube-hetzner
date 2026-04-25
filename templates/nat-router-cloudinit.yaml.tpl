@@ -2,8 +2,9 @@
 package_reboot_if_required: false
 package_update: true
 package_upgrade: true
-packages: 
+packages:
 - fail2ban
+- python3-systemd
 %{ if enable_redundancy ~}
 - jq
 - keepalived
@@ -39,8 +40,9 @@ write_files:
     content: |
       [sshd]
       enabled = true
-      port = ssh
-      logpath = %(sshd_log)s
+      port = ${ ssh_port }
+      backend = systemd
+      journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
       maxretry = 5
       bantime = 86400
 
@@ -232,7 +234,8 @@ resolv_conf:
 
 
 runcmd:
-  - [systemctl, 'enable', 'fail2ban']
+  - [systemctl, 'enable', '--now', 'fail2ban']
+  - [systemctl, 'restart', 'fail2ban']
   - [systemctl, 'restart', 'sshd']
   - [systemctl, 'restart', 'networking']
 %{ if enable_redundancy ~}

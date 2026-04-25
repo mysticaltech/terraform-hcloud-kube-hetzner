@@ -162,7 +162,7 @@ For complex changes, get AI review:
 
 ```bash
 # Codex for correctness
-codex exec -m gpt-5.2-codex -s read-only -c model_reasoning_effort="xhigh" \
+codex exec -m gpt-5.5 -s read-only -c model_reasoning_effort="xhigh" \
   "Review these terraform changes for issues: $(git diff)"
 
 # Gemini for broad impact

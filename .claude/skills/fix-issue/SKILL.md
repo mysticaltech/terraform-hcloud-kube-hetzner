@@ -123,7 +123,7 @@ cat locals.tf        # Core logic and computed values
 
 ```bash
 # Codex CLI for deep reasoning
-codex exec -m gpt-5.2-codex -s read-only -c model_reasoning_effort="xhigh" \
+codex exec -m gpt-5.5 -s read-only -c model_reasoning_effort="xhigh" \
   "Analyze this issue and identify root cause: <issue description>"
 
 # Gemini for large context analysis
