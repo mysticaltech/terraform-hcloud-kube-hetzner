@@ -943,6 +943,7 @@ EOT
   ])
   cluster_dns = join(",", local.cluster_dns_values)
 
+  hetzner_ccm_route_cluster_cidr       = coalesce(local.cluster_ipv4_cidr_effective, "")
   hetzner_ccm_instances_address_family = local.cluster_has_ipv6 ? (local.cluster_has_ipv4 ? "dualstack" : "ipv6") : "ipv4"
 
   # Keep the legacy single-network value available for templates that still
@@ -1283,7 +1284,7 @@ ipv6NativeRoutingCIDR: "${local.cluster_ipv6_cidr_effective}"
 # Bypass iptables Connection Tracking for Pod traffic (only works in Native Routing Mode)
 installNoConntrackIptablesRules: true
 %{endif~}
-%{if var.disable_kube_proxy && var.enable_wireguard}
+%{if var.disable_kube_proxy && var.enable_wireguard && var.cilium_routing_mode == "tunnel"}
 tunnelProtocol: "geneve"
 %{endif~}
 
@@ -1297,12 +1298,9 @@ endpointRoutes:
 loadBalancer:
   # Enable LoadBalancer & NodePort XDP Acceleration (direct routing (routingMode=native) is recommended to achieve optimal performance)
   acceleration: "${var.cilium_loadbalancer_acceleration_mode}"
-%{if var.disable_kube_proxy~}
+%{if var.disable_kube_proxy && var.cilium_routing_mode == "native"~}
   mode: "dsr"
   algorithm: "maglev"
-%{if var.enable_wireguard~}
-  dsrDispatch: "geneve"
-%{endif~}
 %{endif~}
 
 bpf:
@@ -1453,8 +1451,10 @@ controller:
 
   hetzner_ccm_values_default = <<EOT
 networking:
-  enabled: true
-  clusterCIDR: "${local.cluster_cidr}"
+  enabled: ${local.cluster_has_ipv4}
+%{if local.cluster_has_ipv4~}
+  clusterCIDR: "${local.hetzner_ccm_route_cluster_cidr}"
+%{endif~}
 %{if local.use_robot_ccm~}
 robot:
   enabled: true

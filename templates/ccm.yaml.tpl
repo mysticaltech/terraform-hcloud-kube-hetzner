@@ -14,8 +14,10 @@ spec:
             - "--leader-elect=false"
             - "--allow-untagged-cloud"
             - "--route-reconciliation-period=30s"
+%{if cluster_cidr != ""~}
             - "--allocate-node-cidrs=true"
             - "--cluster-cidr=${cluster_cidr}"
+%{endif~}
             - "--webhook-secure-port=0"
 %{if using_klipper_lb~}
             - "--secure-port=10288"
@@ -44,6 +46,8 @@ spec:
           effect: "NoSchedule"
         - key: "node-role.kubernetes.io/control-plane"
           operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node.kubernetes.io/not-ready"
           effect: "NoSchedule"
         - key: "node.kubernetes.io/not-ready"
           effect: "NoExecute"

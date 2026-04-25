@@ -434,7 +434,7 @@ module "kube-hetzner" {
   #   enable_redundancy = true    # optional, default to false. Enable failover for the NAT router.
   #   standby_location  = "fsn1"  # optional, default to "". Must be set if enable_redundancy is true.
   #   labels            = {}      # optionally add labels.
-  #   extra_runcmd      = []      # optional, list of extra shell commands to append to cloud-init runcmd.
+  #   extra_runcmd      = []      # optional, list of extra shell commands to run as root after NAT router cloud-init; changes rerun via Terraform SSH.
   # }
   # nat_router_hcloud_token = ""  # optional, default to "". Must be set if enable_redundancy is true. This token needs read/write to change the private alias ip in the nat_router subnetwork for failover
   # use_private_bastion = true    # Use NAT router's private IP as bastion. Requires network access to the private network (e.g. Tailscale, WireGuard).

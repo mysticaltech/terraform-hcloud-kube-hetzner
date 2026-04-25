@@ -49,6 +49,25 @@ EOF
 as_root systemctl enable --now fail2ban
 as_root systemctl restart fail2ban
 EOT
+
+  nat_router_extra_runcmd_script = <<-EOT
+set -e
+
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    bash -s
+  else
+    sudo -n bash -s
+  fi
+}
+
+%{for index, command in try(var.nat_router.extra_runcmd, [])~}
+as_root <<'KH_NAT_EXTRA_RUNCMD_${index}'
+${command}
+KH_NAT_EXTRA_RUNCMD_${index}
+
+%{endfor~}
+EOT
 }
 
 resource "random_string" "nat_router" {
@@ -104,7 +123,6 @@ data "cloudinit_config" "nat_router_config" {
         enable_cp_lb_port_forward  = var.use_control_plane_lb && !var.control_plane_lb_enable_public_interface
         cp_lb_private_ip           = try(hcloud_load_balancer_network.control_plane[0].ip, "")
         kubeapi_port               = var.kubeapi_port
-        extra_runcmd               = var.nat_router.extra_runcmd
       }
     )
   }
@@ -237,7 +255,7 @@ resource "terraform_data" "nat_router_fail2ban" {
   count = var.nat_router != null ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
 
   depends_on = [
-    terraform_data.nat_router_await_cloud_init,
+    terraform_data.nat_router_fail2ban,
   ]
 
   triggers_replace = {
@@ -256,6 +274,33 @@ resource "terraform_data" "nat_router_fail2ban" {
   provisioner "remote-exec" {
     inline = [
       local.nat_router_fail2ban_script,
+    ]
+  }
+}
+
+resource "terraform_data" "nat_router_extra_runcmd" {
+  count = var.nat_router != null && length(try(var.nat_router.extra_runcmd, [])) > 0 ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0
+
+  depends_on = [
+    terraform_data.nat_router_await_cloud_init,
+  ]
+
+  triggers_replace = {
+    server_id    = hcloud_server.nat_router[count.index].id
+    commands_sha = sha256(jsonencode(try(var.nat_router.extra_runcmd, [])))
+  }
+
+  connection {
+    user           = var.nat_router.enable_sudo ? "nat-router" : "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.nat_router_connection_host[count.index]
+    port           = var.ssh_port
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      local.nat_router_extra_runcmd_script,
     ]
   }
 }
