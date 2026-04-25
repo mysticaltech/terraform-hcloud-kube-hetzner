@@ -2912,6 +2912,7 @@ The following variables have been added to the `kube-hetzner` module since the i
     * Simplifies firewall rules and security auditing
     * Automatically forwards Kubernetes API traffic (port 6443) when `control_plane_lb_enable_public_interface = false`
   * **Trade-offs:** Introduces a single point of failure for egress traffic
+  * **Private Bastion Mode:** Set `use_private_bastion = true` to use the NAT router's private IP as the SSH bastion instead of its public IP. This allows hardening the NAT router to be egress-only (no inbound ports on the public IP). Requires the operator to have network-level access to the private network (e.g. via Tailscale, Cloudflare Tunnel, WireGuard).
   * **Configuration:**
     * `server_type`: The Hetzner server type for the NAT router
     * `location`: The location where the NAT router should be deployed
