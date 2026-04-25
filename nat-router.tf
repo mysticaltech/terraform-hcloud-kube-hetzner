@@ -255,7 +255,7 @@ resource "terraform_data" "nat_router_fail2ban" {
   count = var.nat_router != null ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
 
   depends_on = [
-    terraform_data.nat_router_fail2ban,
+    terraform_data.nat_router_await_cloud_init,
   ]
 
   triggers_replace = {
