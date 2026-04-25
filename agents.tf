@@ -198,10 +198,11 @@ resource "terraform_data" "configure_longhorn_volume" {
   for_each = { for k, v in local.agent_nodes : k => v if((v.longhorn_volume_size >= 10) && (v.longhorn_volume_size <= 10240) && var.enable_longhorn) }
 
   triggers_replace = {
-    agent_id = module.agents[each.key].id
+    agent_id             = module.agents[each.key].id
+    longhorn_volume_size = hcloud_volume.longhorn_volume[each.key].size
   }
 
-  # Start the k3s agent and wait for it to have started
+  # Configure and resize the longhorn volume
   provisioner "remote-exec" {
     inline = [
       "set -e",
