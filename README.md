@@ -360,6 +360,7 @@ Adjust `count` in any nodepool and run `terraform apply`. Constraints:
 Enable with `autoscaler_nodepools`. Powered by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler).
 
 > ⚠️ Autoscaled nodes use a snapshot from the initial control plane. Ensure disk sizes match.
+> Longhorn storage should stay on static agent nodepools. Autoscaled Longhorn volumes require a write-capable Hetzner token in node user-data and leave detached volumes behind on scale-down.
 
 ---
 

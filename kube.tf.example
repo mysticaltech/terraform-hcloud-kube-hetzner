@@ -646,6 +646,7 @@ module "kube-hetzner" {
   # Also, you can choose to use a Hetzner volume with Longhorn. By default, it will use the nodes own storage space, but if you add an attribute of
   # longhorn_volume_size (⚠️ not a variable, just a possible agent nodepool attribute) with a value between 10 and 10240 GB to your agent nodepool definition, it will create and use the volume in question.
   # See the agent nodepool section for an example of how to do that.
+  # Longhorn volumes are intentionally limited to static agent/control-plane nodepools. Autoscaled Longhorn volumes would require a write-capable Hetzner token in node user-data and leave detached volumes behind on scale-down.
 
   # To disable Hetzner CSI storage, you can set the following to "true", default is "false".
   # disable_hetzner_csi = true

@@ -550,6 +550,7 @@ The example shows three control plane nodepools, each with one node, in differen
         * **Hetzner Volumes:** Network-attached, potentially slower than local NVMe/SSD storage on the node, but can be larger, are independently manageable, and might be cheaper for bulk storage. Good for less I/O-intensive workloads or where data persistence independent of the node's lifecycle is paramount.
         * **Node Local Storage (if `longhorn_volume_size` is not set or 0):** Longhorn uses a directory on the node's filesystem. Faster I/O, but storage is tied to the node's disk.
       * **Recommendation:** The comment wisely suggests local storage for databases (high I/O) and Hetzner Volumes for backups or less critical storage.
+      * **Autoscaler Boundary:** Longhorn volumes are intentionally limited to static agent/control-plane nodepools. Autoscaled volume self-provisioning would require a write-capable Hetzner token in node user-data and detached volumes would be orphaned on scale-down.
     * **`floating_ip` (Boolean, Optional, specific to egress nodepool example):**
       * Default: `false`.
       * If `true`, the module will provision a Hetzner Floating IP and associate it with the node(s) in this pool. If `count > 1`, how the floating IP is managed across multiple nodes needs clarification from module docs (e.g., active/passive, or one FIP per node).
