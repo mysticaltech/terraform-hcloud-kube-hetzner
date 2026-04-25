@@ -53,7 +53,7 @@ data "cloudinit_config" "nat_router_config" {
         hostname                   = var.nat_router.enable_redundancy ? "nat-router-${count.index}" : "nat-router"
         dns_servers                = var.dns_servers
         has_dns_servers            = local.has_dns_servers
-        sshAuthorizedKeys          = concat([var.ssh_public_key], var.ssh_additional_public_keys)
+        sshAuthorizedKeys          = local.ssh_authorized_keys
         enable_sudo                = var.nat_router.enable_sudo
         enable_redundancy          = var.nat_router.enable_redundancy
         priority                   = count.index == 0 ? 150 : 100

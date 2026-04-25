@@ -13,6 +13,7 @@ This is a patch release for the v2.19 series focused on upgrade-safe reliability
 
 **Patch fixes:**
 - **Terraform Legacy Module Regression** - Removed the child-module GitHub provider configuration that prevented callers from using `count`, `for_each`, or `depends_on`; release lookups now use unauthenticated HTTP requests instead (#2155).
+- **SSH Public Key Normalization** - Trimmed trailing whitespace from SSH public keys to avoid Hetzner provider apply inconsistencies when users pass keys with `file(...)`.
 - **NAT Router Validation** - Made NAT router validations null-safe when `nat_router = null` (#2152, #2153).
 - **Autoscaler ZRAM Bootstrap** - Fixed autoscaler nodes hanging in cloud-init when `zram_size` is configured (#2161, #2162).
 - **NAT Router Fail2ban** - Fixed the Debian 12 SSH jail by applying journald/systemd backend support and starting/restarting fail2ban during NAT router provisioning (#2163).

@@ -12,9 +12,9 @@ module "agents" {
   base_domain                      = var.base_domain
   ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
   ssh_port                         = var.ssh_port
-  ssh_public_key                   = var.ssh_public_key
+  ssh_public_key                   = local.ssh_public_key
   ssh_private_key                  = var.ssh_private_key
-  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
+  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
   firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
   placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_compat_idx].id : hcloud_placement_group.agent_named[each.value.placement_group].id)
   location                         = each.value.location
