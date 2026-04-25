@@ -58,7 +58,7 @@ module "agents" {
   location                         = each.value.location
   server_type                      = each.value.server_type
   backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
+  ipv4_subnet_id                   = local.use_per_nodepool_subnets ? hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id : hcloud_network_subnet.agent[0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
   k3s_registries_update_script     = local.k8s_registries_update_script
@@ -79,18 +79,19 @@ module "agents" {
   primary_ipv6_id                  = each.value.primary_ipv6_id != null ? each.value.primary_ipv6_id : try(hcloud_primary_ip.agents_ipv6[each.key].id, null)
   ssh_bastion                      = local.ssh_bastion
   node_connection_overrides        = var.node_connection_overrides
-  network_id                       = data.hcloud_network.k3s.id
-  extra_network_ids                = var.extra_network_ids
+  network_id                       = local.agent_primary_network_id_by_node[each.key]
+  primary_network_key              = each.value.network_id
+  extra_network_ids                = local.agent_effective_extra_network_ids_by_node[each.key]
   private_ipv4                     = null
 
   labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
-  network_gw_ipv4 = local.network_gw_ipv4
+  network_gw_ipv4 = local.network_gw_ipv4_by_network_id[local.agent_primary_network_id_by_node[each.key]]
 
   depends_on = [
-    hcloud_network_subnet.control_plane,
+    hcloud_network_subnet.agent,
     hcloud_placement_group.agent,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
@@ -300,7 +301,7 @@ resource "terraform_data" "agents" {
 
   depends_on = [
     terraform_data.first_control_plane,
-    null_resource.control_planes_rke2,
+    terraform_data.control_planes_rke2,
     terraform_data.agent_config,
     hcloud_network_subnet.control_plane
   ]

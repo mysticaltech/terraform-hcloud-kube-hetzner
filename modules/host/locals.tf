@@ -12,7 +12,7 @@ locals {
   effective_firewall_ids = var.firewall_ids == null ? toset(var.extra_firewall_ids) : setunion(var.firewall_ids, toset(var.extra_firewall_ids))
   extra_network_ids = toset([
     for network_id in var.extra_network_ids : network_id
-    if var.network_id == null || network_id != var.network_id
+    if network_id != var.primary_network_key
   ])
 
   default_connection_host = coalesce(

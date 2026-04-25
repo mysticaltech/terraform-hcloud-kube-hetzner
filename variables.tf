@@ -178,6 +178,16 @@ variable "network_ipv4_cidr" {
   default     = "10.0.0.0/8"
 }
 
+variable "network_subnet_mode" {
+  description = "Subnet allocation mode for the primary private network. Use \"legacy\" for the classic kube-hetzner layout (one agent subnet from the start of the CIDR and one control-plane subnet from the end), or \"per_nodepool\" to allocate dedicated subnets per control-plane and agent nodepool."
+  type        = string
+  default     = "legacy"
+  validation {
+    condition     = contains(["legacy", "per_nodepool"], var.network_subnet_mode)
+    error_message = "network_subnet_mode must be either \"legacy\" or \"per_nodepool\"."
+  }
+}
+
 variable "subnet_amount" {
   description = "The amount of subnets into which the network will be split. Must be a power of 2."
   type        = number
@@ -192,8 +202,14 @@ variable "subnet_amount" {
     error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_amount or use a larger network."
   }
   validation {
-    condition     = var.subnet_amount >= length(var.control_plane_nodepools) + length(var.agent_nodepools) + (var.nat_router == null ? 0 : (var.nat_router.enable_redundancy == false ? 1 : 2))
-    error_message = "Subnet amount must be large enough so that a subnet for each agent pool, each control plane pool and (if enabled) the nat router can be created in the network."
+    condition = var.subnet_amount >= (
+      (
+        var.network_subnet_mode == "per_nodepool"
+        ? length(var.control_plane_nodepools) + length(var.agent_nodepools)
+        : 2
+      ) + (var.nat_router == null ? 0 : (var.nat_router.enable_redundancy == false ? 1 : 2))
+    )
+    error_message = "Subnet amount is too small for the selected network_subnet_mode and NAT router settings."
   }
 }
 
@@ -720,9 +736,14 @@ variable "agent_nodepools" {
   }
 
   validation {
-    condition = length(var.agent_nodepools) == 0 ? true : sum([for agent_nodepool in var.agent_nodepools : length(coalesce(agent_nodepool.nodes, {})) + coalesce(agent_nodepool.count, 0)]) <= 100
-    # 154 because the private ip is derived from tonumber(key) + 101. See private_ipv4 in agents.tf
-    error_message = "Hetzner does not support networks with more than 100 servers."
+    condition = alltrue([
+      for network_id in distinct([for agent_nodepool in var.agent_nodepools : agent_nodepool.network_id]) :
+      sum([
+        for agent_nodepool in var.agent_nodepools :
+        agent_nodepool.network_id == network_id ? (length(coalesce(agent_nodepool.nodes, {})) + coalesce(agent_nodepool.count, 0)) : 0
+      ]) <= 100
+    ])
+    error_message = "Each Hetzner private network supports at most 100 attached servers. Use different network_id values to spread larger clusters."
   }
 
   validation {

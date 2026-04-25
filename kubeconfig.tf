@@ -26,7 +26,7 @@ resource "ssh_sensitive_resource" "kubeconfig" {
 
   depends_on = [
     terraform_data.control_planes,
-    null_resource.control_planes_rke2,
+    terraform_data.control_planes_rke2,
   ]
 }
 

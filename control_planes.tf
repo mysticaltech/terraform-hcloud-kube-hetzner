@@ -58,7 +58,7 @@ module "control_planes" {
   location                         = each.value.location
   server_type                      = each.value.server_type
   backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[0].id
+  ipv4_subnet_id                   = hcloud_network_subnet.control_plane[local.use_per_nodepool_subnets ? [for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0] : 0].id
   dns_servers                      = var.dns_servers
   k3s_registries                   = var.k3s_registries
   k3s_registries_update_script     = local.k8s_registries_update_script
@@ -79,8 +79,9 @@ module "control_planes" {
   primary_ipv6_id                  = each.value.primary_ipv6_id != null ? each.value.primary_ipv6_id : try(hcloud_primary_ip.control_planes_ipv6[each.key].id, null)
   ssh_bastion                      = local.ssh_bastion
   node_connection_overrides        = var.node_connection_overrides
-  network_id                       = data.hcloud_network.k3s.id
-  extra_network_ids                = var.extra_network_ids
+  network_id                       = local.control_plane_primary_network_id_by_node[each.key]
+  primary_network_key              = each.value.network_id
+  extra_network_ids                = local.control_plane_effective_extra_network_ids_by_node[each.key]
 
   # We leave some room so 100 eventual Hetzner LBs that can be created perfectly safely
   # It leaves the subnet with 254 x 254 - 100 = 64416 IPs to use, so probably enough.
@@ -90,7 +91,7 @@ module "control_planes" {
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
-  network_gw_ipv4 = local.network_gw_ipv4
+  network_gw_ipv4 = local.network_gw_ipv4_by_network_id[local.control_plane_primary_network_id_by_node[each.key]]
 
   depends_on = [
     hcloud_network_subnet.control_plane,
@@ -438,10 +439,10 @@ locals {
   ) }
 }
 
-resource "null_resource" "control_plane_config_rke2" {
+resource "terraform_data" "control_plane_config_rke2" {
   for_each = local.kubernetes_distribution == "rke2" ? local.control_plane_nodes : {}
 
-  triggers = {
+  triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
     config           = sha1(yamlencode(local.rke2-config[each.key]))
     cni_values       = sha1(local.desired_cni_values)
@@ -495,9 +496,13 @@ resource "null_resource" "control_plane_config_rke2" {
   }
 
   depends_on = [
-    null_resource.first_control_plane_rke2,
+    terraform_data.first_control_plane_rke2,
     hcloud_network_subnet.control_plane
   ]
+}
+moved {
+  from = null_resource.control_plane_config_rke2
+  to   = terraform_data.control_plane_config_rke2
 }
 
 resource "terraform_data" "control_plane_config" {
@@ -632,10 +637,10 @@ moved {
   to   = terraform_data.authentication_config
 }
 
-resource "null_resource" "control_planes_rke2" {
+resource "terraform_data" "control_planes_rke2" {
   for_each = local.kubernetes_distribution == "rke2" ? local.control_plane_nodes : {}
 
-  triggers = {
+  triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
   }
 
@@ -677,11 +682,15 @@ resource "null_resource" "control_planes_rke2" {
   }
 
   depends_on = [
-    null_resource.first_control_plane_rke2,
-    null_resource.control_plane_config_rke2,
+    terraform_data.first_control_plane_rke2,
+    terraform_data.control_plane_config_rke2,
     terraform_data.authentication_config,
     hcloud_network_subnet.control_plane
   ]
+}
+moved {
+  from = null_resource.control_planes_rke2
+  to   = terraform_data.control_planes_rke2
 }
 
 resource "terraform_data" "control_planes" {

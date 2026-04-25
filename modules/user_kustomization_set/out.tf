@@ -1,5 +1,5 @@
 output "source_files_sha" {
-  value = local.source_files_sha
+  value = nonsensitive(local.source_files_sha)
 }
 
 output "parameters_sha" {

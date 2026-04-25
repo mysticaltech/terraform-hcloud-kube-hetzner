@@ -3009,26 +3009,23 @@ The following variables have been added to the `kube-hetzner` module since the i
   * **Purpose:** Exports values.yaml files for deployed components (traefik, longhorn, cert-manager, etc.)
   * **Use Case:** Useful for GitOps workflows with ArgoCD or similar tools
 
-**Extra Kustomization Parameters**
+**User Kustomization Sets**
 
 ```terraform
-  # Extra commands and parameters for kustomization
-  # extra_kustomize_deployment_commands = ["kubectl wait --for=condition=ready pod -l app=myapp -n mynamespace --timeout=300s"]
-  # extra_kustomize_parameters = {
-  #   myvar = "myvalue"
+  # Ordered user kustomization sets with per-step templating and hooks
+  # user_kustomizations = {
+  #   "1" = {
+  #     source_folder        = "extra-manifests"
+  #     kustomize_parameters = {}
+  #     pre_commands         = ""
+  #     post_commands        = ""
+  #   }
   # }
 ```
 
-* **`extra_kustomize_deployment_commands` (List of Strings, Optional):**
-  * **Purpose:** Commands to execute after `kubectl apply -k`
-  * **Use Cases:** 
-    * Wait for CRDs to be ready
-    * Apply additional manifests
-    * Post-install validation
-
-* **`extra_kustomize_parameters` (Map, Optional):**
-  * **Purpose:** Variables passed to `extra-manifests/kustomization.yaml.tpl`
-  * **Use Case:** Template variables for custom kustomization overlays
+* **`user_kustomizations` (Map of Objects, Optional):**
+  * **Purpose:** Defines ordered Kustomize deployment sets with per-set template parameters and optional pre/post commands.
+  * **Migration Note:** The legacy `extra_kustomize_*` inputs were removed; migrate to `user_kustomizations`.
 
 **MicroOS Snapshot Control**
 

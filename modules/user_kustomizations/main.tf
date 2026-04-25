@@ -16,10 +16,10 @@ module "user_kustomization_set" {
   post_commands_string = var.kustomizations_map[each.key].post_commands
 }
 
-resource "null_resource" "kustomization_user_deploy" {
+resource "terraform_data" "kustomization_user_deploy" {
 
-  triggers = {
-    kustomization_shas = sha256(yamlencode(module.user_kustomization_set))
+  triggers_replace = {
+    kustomization_shas = nonsensitive(sha256(yamlencode(module.user_kustomization_set)))
   }
 
   connection {
@@ -73,4 +73,9 @@ resource "null_resource" "kustomization_user_deploy" {
   depends_on = [
     module.user_kustomization_set,
   ]
+}
+
+moved {
+  from = null_resource.kustomization_user_deploy
+  to   = terraform_data.kustomization_user_deploy
 }

@@ -449,11 +449,10 @@ Integrate Hetzner Robot servers via [the dedicated server guide](docs/add-robot-
 
 Use [Kustomize](https://kustomize.io) for additional deployments:
 
-1. Create `extra-manifests/kustomization.yaml.tpl`
-2. Supports Terraform templating via `extra_kustomize_parameters`
-3. Applied after cluster setup with `kubectl apply -k`
-
-Change folder name with `extra_kustomize_folder`. See [example](examples/kustomization_user_deploy).
+1. Create a source folder (default: `extra-manifests`) with your `kustomization.yaml.tpl` and manifests.
+2. Configure one or more ordered sets with `user_kustomizations`.
+3. Each set supports template parameters, optional pre-commands, and post-commands.
+4. Sets are applied sequentially with `kubectl apply -k`.
 
 ---
 
@@ -465,12 +464,21 @@ Change folder name with `extra_kustomize_folder`. See [example](examples/kustomi
 For CRD-dependent applications:
 
 ```tf
-extra_kustomize_deployment_commands = <<-EOT
-  kubectl -n argocd wait --for condition=established --timeout=120s crd/appprojects.argoproj.io
-  kubectl -n argocd wait --for condition=established --timeout=120s crd/applications.argoproj.io
-  kubectl apply -f /var/user_kustomize/argocd-projects.yaml
-  kubectl apply -f /var/user_kustomize/argocd-application-argocd.yaml
-EOT
+user_kustomizations = {
+  "1" = {
+    source_folder = "extra-manifests"
+    kustomize_parameters = {
+      target_namespace = "argocd"
+    }
+    pre_commands = ""
+    post_commands = <<-EOT
+      kubectl -n argocd wait --for condition=established --timeout=120s crd/appprojects.argoproj.io
+      kubectl -n argocd wait --for condition=established --timeout=120s crd/applications.argoproj.io
+      kubectl apply -f /var/user_kustomize/1/argocd-projects.yaml
+      kubectl apply -f /var/user_kustomize/1/argocd-application-argocd.yaml
+    EOT
+  }
+}
 ```
 </details>
 
@@ -911,6 +919,43 @@ module "kube-hetzner" {
   }
 }
 ```
+</details>
+
+<details>
+<summary><strong>Multinetwork (agent scale-out)</strong></summary>
+
+You can place agent nodepools on existing external private networks with `network_id`:
+
+```tf
+agent_nodepools = [
+  {
+    name        = "agent-small-a"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 50
+    network_id  = 0 # primary kube-hetzner network
+  },
+  {
+    name        = "agent-small-b"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 50
+    network_id  = 11959154 # existing external private network id
+  },
+]
+
+# required for multinetwork joins
+control_plane_endpoint = "https://<public-control-plane-endpoint>:6443"
+```
+
+Current constraints:
+- Control planes must stay on the primary kube-hetzner network (`network_id = 0`).
+- Multinetwork + cluster autoscaler is not supported yet.
+- Keep each Hetzner private network at or below 100 attached servers.
 </details>
 
 <details>

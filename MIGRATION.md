@@ -43,6 +43,29 @@ user_kustomizations = {
 
 Then remove the deprecated `extra_kustomize_*` variables from your `kube.tf`.
 
+#### One-to-one migration hint
+
+If you previously used:
+
+```hcl
+extra_kustomize_folder               = "extra-manifests"
+extra_kustomize_parameters           = { target_namespace = "argocd" }
+extra_kustomize_deployment_commands  = "kubectl -n argocd get pods"
+```
+
+Migrate to:
+
+```hcl
+user_kustomizations = {
+  "1" = {
+    source_folder        = "extra-manifests"
+    kustomize_parameters = { target_namespace = "argocd" }
+    pre_commands         = ""
+    post_commands        = "kubectl -n argocd get pods"
+  }
+}
+```
+
 ### 2) NAT router primary IP drift (older clusters)
 
 If your NAT router was created before v2.19.0, Terraform may propose replacing NAT router primary IPs.
@@ -82,22 +105,41 @@ cluster_autoscaler_resource_values = {
 
 Hetzner Cloud network constraints still apply. Validate expected cluster size against current provider/network limits before upgrade.
 
-### 5) Shared-subnet networking (breaking change)
+### 5) Networking behavior update
 
-v3 consolidates managed node private IPv4 allocation into a shared cloud subnet (`hcloud_network_subnet.control_plane`) instead of keeping separate managed agent/control-plane subnets.
+Per-nodepool managed cloud subnets are preserved for both control-plane and agent pools to stay upgrade-compatible with existing `v2.x` clusters.
 
-For clusters created on `v2.x`, this is not a transparent in-place topology change. A direct `terraform apply` can propose disruptive subnet replacement/detach actions.
+Node private IPv4 addresses are now assigned automatically by Hetzner within the attached subnet (instead of manual `cidrhost(...)` calculations in Terraform).
 
-Recommended approach:
+For standard `v2.19.x` clusters, no manual state migration is expected for this change.
 
-1. Prefer blue/green migration:
-   - Stand up a fresh v3 cluster.
-   - Migrate workloads/stateful data.
-   - Decommission the old cluster after validation.
-2. If attempting in-place upgrade, treat it as advanced/manual migration:
-   - Review every subnet/network action in `terraform plan`.
-   - Expect maintenance windows and potential downtime.
-   - Do not apply if plan contains unexpected subnet destroys/recreates.
+If your `terraform plan` still proposes subnet replacements, first check for:
+- custom `subnet_ip_range` overrides
+- manual network/subnet edits made outside Terraform
+- nodepool topology changes done at the same time as the module upgrade
+
+Resolve those first, then re-run `terraform plan`.
+
+### 6) `enable_iscsid` input removal
+
+`enable_iscsid` was removed. kube-hetzner now enables `iscsid` on all nodes by default.
+
+Migration step:
+1. Remove `enable_iscsid` from your `kube.tf` configuration.
+
+### 7) Multinetwork groundwork (`network_id`)
+
+`network_id` is now wired for node provisioning (instead of being a no-op).
+
+Current behavior:
+- Agent nodepools can use external networks via `network_id`.
+- Control planes stay on the primary module network (`network_id = 0`) and are auto-attached to external agent networks.
+- A public join path is required for multinetwork setups:
+  - set `control_plane_endpoint`, or
+  - enable a public control-plane LB.
+
+Current limitation:
+- Cluster autoscaler is still single-network (`HCLOUD_NETWORK`) and is not supported with multinetwork primary networks.
 
 ## Post-upgrade verification checklist
 

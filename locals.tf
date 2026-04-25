@@ -3,9 +3,16 @@ locals {
   # For terraforms provisioner.connection.agent_identity, we need the public key as a string.
   ssh_agent_identity = var.ssh_private_key == null ? var.ssh_public_key : null
 
+  ssh_public_key_without_comment = join(" ", slice(split(" ", trimspace(var.ssh_public_key)), 0, 2))
+  matching_hcloud_ssh_key_ids = var.hcloud_ssh_key_id == null ? [
+    for key in data.hcloud_ssh_keys.k3s_existing[0].ssh_keys : tostring(key.id)
+    if try(join(" ", slice(split(" ", trimspace(key.public_key)), 0, 2)), trimspace(key.public_key)) == local.ssh_public_key_without_comment
+  ] : []
+  existing_hcloud_ssh_key_id = length(local.matching_hcloud_ssh_key_ids) > 0 ? local.matching_hcloud_ssh_key_ids[0] : null
+
   # If passed, a key already registered within hetzner is used.
   # Otherwise, a new one will be created by the module.
-  hcloud_ssh_key_id = var.hcloud_ssh_key_id == null ? hcloud_ssh_key.k3s[0].id : var.hcloud_ssh_key_id
+  hcloud_ssh_key_id = coalesce(var.hcloud_ssh_key_id, local.existing_hcloud_ssh_key_id, try(tostring(hcloud_ssh_key.k3s[0].id), null))
 
   # if given as a variable, we want to use the given token. This is needed to restore the cluster
   k3s_token = var.k3s_token == null ? random_password.k3s_token.result : var.k3s_token
@@ -303,7 +310,7 @@ EOT
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/system-upgrade-controller.yaml",
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/crd.yaml"
       ],
-      var.hetzner_ccm_use_helm ? [] : ["https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/download/${local.ccm_version}/ccm-networks.yaml"],
+      var.hetzner_ccm_use_helm ? ["hcloud-ccm-helm.yaml"] : ["https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/download/${local.ccm_version}/ccm-networks.yaml"],
       var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? ["load_balancer_monitoring.yaml"] : [],
       var.disable_hetzner_csi ? [] : ["hcloud-csi.yaml"],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
@@ -799,6 +806,75 @@ EOT
 
   use_nat_router = var.nat_router != null
 
+  use_per_nodepool_subnets = var.network_subnet_mode == "per_nodepool"
+
+  control_plane_primary_network_id_by_node = {
+    for node_key, node in local.control_plane_nodes :
+    node_key => (node.network_id == 0 ? data.hcloud_network.k3s.id : node.network_id)
+  }
+
+  agent_primary_network_id_by_node = {
+    for node_key, node in local.agent_nodes :
+    node_key => (node.network_id == 0 ? data.hcloud_network.k3s.id : node.network_id)
+  }
+
+  cluster_primary_network_keys = toset(concat(
+    [for _, node in local.control_plane_nodes : node.network_id],
+    [for _, node in local.agent_nodes : node.network_id],
+  ))
+
+  external_nodepool_network_ids = toset(distinct([
+    for network_id in concat(
+      [for _, node in local.control_plane_nodes : node.network_id],
+      [for _, node in local.agent_nodes : node.network_id],
+    ) :
+    tostring(network_id)
+    if network_id != 0
+  ]))
+
+  network_gw_ipv4_by_network_id = merge(
+    { (data.hcloud_network.k3s.id) = cidrhost(data.hcloud_network.k3s.ip_range, 1) },
+    {
+      for network_id, network in data.hcloud_network.additional_nodepool_networks :
+      tonumber(network_id) => cidrhost(network.ip_range, 1)
+    }
+  )
+
+  external_agent_network_ids = distinct([
+    for _, node in local.agent_nodes :
+    node.network_id
+    if node.network_id != 0
+  ])
+
+  control_plane_effective_extra_network_ids_by_node = {
+    for node_key, node in local.control_plane_nodes :
+    node_key => distinct([
+      for network_id in concat(var.extra_network_ids, local.external_agent_network_ids) :
+      network_id
+      if network_id != 0 && network_id != node.network_id
+    ])
+  }
+
+  agent_effective_extra_network_ids_by_node = {
+    for node_key, node in local.agent_nodes :
+    node_key => distinct([
+      for network_id in var.extra_network_ids : network_id
+      if network_id != 0 && network_id != node.network_id
+    ])
+  }
+
+  uses_multi_primary_network = length(local.cluster_primary_network_keys) > 1
+
+  control_plane_total_network_attachments_by_node = {
+    for node_key, node in local.control_plane_nodes :
+    node_key => 1 + length(local.control_plane_effective_extra_network_ids_by_node[node_key])
+  }
+
+  agent_total_network_attachments_by_node = {
+    for node_key, node in local.agent_nodes :
+    node_key => 1 + length(local.agent_effective_extra_network_ids_by_node[node_key])
+  }
+
   ssh_bastion = coalesce(
     local.use_nat_router ? {
       bastion_host        = hcloud_server.nat_router[0].ipv4_address
@@ -845,8 +921,9 @@ EOT
   ])
   cluster_dns = join(",", local.cluster_dns_values)
 
-  # The gateway's IP address is always the first IP address of the subnet's IP range
-  network_gw_ipv4 = cidrhost(var.network_ipv4_cidr, 1)
+  # Keep the legacy single-network value available for templates that still
+  # assume one primary network.
+  network_gw_ipv4 = local.network_gw_ipv4_by_network_id[data.hcloud_network.k3s.id]
 
   # if we are in a single cluster config, we use the default klipper lb instead of Hetzner LB
   control_plane_count    = length(var.control_plane_nodepools) > 0 ? sum([for v in var.control_plane_nodepools : length(coalesce(v.nodes, {})) + coalesce(v.count, 0)]) : 0
@@ -886,7 +963,7 @@ EOT
 
   default_ingress_namespace_mapping = {
     "traefik" = "traefik"
-    "nginx"   = "ingress-nginx"
+    "nginx"   = "nginx"
     "haproxy" = "haproxy"
   }
 
@@ -2096,6 +2173,16 @@ cloudinit_runcmd_common = <<EOT
 
 # Disable rebootmgr service as we use kured instead
 - [systemctl, disable, '--now', 'rebootmgr.service']
+
+%{if !var.automatically_upgrade_os~}
+# Disable automatic transactional updates for cloud-init managed nodes too.
+# This is the path autoscaler-created nodes use, so relying only on the
+# host-module remote-exec toggle leaves autoscaled Leap Micro nodes drifting.
+- |
+  systemctl disable --now transactional-update.timer || true
+  systemctl stop transactional-update.service || true
+  rm -f /var/run/reboot-required /var/run/reboot-required.pkgs
+%{endif~}
 
 # Bounds the amount of logs that can survive on the system
 - |

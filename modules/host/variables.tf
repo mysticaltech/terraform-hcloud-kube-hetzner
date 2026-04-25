@@ -238,6 +238,12 @@ variable "network_id" {
   description = "The network id to attach the server to."
 }
 
+variable "primary_network_key" {
+  type        = number
+  default     = 0
+  description = "Declared primary network identifier from nodepool config (0 means module-managed primary network). Used for deterministic filtering of extra networks."
+}
+
 variable "extra_network_ids" {
   type        = list(number)
   default     = []

@@ -2,10 +2,10 @@
 # Purpose of this module is to copy a single user kustomization "set" to control plane.
 # The set contains the yaml-files for Kustomization and the postinstall.sh script.
 
-resource "null_resource" "install_scripts" {
+resource "terraform_data" "install_scripts" {
 
-  triggers = {
-    source_files_sha         = local.source_files_sha
+  triggers_replace = {
+    source_files_sha         = nonsensitive(local.source_files_sha)
     parameters_sha           = local.parameters_sha
     pre_commands_string_sha  = local.pre_commands_string_sha
     post_commands_string_sha = local.post_commands_string_sha
@@ -41,12 +41,12 @@ resource "null_resource" "install_scripts" {
   }
 }
 
-resource "null_resource" "user_kustomization_template_files" {
+resource "terraform_data" "user_kustomization_template_files" {
   for_each = nonsensitive(local.source_folder_files)
 
   lifecycle {
     replace_triggered_by = [
-      null_resource.install_scripts
+      terraform_data.install_scripts
     ]
   }
 
@@ -74,5 +74,15 @@ resource "null_resource" "user_kustomization_template_files" {
     destination = replace("${var.destination_folder}/${each.key}", ".tpl", "")
   }
 
-  depends_on = [null_resource.install_scripts]
+  depends_on = [terraform_data.install_scripts]
+}
+
+moved {
+  from = null_resource.install_scripts
+  to   = terraform_data.install_scripts
+}
+
+moved {
+  from = null_resource.user_kustomization_template_files
+  to   = terraform_data.user_kustomization_template_files
 }

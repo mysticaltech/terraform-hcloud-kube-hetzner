@@ -188,10 +188,15 @@ moved {
   to   = terraform_data.first_control_plane
 }
 
-resource "null_resource" "control_plane_setup_rke2" {
+moved {
+  from = terraform_data.first_control_plane
+  to   = terraform_data.first_control_plane[0]
+}
+
+resource "terraform_data" "control_plane_setup_rke2" {
   count = local.kubernetes_distribution == "rke2" ? 1 : 0
 
-  triggers = {
+  triggers_replace = {
     # Redeploy helm charts when the underlying values change
     helm_values_yaml = join("---\n", [
       local.desired_cni_values
@@ -287,7 +292,7 @@ resource "null_resource" "control_plane_setup_rke2" {
   }
 }
 
-resource "null_resource" "first_control_plane_rke2" {
+resource "terraform_data" "first_control_plane_rke2" {
   count = local.kubernetes_distribution == "rke2" ? 1 : 0
 
   connection {
@@ -339,8 +344,17 @@ resource "null_resource" "first_control_plane_rke2" {
 
   depends_on = [
     hcloud_network_subnet.control_plane,
-    null_resource.control_plane_setup_rke2,
+    terraform_data.control_plane_setup_rke2,
   ]
+}
+moved {
+  from = null_resource.control_plane_setup_rke2
+  to   = terraform_data.control_plane_setup_rke2
+}
+
+moved {
+  from = null_resource.first_control_plane_rke2
+  to   = terraform_data.first_control_plane_rke2
 }
 
 # Needed for rancher setup
@@ -413,7 +427,7 @@ resource "terraform_data" "kube_system_secrets" {
   depends_on = [
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
-    null_resource.control_planes_rke2,
+    terraform_data.control_planes_rke2,
   ]
 }
 moved {
@@ -732,6 +746,8 @@ resource "terraform_data" "kustomization" {
         "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml",
         # Wait for system namespace deployments to become available
         "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
+        # Work around stale cainjector leader leases after interrupted cert-manager helm installs.
+        "kubectl -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true",
         # Wait for helm install jobs to complete (only in namespaces that have jobs)
         "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns get job -o name 2>/dev/null | grep -q . && kubectl -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
       ],
@@ -750,15 +766,14 @@ resource "terraform_data" "kustomization" {
   depends_on = [
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
-    helm_release.hcloud_ccm,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets
   ]
 }
-resource "null_resource" "rke2_kustomization" {
+resource "terraform_data" "rke2_kustomization" {
   count = local.kubernetes_distribution == "rke2" ? 1 : 0
-  triggers = {
+  triggers_replace = {
     # Redeploy helm charts when the underlying values change
     helm_values_yaml = join("---\n", [
       local.traefik_values,
@@ -1051,6 +1066,8 @@ resource "null_resource" "rke2_kustomization" {
         "echo 'Deploying the kustomization.yaml...'",
         "echo 'Applying everything in /var/post_install...'",
         "${local.kubectl_cli} apply -k /var/post_install",
+        # Work around stale cainjector leader leases after interrupted cert-manager helm installs.
+        "${local.kubectl_cli} -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true",
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "${local.kubectl_cli} -n system-upgrade wait --for=condition=available --timeout=360s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
@@ -1071,15 +1088,23 @@ resource "null_resource" "rke2_kustomization" {
   depends_on = [
     hcloud_load_balancer.cluster,
     terraform_data.control_planes,
-    null_resource.control_planes_rke2,
-    helm_release.hcloud_ccm,
+    terraform_data.control_planes_rke2,
     random_password.rancher_bootstrap,
     hcloud_volume.longhorn_volume,
     terraform_data.kube_system_secrets
   ]
 }
+moved {
+  from = null_resource.rke2_kustomization
+  to   = terraform_data.rke2_kustomization
+}
 
 moved {
   from = null_resource.kustomization
   to   = terraform_data.kustomization
+}
+
+moved {
+  from = terraform_data.kustomization
+  to   = terraform_data.kustomization[0]
 }

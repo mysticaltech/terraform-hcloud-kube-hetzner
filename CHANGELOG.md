@@ -47,6 +47,9 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 
 ### 🐛 Bug Fixes
 
+- **Upgrade-Safe Ingress Namespace Defaults** - Restored legacy nginx default namespace (`nginx`) to avoid Helm ownership conflicts during upgrades from v2.19.x clusters.
+- **CCM Ownership Compatibility** - Reverted Hetzner CCM management to the existing HelmChart manifest flow for `hetzner_ccm_use_helm`, avoiding release-name collisions with already-installed CCM chart instances.
+- **Subnet Topology Compatibility** - Restored per-nodepool control-plane/agent subnet resources and nodepool subnet attachment while keeping auto-assigned private IPv4 behavior.
 - **Audit Policy Bastion Connection** _(v2.19.1)_ - Fixed missing bastion SSH settings in `audit_policy` provisioner, enabling audit policy deployment for NAT router / private network setups (#2042)
 - **Longhorn Hotfix Tag Guidance** - Clarified `longhorn_version` as chart version and documented `longhorn_merge_values` for targeted Longhorn image hotfix tags (e.g. manager/instance-manager) (#2054)
 - **Traefik v34 Compatibility** - Fixed HTTP to HTTPS redirection config for Traefik Helm Chart v34+ (#2028)

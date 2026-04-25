@@ -31,6 +31,6 @@ module "user_kustomizations" {
 
   depends_on = [
     terraform_data.kustomization,
-    null_resource.rke2_kustomization,
+    terraform_data.rke2_kustomization,
   ]
 }
