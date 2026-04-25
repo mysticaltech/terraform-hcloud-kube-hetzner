@@ -2014,10 +2014,13 @@ cloudinit_write_files_common = <<EOT
       # wait for a bit
       sleep 3
 
-      # Somehow sometimes on private-ip only setups, the
-      # interface may already be correctly named, and this
-      # block should be skipped.
-      if ! ip link show eth1 >/dev/null 2>&1; then
+      # Somehow sometimes on private-ip only setups, the interface may already
+      # be correctly named. Still refresh the udev rule so a stale MAC doesn't
+      # break the next boot.
+      if ip link show eth1 >/dev/null 2>&1; then
+        MAC=$(cat /sys/class/net/eth1/address) || return 1
+        echo "SUBSYSTEM==\"net\", ACTION==\"add\", DRIVERS==\"?*\", ATTR{address}==\"$MAC\", NAME=\"eth1\"" > /etc/udev/rules.d/70-persistent-net.rules
+      else
         # Find the private network interface by name, falling back to original logic.
         # The output of 'ip link show' is stored to avoid multiple calls.
         # Use '|| true' to prevent grep from causing script failure when no matches found
