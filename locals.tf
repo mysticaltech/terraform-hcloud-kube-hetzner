@@ -78,7 +78,7 @@ EOT
   # Determine kured YAML suffix based on version (>= 1.20.0 uses -combined.yaml, < 1.20.0 uses -dockerhub.yaml)
   kured_yaml_suffix = provider::semvers::compare(local.kured_version, "1.20.0") >= 0 ? "combined" : "dockerhub"
 
-  cilium_ipv4_native_routing_cidr = coalesce(var.cilium_ipv4_native_routing_cidr, var.cluster_ipv4_cidr)
+  cilium_ipv4_native_routing_cidr = var.cilium_ipv4_native_routing_cidr != null && trimspace(var.cilium_ipv4_native_routing_cidr) != "" ? var.cilium_ipv4_native_routing_cidr : local.cluster_ipv4_cidr_effective
 
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
@@ -919,6 +919,8 @@ EOT
   service_ipv4_cidr_effective = var.service_ipv4_cidr != null && trimspace(var.service_ipv4_cidr) != "" ? var.service_ipv4_cidr : null
   cluster_ipv6_cidr_effective = var.cluster_ipv6_cidr != null && trimspace(var.cluster_ipv6_cidr) != "" ? var.cluster_ipv6_cidr : null
   service_ipv6_cidr_effective = var.service_ipv6_cidr != null && trimspace(var.service_ipv6_cidr) != "" ? var.service_ipv6_cidr : null
+  cluster_has_ipv4            = local.cluster_ipv4_cidr_effective != null
+  cluster_has_ipv6            = local.cluster_ipv6_cidr_effective != null
 
   cluster_cidrs = compact([
     local.cluster_ipv4_cidr_effective,
@@ -940,6 +942,8 @@ EOT
     local.cluster_dns_ipv6,
   ])
   cluster_dns = join(",", local.cluster_dns_values)
+
+  hetzner_ccm_instances_address_family = local.cluster_has_ipv6 ? (local.cluster_has_ipv4 ? "dualstack" : "ipv6") : "ipv4"
 
   # Keep the legacy single-network value available for templates that still
   # assume one primary network.
@@ -1241,10 +1245,20 @@ EOT
 ipam:
   mode: kubernetes
 k8s:
+%{if local.cluster_has_ipv4~}
   requireIPv4PodCIDR: true
+%{endif~}
+%{if local.cluster_has_ipv6~}
+  requireIPv6PodCIDR: true
+%{endif~}
 
-# Replace kube-proxy with Cilium
-kubeProxyReplacement: true
+ipv4:
+  enabled: ${local.cluster_has_ipv4}
+ipv6:
+  enabled: ${local.cluster_has_ipv6}
+
+# Replace kube-proxy with Cilium only when kube-proxy is disabled in k3s/rke2.
+kubeProxyReplacement: ${var.disable_kube_proxy}
 
 %{if var.disable_kube_proxy}
 # Enable health check server (healthz) for the kube-proxy replacement
@@ -1258,11 +1272,19 @@ k8sServicePort: "${local.kubernetes_distribution == "rke2" ? tostring(var.kubeap
 # Set Tunnel Mode or Native Routing Mode (supported by Hetzner CCM Route Controller)
 routingMode: "${var.cilium_routing_mode}"
 %{if var.cilium_routing_mode == "native"~}
+%{if local.cluster_has_ipv4~}
 # Set the native routable CIDR
 ipv4NativeRoutingCIDR: "${local.cilium_ipv4_native_routing_cidr}"
+%{endif~}
+%{if local.cluster_has_ipv6~}
+ipv6NativeRoutingCIDR: "${local.cluster_ipv6_cidr_effective}"
+%{endif~}
 
 # Bypass iptables Connection Tracking for Pod traffic (only works in Native Routing Mode)
 installNoConntrackIptablesRules: true
+%{endif~}
+%{if var.disable_kube_proxy && var.enable_wireguard}
+tunnelProtocol: "geneve"
 %{endif~}
 
 # Perform a gradual roll out on config update.
@@ -1275,6 +1297,13 @@ endpointRoutes:
 loadBalancer:
   # Enable LoadBalancer & NodePort XDP Acceleration (direct routing (routingMode=native) is recommended to achieve optimal performance)
   acceleration: "${var.cilium_loadbalancer_acceleration_mode}"
+%{if var.disable_kube_proxy~}
+  mode: "dsr"
+  algorithm: "maglev"
+%{if var.enable_wireguard~}
+  dsrDispatch: "geneve"
+%{endif~}
+%{endif~}
 
 bpf:
   # Enable eBPF-based Masquerading ("The eBPF-based implementation is the most efficient implementation")
@@ -1425,7 +1454,7 @@ controller:
   hetzner_ccm_values_default = <<EOT
 networking:
   enabled: true
-  clusterCIDR: "${var.cluster_ipv4_cidr}"
+  clusterCIDR: "${local.cluster_cidr}"
 %{if local.use_robot_ccm~}
 robot:
   enabled: true
@@ -1451,6 +1480,10 @@ env:
 %{if local.use_robot_ccm~}
   HCLOUD_NETWORK_ROUTES_ENABLED:
     value: "false"
+%{endif~}
+%{if local.hetzner_ccm_instances_address_family != "ipv4"~}
+  HCLOUD_INSTANCES_ADDRESS_FAMILY:
+    value: "${local.hetzner_ccm_instances_address_family}"
 %{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
