@@ -266,6 +266,7 @@ variable "nat_router" {
     enable_sudo       = optional(bool, false)
     enable_redundancy = optional(bool, false)
     standby_location  = optional(string, "")
+    extra_runcmd      = optional(list(string), [])
   })
 
   validation {
