@@ -44,7 +44,7 @@ module "agents" {
   name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
   append_random_suffix             = each.value.append_random_suffix
   connection_host                  = ""
-  os_snapshot_id                   = coalesce(nullif(trimspace(coalesce(each.value.os_snapshot_id, "")), ""), local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"])
+  os_snapshot_id                   = trimspace(coalesce(each.value.os_snapshot_id, "")) != "" ? trimspace(each.value.os_snapshot_id) : local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                               = each.value.os
   base_domain                      = var.base_domain
   ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
