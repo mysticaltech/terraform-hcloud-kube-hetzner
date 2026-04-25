@@ -49,9 +49,9 @@ module "control_planes" {
   base_domain                      = var.base_domain
   ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
   ssh_port                         = var.ssh_port
-  ssh_public_key                   = var.ssh_public_key
+  ssh_public_key                   = local.ssh_public_key
   ssh_private_key                  = var.ssh_private_key
-  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(var.ssh_additional_public_keys, data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key) : var.ssh_additional_public_keys
+  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
   firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
   extra_firewall_ids               = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
   placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.control_plane[each.value.placement_group_compat_idx].id : hcloud_placement_group.control_plane_named[each.value.placement_group].id)
@@ -234,6 +234,20 @@ resource "hcloud_load_balancer_service" "control_plane" {
   # k3s always serves external API traffic on 6443; kubeapi_port is a frontend override.
   destination_port = local.kubernetes_distribution == "k3s" ? 6443 : var.kubeapi_port
   listen_port      = var.kubeapi_port
+
+  health_check {
+    protocol = "https"
+    port     = local.kubernetes_distribution == "k3s" ? 6443 : var.kubeapi_port
+    interval = tonumber(trimsuffix(var.load_balancer_health_check_interval, "s"))
+    timeout  = tonumber(trimsuffix(var.load_balancer_health_check_timeout, "s"))
+    retries  = var.load_balancer_health_check_retries
+
+    http {
+      path         = "/readyz"
+      tls          = false
+      status_codes = ["200", "401"]
+    }
+  }
 }
 
 # RKE2 node registration uses the supervisor port (9345). When the control-plane

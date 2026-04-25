@@ -14,6 +14,37 @@ locals {
 
   nat_router_name_basename = "nat-router"
   nat_router_name          = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${local.nat_router_name_basename}"
+
+  nat_router_fail2ban_script = <<-EOT
+set -e
+
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+if ! dpkg -s fail2ban python3-systemd >/dev/null 2>&1; then
+  as_root apt-get update
+  as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y fail2ban python3-systemd
+fi
+
+as_root mkdir -p /etc/fail2ban/jail.d
+as_root tee /etc/fail2ban/jail.d/sshd.local >/dev/null <<'EOF'
+[sshd]
+enabled = true
+port = ${var.ssh_port}
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
+maxretry = 5
+bantime = 86400
+EOF
+
+as_root systemctl enable --now fail2ban
+as_root systemctl restart fail2ban
+EOT
 }
 
 resource "random_string" "nat_router" {
@@ -53,7 +84,7 @@ data "cloudinit_config" "nat_router_config" {
         hostname                   = var.nat_router.enable_redundancy ? "nat-router-${count.index}" : "nat-router"
         dns_servers                = var.dns_servers
         has_dns_servers            = local.has_dns_servers
-        sshAuthorizedKeys          = concat([var.ssh_public_key], var.ssh_additional_public_keys)
+        sshAuthorizedKeys          = local.ssh_authorized_keys
         enable_sudo                = var.nat_router.enable_sudo
         enable_redundancy          = var.nat_router.enable_redundancy
         priority                   = count.index == 0 ? 150 : 100
@@ -145,7 +176,8 @@ resource "hcloud_server" "nat_router" {
 
   lifecycle {
     # Keepalived manages alias IPs during failover.
-    ignore_changes = [network]
+    # Cloud-init is creation-only; upgrade fixes for existing routers must run through terraform_data provisioners.
+    ignore_changes = [network, user_data]
   }
 
 }
@@ -194,4 +226,31 @@ resource "terraform_data" "nat_router_await_cloud_init" {
 moved {
   from = null_resource.nat_router_await_cloud_init
   to   = terraform_data.nat_router_await_cloud_init
+}
+
+resource "terraform_data" "nat_router_fail2ban" {
+  count = var.nat_router != null ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
+
+  depends_on = [
+    terraform_data.nat_router_await_cloud_init,
+  ]
+
+  triggers_replace = {
+    server_id  = hcloud_server.nat_router[count.index].id
+    config_sha = sha256(local.nat_router_fail2ban_script)
+  }
+
+  connection {
+    user           = var.nat_router.enable_sudo ? "nat-router" : "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = hcloud_server.nat_router[count.index].ipv4_address
+    port           = var.ssh_port
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      local.nat_router_fail2ban_script,
+    ]
+  }
 }

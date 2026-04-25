@@ -1,31 +1,37 @@
-data "github_release" "hetzner_ccm" {
-  count       = var.hetzner_ccm_version == null ? 1 : 0
-  repository  = "hcloud-cloud-controller-manager"
-  owner       = "hetznercloud"
-  retrieve_by = "latest"
+data "http" "hetzner_ccm_release" {
+  count = var.hetzner_ccm_version == null ? 1 : 0
+  url   = "https://api.github.com/repos/hetznercloud/hcloud-cloud-controller-manager/releases/latest"
+
+  request_headers = {
+    Accept = "application/vnd.github+json"
+  }
 }
 
-data "github_release" "hetzner_csi" {
-  count       = var.hetzner_csi_version == null && !var.disable_hetzner_csi ? 1 : 0
-  repository  = "csi-driver"
-  owner       = "hetznercloud"
-  retrieve_by = "latest"
+data "http" "hetzner_csi_release" {
+  count = var.hetzner_csi_version == null && !var.disable_hetzner_csi ? 1 : 0
+  url   = "https://api.github.com/repos/hetznercloud/csi-driver/releases/latest"
+
+  request_headers = {
+    Accept = "application/vnd.github+json"
+  }
 }
 
-// github_release for kured
-data "github_release" "kured" {
-  count       = var.kured_version == null ? 1 : 0
-  repository  = "kured"
-  owner       = "kubereboot"
-  retrieve_by = "latest"
+data "http" "kured_release" {
+  count = var.kured_version == null ? 1 : 0
+  url   = "https://api.github.com/repos/kubereboot/kured/releases/latest"
+
+  request_headers = {
+    Accept = "application/vnd.github+json"
+  }
 }
 
-// github_release for kured
-data "github_release" "calico" {
-  count       = var.calico_version == null && var.cni_plugin == "calico" ? 1 : 0
-  repository  = "calico"
-  owner       = "projectcalico"
-  retrieve_by = "latest"
+data "http" "calico_release" {
+  count = var.calico_version == null && var.cni_plugin == "calico" ? 1 : 0
+  url   = "https://api.github.com/repos/projectcalico/calico/releases/latest"
+
+  request_headers = {
+    Accept = "application/vnd.github+json"
+  }
 }
 
 data "hcloud_ssh_keys" "keys_by_selector" {

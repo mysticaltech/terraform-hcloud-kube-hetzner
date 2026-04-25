@@ -19,7 +19,7 @@ check "encryption_mode_conflict" {
 resource "hcloud_ssh_key" "k3s" {
   count      = var.hcloud_ssh_key_id == null && local.existing_hcloud_ssh_key_id == null ? 1 : 0
   name       = var.cluster_name
-  public_key = var.ssh_public_key
+  public_key = local.ssh_public_key
   labels     = local.labels
 }
 

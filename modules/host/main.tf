@@ -299,7 +299,7 @@ data "cloudinit_config" "config" {
         hostname                     = local.name
         dns_servers                  = var.dns_servers
         has_dns_servers              = local.has_dns_servers
-        sshAuthorizedKeys            = concat([var.ssh_public_key], var.ssh_additional_public_keys)
+        sshAuthorizedKeys            = local.ssh_authorized_keys
         cloudinit_write_files_common = var.cloudinit_write_files_common
         cloudinit_runcmd_common      = var.cloudinit_runcmd_common
         cloudinit_write_files_extra  = var.cloudinit_write_files_extra

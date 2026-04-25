@@ -479,6 +479,8 @@ resource "terraform_data" "kustomization" {
     ccm_use_helm                   = var.hetzner_ccm_use_helm
     cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
+    system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
+    system_upgrade_enable_eviction = tostring(var.system_upgrade_enable_eviction)
   }
 
   connection {

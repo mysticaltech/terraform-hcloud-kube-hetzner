@@ -133,7 +133,7 @@ data "cloudinit_config" "autoscaler_config" {
         hostname          = "autoscaler"
         dns_servers       = var.dns_servers
         has_dns_servers   = local.has_dns_servers
-        sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
+        sshAuthorizedKeys = local.ssh_authorized_keys
         swap_size         = var.autoscaler_nodepools[count.index].swap_size
         zram_size         = var.autoscaler_nodepools[count.index].zram_size
         os                = local.autoscaler_nodepools_os[count.index]
@@ -229,7 +229,7 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         hostname          = "autoscaler"
         dns_servers       = var.dns_servers
         has_dns_servers   = local.has_dns_servers
-        sshAuthorizedKeys = concat([var.ssh_public_key], var.ssh_additional_public_keys)
+        sshAuthorizedKeys = local.ssh_authorized_keys
         swap_size         = ""
         zram_size         = ""
         os                = local.first_nodepool_os

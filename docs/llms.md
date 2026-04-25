@@ -1145,6 +1145,16 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Purpose:** Allows pinning the Hetzner Cloud CSI driver to a specific version (if `disable_hetzner_csi` is `false`).
   * **Reference:** The GitHub releases link provides available versions.
 
+```terraform
+  # To pass custom Helm values to the Hetzner CSI driver, use hetzner_csi_values.
+  # hetzner_csi_values = file("${path.module}/chart-values/hcloud-csi.yaml")
+```
+
+* **`hetzner_csi_values` (String, Optional):**
+  * **Default:** `""`.
+  * **Purpose:** Passes custom Helm values to the Hetzner CSI `HelmChart` as `valuesContent`.
+  * **Usage:** Use a heredoc or `file(...)` when you need to customize the CSI chart without managing the driver outside the module.
+
 ---
 
 Excellent! Let's continue our meticulous dissection.
@@ -3080,6 +3090,12 @@ The following variables allow deep customization of various components through H
   # networking:
   #   enabled: true
   # EOT
+
+  # Custom Hetzner CSI values
+  # hetzner_csi_values = <<-EOT
+  # controller:
+  #   replicas: 2
+  # EOT
   
   # Custom CSI driver SMB values
   # csi_driver_smb_values = <<-EOT
@@ -3088,6 +3104,9 @@ The following variables allow deep customization of various components through H
   # EOT
   
   # Custom Longhorn values
+  # Note: Longhorn RWX volumes may be affected by upstream NFS 4.1/4.2 client hangs.
+  # Workaround: create a dedicated StorageClass for affected RWX PVCs with
+  # parameters.nfsOptions = "vers=4.0,noresvport,softerr,timeo=600,retrans=5".
   # longhorn_values = <<-EOT
   # defaultSettings:
   #   defaultDataPath: /var/longhorn

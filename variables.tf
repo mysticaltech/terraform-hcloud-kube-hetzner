@@ -207,7 +207,7 @@ variable "subnet_amount" {
         var.network_subnet_mode == "per_nodepool"
         ? length(var.control_plane_nodepools) + length(var.agent_nodepools)
         : 2
-      ) + (var.nat_router == null ? 0 : (var.nat_router.enable_redundancy == false ? 1 : 2))
+      ) + (var.nat_router == null ? 0 : (try(var.nat_router.enable_redundancy, false) ? 2 : 1))
     )
     error_message = "Subnet amount is too small for the selected network_subnet_mode and NAT router settings."
   }
@@ -269,7 +269,7 @@ variable "nat_router" {
   })
 
   validation {
-    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router.standby_location != ""
+    condition     = var.nat_router == null || !try(var.nat_router.enable_redundancy, false) || try(var.nat_router.standby_location, "") != ""
     error_message = "When nat_router.enable_redundancy is true, standby_location must be provided."
   }
 }
@@ -281,7 +281,7 @@ variable "nat_router_hcloud_token" {
   sensitive   = true
 
   validation {
-    condition     = var.nat_router == null || !var.nat_router.enable_redundancy || var.nat_router_hcloud_token != ""
+    condition     = var.nat_router == null || !try(var.nat_router.enable_redundancy, false) || var.nat_router_hcloud_token != ""
     error_message = "When nat_router.enable_redundancy is true, nat_router_hcloud_token must be provided."
   }
 }
