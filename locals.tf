@@ -2014,10 +2014,13 @@ cloudinit_write_files_common = <<EOT
       # wait for a bit
       sleep 3
 
-      # Somehow sometimes on private-ip only setups, the
-      # interface may already be correctly named, and this
-      # block should be skipped.
-      if ! ip link show eth1 >/dev/null 2>&1; then
+      # Somehow sometimes on private-ip only setups, the interface may already
+      # be correctly named. Still refresh the udev rule so a stale MAC doesn't
+      # break the next boot.
+      if ip link show eth1 >/dev/null 2>&1; then
+        MAC=$(cat /sys/class/net/eth1/address) || return 1
+        echo "SUBSYSTEM==\"net\", ACTION==\"add\", DRIVERS==\"?*\", ATTR{address}==\"$MAC\", NAME=\"eth1\"" > /etc/udev/rules.d/70-persistent-net.rules
+      else
         # Find the private network interface by name, falling back to original logic.
         # The output of 'ip link show' is stored to avoid multiple calls.
         # Use '|| true' to prevent grep from causing script failure when no matches found
@@ -2091,6 +2094,57 @@ cloudinit_write_files_common = <<EOT
 
     systemctl restart NetworkManager
   permissions: "0744"
+
+# Lightweight wrapper invoked on every boot by kh-rename-interface.service.
+# Fast-paths the common case (eth1 already present and the udev rule's MAC
+# matches the current MAC) so subsequent boots pay no measurable cost. Only
+# when the rule is stale (e.g. Hetzner reassigned the private NIC's MAC) do
+# we fall through to the full rename_interface.sh — which handles detection,
+# udev rule rewrite, and NetworkManager restart.
+- path: /etc/cloud/rename_interface_boot.sh
+  content: |
+    #!/bin/bash
+    set -eu
+
+    UDEV_RULE=/etc/udev/rules.d/70-persistent-net.rules
+
+    if ip link show eth1 >/dev/null 2>&1; then
+      MAC=$(cat /sys/class/net/eth1/address)
+      if [ -r "$UDEV_RULE" ] && grep -q "ATTR{address}==\"$MAC\"" "$UDEV_RULE"; then
+        exit 0
+      fi
+    fi
+
+    exec /etc/cloud/rename_interface.sh
+  permissions: "0744"
+
+# Systemd oneshot that self-heals the eth1 rename on every boot. The cloud-init
+# run above only fires at first boot and freezes the current NIC MAC into
+# /etc/udev/rules.d/70-persistent-net.rules. If Hetzner later reassigns that
+# MAC (NIC detach/reattach, network reconfig, MicroOS transactional-update
+# wiping the overlay, etc.) the udev rule no longer matches, eth1 never
+# appears, and k3s/rke2 fails with `unable to find interface eth1`.
+#
+# Ordered After=NetworkManager.service because rename_interface.sh uses
+# `nmcli` and restarts NetworkManager — running Before= would deadlock the
+# boot. Ordered Before=k3s/rke2 so the rename (when needed) completes before
+# the kubernetes services try to bind flannel-iface=eth1.
+- path: /etc/systemd/system/kh-rename-interface.service
+  content: |
+    [Unit]
+    Description=Ensure Hetzner private NIC is renamed to eth1
+    After=systemd-udev-settle.service NetworkManager.service
+    Before=k3s.service k3s-agent.service rke2-server.service rke2-agent.service
+    ConditionPathExists=/etc/cloud/rename_interface_boot.sh
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    ExecStart=/etc/cloud/rename_interface_boot.sh
+
+    [Install]
+    WantedBy=multi-user.target
+  permissions: "0644"
 
 # Disable ssh password authentication
 - content: |
@@ -2216,6 +2270,13 @@ cloudinit_runcmd_common = <<EOT
 
 # Allow network interface
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
+- [chmod, '+x', '/etc/cloud/rename_interface_boot.sh']
+
+# Enable the self-heal oneshot so it runs on every subsequent boot. We don't
+# start it here — first-boot rename happens via remote-exec before k3s/rke2
+# install, and starting it now while eth1 already exists is a no-op.
+- [systemctl, daemon-reload]
+- [systemctl, enable, kh-rename-interface.service]
 
 # Ensure sshd includes config.d directory and restart to apply the new config
 - |
