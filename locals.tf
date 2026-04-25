@@ -960,7 +960,7 @@ EOT
     !local.has_external_load_balancer_base
   )
   has_external_load_balancer = local.has_external_load_balancer_base || local.combine_load_balancers_effective
-  skip_ingress_lb_wait       = local.has_external_load_balancer_base
+  skip_ingress_lb_wait       = local.has_external_load_balancer_base || var.ingress_controller == "custom"
   load_balancer_name         = "${var.cluster_name}-${var.ingress_controller}"
   managed_ingress_controllers = [
     "traefik",
