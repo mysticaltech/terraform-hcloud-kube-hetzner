@@ -776,26 +776,38 @@ EOT
   node_os_arch_pairs = concat(
     [
       for n in values(local.control_plane_nodes) :
-      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+      {
+        os           = n.os
+        arch         = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86"
+        needs_lookup = try(trimspace(n.os_snapshot_id), "") == ""
+      }
     ],
     [
       for n in values(local.agent_nodes) :
-      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+      {
+        os           = n.os
+        arch         = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86"
+        needs_lookup = try(trimspace(n.os_snapshot_id), "") == ""
+      }
     ],
     [
       for np in var.autoscaler_nodepools :
-      { os = coalesce(np.os, local.default_autoscaler_os), arch = substr(np.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+      {
+        os           = coalesce(np.os, local.default_autoscaler_os)
+        arch         = substr(np.server_type, 0, 3) == "cax" ? "arm" : "x86"
+        needs_lookup = true
+      }
     ],
   )
 
   os_arch_requirements = {
     microos = {
-      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "arm"])
-      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "x86"])
+      arm = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "microos" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "microos" && p.arch == "x86"])
     }
     leapmicro = {
-      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "arm"])
-      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "x86"])
+      arm = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "leapmicro" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "leapmicro" && p.arch == "x86"])
     }
   }
 
