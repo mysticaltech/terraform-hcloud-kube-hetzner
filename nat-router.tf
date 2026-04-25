@@ -282,7 +282,7 @@ resource "terraform_data" "nat_router_extra_runcmd" {
   count = var.nat_router != null && length(try(var.nat_router.extra_runcmd, [])) > 0 ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0
 
   depends_on = [
-    terraform_data.nat_router_await_cloud_init,
+    terraform_data.nat_router_fail2ban,
   ]
 
   triggers_replace = {
