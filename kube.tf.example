@@ -267,6 +267,10 @@ module "kube-hetzner" {
       taints      = [],
       count       = 1
 
+      # Use a custom Hetzner snapshot (e.g. with LVM partitions pre-configured).
+      # Caution: you are responsible for matching the snapshot to the correct os type and node architecture (x86/arm).
+      # os_snapshot_id = "348644983"
+
       # In the case of using Longhorn, you can use Hetzner volumes instead of using the node's own storage by specifying a value from 10 to 10240 (in GB)
       # It will create one volume per node in the nodepool, and configure Longhorn to use them.
       # Something worth noting is that Volume storage is slower than node storage, which is achieved by not mentioning longhorn_volume_size or setting it to 0.
