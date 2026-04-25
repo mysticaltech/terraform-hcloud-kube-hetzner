@@ -242,3 +242,8 @@ runcmd:
   - [systemctl, 'enable', 'keepalived']
   - [systemctl, 'restart', 'keepalived']
 %{ endif ~}
+%{ if length(extra_runcmd) > 0 }
+%{ for cmd in extra_runcmd }
+  - ${jsonencode(cmd)}
+%{ endfor }
+%{ endif }
