@@ -1298,10 +1298,6 @@ endpointRoutes:
 loadBalancer:
   # Enable LoadBalancer & NodePort XDP Acceleration (direct routing (routingMode=native) is recommended to achieve optimal performance)
   acceleration: "${var.cilium_loadbalancer_acceleration_mode}"
-%{if var.disable_kube_proxy && var.cilium_routing_mode == "native"~}
-  mode: "dsr"
-  algorithm: "maglev"
-%{endif~}
 
 bpf:
   # Enable eBPF-based Masquerading ("The eBPF-based implementation is the most efficient implementation")

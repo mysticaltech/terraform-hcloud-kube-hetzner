@@ -14,9 +14,9 @@ spec:
             - "--leader-elect=false"
             - "--allow-untagged-cloud"
             - "--route-reconciliation-period=30s"
-%{if cluster_cidr != ""~}
+%{if cluster_cidr_ipv4 != ""~}
             - "--allocate-node-cidrs=true"
-            - "--cluster-cidr=${cluster_cidr}"
+            - "--cluster-cidr=${cluster_cidr_ipv4}"
 %{endif~}
             - "--webhook-secure-port=0"
 %{if using_klipper_lb~}

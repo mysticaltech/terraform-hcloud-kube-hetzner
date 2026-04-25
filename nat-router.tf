@@ -230,7 +230,8 @@ resource "terraform_data" "nat_router_await_cloud_init" {
   ]
 
   triggers_replace = {
-    config = data.cloudinit_config.nat_router_config[count.index].rendered
+    server_id = hcloud_server.nat_router[count.index].id
+    config    = data.cloudinit_config.nat_router_config[count.index].rendered
   }
 
   connection {

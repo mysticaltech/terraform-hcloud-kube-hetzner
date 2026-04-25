@@ -26,7 +26,8 @@ resource "terraform_data" "install_scripts" {
 
   provisioner "remote-exec" {
     inline = [
-      "mkdir -p ${var.destination_folder}"
+      "rm -rf ${jsonencode(var.destination_folder)}",
+      "mkdir -p ${jsonencode(var.destination_folder)}"
     ]
   }
 

@@ -41,7 +41,7 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **Flannel Backend** - New `flannel_backend` variable to override flannel backend (wireguard-native, host-gw, etc.)
 - **Cilium XDP Acceleration** - New `cilium_loadbalancer_acceleration_mode` variable (native, best-effort, disabled)
 - **Cilium Egress Gateway HA Reconciler** - New `cilium_egress_gateway_ha_enabled` option to deploy a lightweight controller that keeps labeled `CiliumEgressGatewayPolicy` objects pinned to a Ready egress node.
-- **Cilium v3 Dual-Stack Defaults** - Cilium now renders IPv4/IPv6 Helm values from the configured cluster CIDRs, enables DSR + Maglev when kube-proxy replacement is active, and uses Geneve DSR dispatch when WireGuard is enabled (#2170, #2178).
+- **Cilium v3 Dual-Stack Defaults** - Cilium now renders IPv4/IPv6 Helm values from the configured cluster CIDRs and keeps kube-proxy replacement tied to `disable_kube_proxy` (#2170, #2178).
 - **K3s v1.35 Support** - Added support for k3s v1.35 channel (#2029)
 - **Packer Enhancements** - Configurable `kernel_type`, `sysctl_config_file`, and `timezone` for MicroOS snapshots (#2009, #2010)
 - **Multiple Attached Volumes Per Node** - Added `attached_volumes` support for control plane and agent nodepools (including per-node overrides) to provision and mount multiple Hetzner Volumes per node.
@@ -54,7 +54,7 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **User Kustomization Redeploys** - User kustomization uploads and deploys now rerun after first control-plane replacement (#2160).
 - **Custom Ingress Mode** - `ingress_controller = "custom"` now skips managed ingress Service lookup/wait logic (#2173).
 - **Autoscaler Without Public IPv4** - Autoscaler cloud-init now routes IPv4 through the private gateway when public IPv4 is disabled, while keeping public IPv6 routing when enabled (#2154).
-- **Hetzner CCM Dual-Stack Address Family** - Hetzner CCM now receives the full cluster CIDR list and sets `HCLOUD_INSTANCES_ADDRESS_FAMILY` for IPv6/dual-stack clusters (#2170).
+- **Hetzner CCM Dual-Stack Address Family** - Hetzner CCM now keeps route reconciliation on the IPv4 pod CIDR and sets `HCLOUD_INSTANCES_ADDRESS_FAMILY` for IPv6/dual-stack clusters (#2170).
 - **Upgrade-Safe Ingress Namespace Defaults** - Restored legacy nginx default namespace (`nginx`) to avoid Helm ownership conflicts during upgrades from v2.19.x clusters.
 - **CCM Ownership Compatibility** - Reverted Hetzner CCM management to the existing HelmChart manifest flow for `hetzner_ccm_use_helm`, avoiding release-name collisions with already-installed CCM chart instances.
 - **Subnet Topology Compatibility** - Restored per-nodepool control-plane/agent subnet resources and nodepool subnet attachment while keeping auto-assigned private IPv4 behavior.
