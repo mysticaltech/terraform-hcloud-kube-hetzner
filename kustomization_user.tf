@@ -28,6 +28,9 @@ module "user_kustomizations" {
 
   kustomizations_map = local.processed_kustomizes
   kubectl_cli        = local.kubectl_cli
+  replacement_triggers = {
+    first_control_plane_server_id = tostring(module.control_planes[keys(module.control_planes)[0]].id)
+  }
 
   depends_on = [
     terraform_data.kustomization,

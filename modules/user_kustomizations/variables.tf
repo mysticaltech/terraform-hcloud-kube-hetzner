@@ -38,3 +38,9 @@ variable "kubectl_cli" {
   type        = string
   description = "Kubectl command used to apply user kustomizations (distribution-aware)."
 }
+
+variable "replacement_triggers" {
+  type        = map(string)
+  default     = {}
+  description = "Additional non-sensitive values that should re-upload and redeploy user kustomizations when changed."
+}
