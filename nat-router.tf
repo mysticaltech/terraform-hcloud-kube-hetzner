@@ -14,6 +14,10 @@ locals {
 
   nat_router_name_basename = "nat-router"
   nat_router_name          = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${local.nat_router_name_basename}"
+  nat_router_connection_host = {
+    for index in range(var.nat_router != null ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0) :
+    index => var.use_private_bastion ? local.nat_router_ip[index] : hcloud_server.nat_router[index].ipv4_address
+  }
 
   nat_router_fail2ban_script = <<-EOT
 set -e
@@ -214,7 +218,7 @@ resource "terraform_data" "nat_router_await_cloud_init" {
     user           = "nat-router"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = hcloud_server.nat_router[count.index].ipv4_address
+    host           = local.nat_router_connection_host[count.index]
     port           = var.ssh_port
   }
 
@@ -244,7 +248,7 @@ resource "terraform_data" "nat_router_fail2ban" {
     user           = var.nat_router.enable_sudo ? "nat-router" : "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = hcloud_server.nat_router[count.index].ipv4_address
+    host           = local.nat_router_connection_host[count.index]
     port           = var.ssh_port
   }
 
