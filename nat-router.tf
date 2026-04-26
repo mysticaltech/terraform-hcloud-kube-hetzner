@@ -14,6 +14,10 @@ locals {
 
   nat_router_name_basename = "nat-router"
   nat_router_name          = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${local.nat_router_name_basename}"
+  nat_router_connection_host = {
+    for index in range(var.nat_router != null ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0) :
+    index => var.use_private_bastion ? local.nat_router_ip[index] : hcloud_server.nat_router[index].ipv4_address
+  }
 
   nat_router_fail2ban_script = <<-EOT
 set -e
@@ -44,6 +48,25 @@ EOF
 
 as_root systemctl enable --now fail2ban
 as_root systemctl restart fail2ban
+EOT
+
+  nat_router_extra_runcmd_script = <<-EOT
+set -e
+
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    bash -s
+  else
+    sudo -n bash -s
+  fi
+}
+
+%{for index, command in try(var.nat_router.extra_runcmd, [])~}
+as_root <<'KH_NAT_EXTRA_RUNCMD_${index}'
+${command}
+KH_NAT_EXTRA_RUNCMD_${index}
+
+%{endfor~}
 EOT
 }
 
@@ -207,14 +230,15 @@ resource "terraform_data" "nat_router_await_cloud_init" {
   ]
 
   triggers_replace = {
-    config = data.cloudinit_config.nat_router_config[count.index].rendered
+    server_id = hcloud_server.nat_router[count.index].id
+    config    = data.cloudinit_config.nat_router_config[count.index].rendered
   }
 
   connection {
     user           = "nat-router"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = hcloud_server.nat_router[count.index].ipv4_address
+    host           = local.nat_router_connection_host[count.index]
     port           = var.ssh_port
   }
 
@@ -244,13 +268,40 @@ resource "terraform_data" "nat_router_fail2ban" {
     user           = var.nat_router.enable_sudo ? "nat-router" : "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = hcloud_server.nat_router[count.index].ipv4_address
+    host           = local.nat_router_connection_host[count.index]
     port           = var.ssh_port
   }
 
   provisioner "remote-exec" {
     inline = [
       local.nat_router_fail2ban_script,
+    ]
+  }
+}
+
+resource "terraform_data" "nat_router_extra_runcmd" {
+  count = var.nat_router != null && length(try(var.nat_router.extra_runcmd, [])) > 0 ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0
+
+  depends_on = [
+    terraform_data.nat_router_fail2ban,
+  ]
+
+  triggers_replace = {
+    server_id    = hcloud_server.nat_router[count.index].id
+    commands_sha = sha256(jsonencode(try(var.nat_router.extra_runcmd, [])))
+  }
+
+  connection {
+    user           = var.nat_router.enable_sudo ? "nat-router" : "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.nat_router_connection_host[count.index]
+    port           = var.ssh_port
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      local.nat_router_extra_runcmd_script,
     ]
   }
 }

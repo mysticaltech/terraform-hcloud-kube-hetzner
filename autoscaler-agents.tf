@@ -160,7 +160,9 @@ data "cloudinit_config" "autoscaler_config" {
         ))
         cloudinit_write_files_common = local.cloudinit_write_files_common
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
-        private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
+        private_ipv4_default_route   = var.autoscaler_disable_ipv4 || local.use_nat_router
+        public_ipv4_default_route    = !(var.autoscaler_disable_ipv4 || local.use_nat_router)
+        public_ipv6_default_route    = !(var.autoscaler_disable_ipv6 || local.use_nat_router)
         network_gw_ipv4              = local.network_gw_ipv4
       }
     )
@@ -206,7 +208,9 @@ data "cloudinit_config" "autoscaler_config_rke2" {
         install_k8s_agent_script     = join("\n", concat(local.install_k8s_agent, ["systemctl start rke2-agent", "systemctl enable rke2-agent"]))
         cloudinit_write_files_common = local.cloudinit_write_files_common
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common
-        private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
+        private_ipv4_default_route   = var.autoscaler_disable_ipv4 || local.use_nat_router
+        public_ipv4_default_route    = !(var.autoscaler_disable_ipv4 || local.use_nat_router)
+        public_ipv6_default_route    = !(var.autoscaler_disable_ipv6 || local.use_nat_router)
         network_gw_ipv4              = local.network_gw_ipv4
       }
     )
@@ -255,7 +259,9 @@ data "cloudinit_config" "autoscaler_legacy_config" {
         ))
         cloudinit_write_files_common = local.cloudinit_write_files_common
         cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
-        private_network_only         = var.autoscaler_disable_ipv4 && var.autoscaler_disable_ipv6,
+        private_ipv4_default_route   = var.autoscaler_disable_ipv4 || local.use_nat_router
+        public_ipv4_default_route    = !(var.autoscaler_disable_ipv4 || local.use_nat_router)
+        public_ipv6_default_route    = !(var.autoscaler_disable_ipv6 || local.use_nat_router)
         network_gw_ipv4              = local.network_gw_ipv4,
       }
     )

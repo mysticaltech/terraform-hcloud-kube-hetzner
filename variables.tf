@@ -256,7 +256,7 @@ variable "kubeapi_port" {
 
 
 variable "nat_router" {
-  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled. Automatically forwards kubeapi_port to the control plane LB when control_plane_lb_enable_public_interface=false."
+  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled. Automatically forwards kubeapi_port to the control plane LB when control_plane_lb_enable_public_interface=false. extra_runcmd commands run as root after NAT router cloud-init completes and rerun when the command list changes."
   nullable    = true
   default     = null
   type = object({
@@ -266,11 +266,23 @@ variable "nat_router" {
     enable_sudo       = optional(bool, false)
     enable_redundancy = optional(bool, false)
     standby_location  = optional(string, "")
+    extra_runcmd      = optional(list(string), [])
   })
 
   validation {
     condition     = var.nat_router == null || !try(var.nat_router.enable_redundancy, false) || try(var.nat_router.standby_location, "") != ""
     error_message = "When nat_router.enable_redundancy is true, standby_location must be provided."
+  }
+}
+
+variable "use_private_bastion" {
+  type        = bool
+  default     = false
+  description = "Use the NAT router's private IP as the SSH bastion instead of its public IP. Requires the operator to have network-level access to the private network (e.g. via Tailscale, Cloudflare Tunnel, WireGuard VPN, etc)."
+
+  validation {
+    condition     = !var.use_private_bastion || var.nat_router != null
+    error_message = "use_private_bastion requires nat_router to be configured."
   }
 }
 
@@ -460,6 +472,7 @@ variable "control_plane_nodepools" {
     placement_group_compat_idx = optional(number, 0)
     placement_group            = optional(string, null)
     os                         = optional(string)
+    os_snapshot_id             = optional(string, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
     primary_ipv4_id            = optional(number, null)
@@ -495,6 +508,7 @@ variable "control_plane_nodepools" {
       placement_group_compat_idx = optional(number, 0)
       placement_group            = optional(string, null)
       os                         = optional(string)
+      os_snapshot_id             = optional(string, null)
       disable_ipv4               = optional(bool)
       disable_ipv6               = optional(bool)
       primary_ipv4_id            = optional(number, null)
@@ -610,6 +624,7 @@ variable "agent_nodepools" {
     placement_group            = optional(string, null)
     subnet_ip_range            = optional(string, null)
     os                         = optional(string)
+    os_snapshot_id             = optional(string, null)
     count                      = optional(number, null)
     disable_ipv4               = optional(bool, false)
     disable_ipv6               = optional(bool, false)
@@ -651,6 +666,7 @@ variable "agent_nodepools" {
       placement_group            = optional(string, null)
       append_index_to_node_name  = optional(bool, true)
       os                         = optional(string)
+      os_snapshot_id             = optional(string, null)
       disable_ipv4               = optional(bool)
       disable_ipv6               = optional(bool)
       primary_ipv4_id            = optional(number, null)
@@ -1491,6 +1507,11 @@ variable "cilium_egress_gateway_enabled" {
   type        = bool
   default     = false
   description = "Enables egress gateway to redirect and SNAT the traffic that leaves the cluster."
+
+  validation {
+    condition     = !var.cilium_egress_gateway_enabled || (var.cni_plugin == "cilium" && var.disable_kube_proxy)
+    error_message = "cilium_egress_gateway_enabled requires cni_plugin = \"cilium\" and disable_kube_proxy = true because Cilium Egress Gateway requires kube-proxy replacement."
+  }
 }
 
 variable "cilium_egress_gateway_ha_enabled" {

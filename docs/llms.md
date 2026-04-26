@@ -550,6 +550,7 @@ The example shows three control plane nodepools, each with one node, in differen
         * **Hetzner Volumes:** Network-attached, potentially slower than local NVMe/SSD storage on the node, but can be larger, are independently manageable, and might be cheaper for bulk storage. Good for less I/O-intensive workloads or where data persistence independent of the node's lifecycle is paramount.
         * **Node Local Storage (if `longhorn_volume_size` is not set or 0):** Longhorn uses a directory on the node's filesystem. Faster I/O, but storage is tied to the node's disk.
       * **Recommendation:** The comment wisely suggests local storage for databases (high I/O) and Hetzner Volumes for backups or less critical storage.
+      * **Autoscaler Boundary:** Longhorn volumes are intentionally limited to static agent/control-plane nodepools. Autoscaled volume self-provisioning would require a write-capable Hetzner token in node user-data and detached volumes would be orphaned on scale-down.
     * **`floating_ip` (Boolean, Optional, specific to egress nodepool example):**
       * Default: `false`.
       * If `true`, the module will provision a Hetzner Floating IP and associate it with the node(s) in this pool. If `count > 1`, how the floating IP is managed across multiple nodes needs clarification from module docs (e.g., active/passive, or one FIP per node).
@@ -1938,6 +1939,7 @@ Excellent! Let's continue our meticulous dissection.
   * **Use Case:**
     * Providing a stable, predictable source IP for outbound traffic for whitelisting with external services.
     * Applying common network policies or monitoring to all egress traffic.
+  * **Requirements:** Must be used with `cni_plugin = "cilium"` and `disable_kube_proxy = true`; Cilium Egress Gateway requires kube-proxy replacement.
   * **Integration:** Often used with the "egress" `agent_nodepool` example shown earlier, which had `floating_ip = true`. The floating IP(s) on the egress nodes become the source IP(s) for the SNAT'd traffic.
 
 ```terraform
@@ -2462,6 +2464,13 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Valid values:** `leapmicro` or `microos`.
   * **Where:** `control_plane_nodepools[].os`, `agent_nodepools[].os`, `agent_nodepools[].nodes[*].os`, and `autoscaler_nodepools[].os`.
   * **Defaulting:** Existing nodepools keep their current OS on upgrade (MicroOS by default when unknown). New nodepools default to Leap Micro.
+* **Per-nodepool snapshot override (`os_snapshot_id`) (Optional):**
+  * **Type:** `string`, default `null`.
+  * **Where:** `control_plane_nodepools[].os_snapshot_id`, `control_plane_nodepools[].nodes[*].os_snapshot_id`, `agent_nodepools[].os_snapshot_id`, `agent_nodepools[].nodes[*].os_snapshot_id`.
+  * **Purpose:** Use a custom Hetzner snapshot (e.g. with LVM partitions or other pre-configured disk layouts) instead of the global snapshot looked up by `os` and architecture.
+  * **Fallback:** When `null` (default), the module selects the snapshot via `local.snapshot_id_by_os` based on the node's `os` and architecture — existing behavior is preserved.
+  * **Per-node override:** In map-based nodepools (`nodes = {}`), a node-level `os_snapshot_id` overrides the nodepool-level value.
+  * **Important:** The `os` field is still required even when `os_snapshot_id` is set — it drives cloud-init templates, hcloud labels, and other OS-specific logic. You are responsible for ensuring the snapshot matches the declared `os` type and node architecture (x86 for `cx*`/`cpx*`, ARM for `cax*`).
 
 ---
 
@@ -2912,11 +2921,15 @@ The following variables have been added to the `kube-hetzner` module since the i
     * Simplifies firewall rules and security auditing
     * Automatically forwards Kubernetes API traffic (port 6443) when `control_plane_lb_enable_public_interface = false`
   * **Trade-offs:** Introduces a single point of failure for egress traffic
+  * **Private Bastion Mode:** Set `use_private_bastion = true` to use the NAT router's private IP as the SSH bastion instead of its public IP. This allows hardening the NAT router to be egress-only (no inbound ports on the public IP). Requires the operator to have network-level access to the private network (e.g. via Tailscale, Cloudflare Tunnel, WireGuard).
   * **Configuration:**
     * `server_type`: The Hetzner server type for the NAT router
     * `location`: The location where the NAT router should be deployed
     * `labels`: (Optional) Additional labels for the NAT router
     * `enable_sudo`: (Optional, default: false) Enable sudo access for the nat-router user
+    * `enable_redundancy`: (Optional, default: false) Deploy two NAT routers with keepalived for failover
+    * `standby_location`: (Optional, default: "") Location for the standby NAT router; required when `enable_redundancy` is true
+    * `extra_runcmd`: (Optional, default: []) List of extra shell commands to run as root after the NAT router's cloud-init completes. Terraform reruns these commands when the list changes, so keep them idempotent. Useful for installing additional packages, fetching certificates, or running custom setup scripts.
   * **Port Forwarding:** When the control plane LB has no public interface (`control_plane_lb_enable_public_interface = false`), the NAT router automatically configures iptables rules to forward incoming traffic on port 6443 to the control plane LB's private IP. This allows external kubectl access while keeping the control plane LB completely private.
 
 **k3s Binary Configuration**

@@ -551,9 +551,10 @@ resource "terraform_data" "kustomization" {
     content = var.hetzner_ccm_use_helm ? "" : templatefile(
       "${path.module}/templates/ccm.yaml.tpl",
       {
-        cluster_cidr_ipv4   = var.cluster_ipv4_cidr
-        default_lb_location = var.load_balancer_location
-        using_klipper_lb    = local.using_klipper_lb
+        cluster_cidr_ipv4        = local.hetzner_ccm_route_cluster_cidr
+        default_lb_location      = var.load_balancer_location
+        using_klipper_lb         = local.using_klipper_lb
+        instances_address_family = local.hetzner_ccm_instances_address_family
     })
     destination = "/var/post_install/ccm.yaml"
   }

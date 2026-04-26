@@ -46,3 +46,9 @@ variable "post_commands_string" {
   default   = ""
   sensitive = true
 }
+
+variable "replacement_triggers" {
+  type        = map(string)
+  default     = {}
+  description = "Additional non-sensitive values that should force this kustomization set to be uploaded again."
+}

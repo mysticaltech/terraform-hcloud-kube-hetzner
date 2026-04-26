@@ -78,7 +78,7 @@ EOT
   # Determine kured YAML suffix based on version (>= 1.20.0 uses -combined.yaml, < 1.20.0 uses -dockerhub.yaml)
   kured_yaml_suffix = provider::semvers::compare(local.kured_version, "1.20.0") >= 0 ? "combined" : "dockerhub"
 
-  cilium_ipv4_native_routing_cidr = coalesce(var.cilium_ipv4_native_routing_cidr, var.cluster_ipv4_cidr)
+  cilium_ipv4_native_routing_cidr = var.cilium_ipv4_native_routing_cidr != null && trimspace(var.cilium_ipv4_native_routing_cidr) != "" ? var.cilium_ipv4_native_routing_cidr : local.cluster_ipv4_cidr_effective
 
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
@@ -590,6 +590,7 @@ EOT
         index : node_index
         selinux : nodepool_obj.selinux
         os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name])
+        os_snapshot_id : nodepool_obj.os_snapshot_id
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -626,6 +627,7 @@ EOT
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
           os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name]),
+          os_snapshot_id : nodepool_obj.os_snapshot_id,
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
@@ -683,6 +685,7 @@ EOT
         index : node_index
         selinux : nodepool_obj.selinux
         os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name])
+        os_snapshot_id : nodepool_obj.os_snapshot_id
         placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
         placement_group : nodepool_obj.placement_group,
         disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
@@ -724,6 +727,7 @@ EOT
           zram_size : nodepool_obj.zram_size,
           selinux : nodepool_obj.selinux,
           os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name]),
+          os_snapshot_id : nodepool_obj.os_snapshot_id,
           placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
@@ -772,26 +776,38 @@ EOT
   node_os_arch_pairs = concat(
     [
       for n in values(local.control_plane_nodes) :
-      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+      {
+        os           = n.os
+        arch         = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86"
+        needs_lookup = try(trimspace(n.os_snapshot_id), "") == ""
+      }
     ],
     [
       for n in values(local.agent_nodes) :
-      { os = n.os, arch = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+      {
+        os           = n.os
+        arch         = substr(n.server_type, 0, 3) == "cax" ? "arm" : "x86"
+        needs_lookup = try(trimspace(n.os_snapshot_id), "") == ""
+      }
     ],
     [
       for np in var.autoscaler_nodepools :
-      { os = coalesce(np.os, local.default_autoscaler_os), arch = substr(np.server_type, 0, 3) == "cax" ? "arm" : "x86" }
+      {
+        os           = coalesce(np.os, local.default_autoscaler_os)
+        arch         = substr(np.server_type, 0, 3) == "cax" ? "arm" : "x86"
+        needs_lookup = true
+      }
     ],
   )
 
   os_arch_requirements = {
     microos = {
-      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "arm"])
-      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "microos" && p.arch == "x86"])
+      arm = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "microos" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "microos" && p.arch == "x86"])
     }
     leapmicro = {
-      arm = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "arm"])
-      x86 = anytrue([for p in local.node_os_arch_pairs : p.os == "leapmicro" && p.arch == "x86"])
+      arm = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "leapmicro" && p.arch == "arm"])
+      x86 = anytrue([for p in local.node_os_arch_pairs : p.needs_lookup && p.os == "leapmicro" && p.arch == "x86"])
     }
   }
 
@@ -881,7 +897,7 @@ EOT
 
   ssh_bastion = coalesce(
     local.use_nat_router ? {
-      bastion_host        = hcloud_server.nat_router[0].ipv4_address
+      bastion_host        = var.use_private_bastion ? local.nat_router_ip[0] : hcloud_server.nat_router[0].ipv4_address
       bastion_port        = var.ssh_port
       bastion_user        = "nat-router"
       bastion_private_key = var.ssh_private_key
@@ -903,6 +919,8 @@ EOT
   service_ipv4_cidr_effective = var.service_ipv4_cidr != null && trimspace(var.service_ipv4_cidr) != "" ? var.service_ipv4_cidr : null
   cluster_ipv6_cidr_effective = var.cluster_ipv6_cidr != null && trimspace(var.cluster_ipv6_cidr) != "" ? var.cluster_ipv6_cidr : null
   service_ipv6_cidr_effective = var.service_ipv6_cidr != null && trimspace(var.service_ipv6_cidr) != "" ? var.service_ipv6_cidr : null
+  cluster_has_ipv4            = local.cluster_ipv4_cidr_effective != null
+  cluster_has_ipv6            = local.cluster_ipv6_cidr_effective != null
 
   cluster_cidrs = compact([
     local.cluster_ipv4_cidr_effective,
@@ -925,6 +943,9 @@ EOT
   ])
   cluster_dns = join(",", local.cluster_dns_values)
 
+  hetzner_ccm_route_cluster_cidr       = coalesce(local.cluster_ipv4_cidr_effective, "")
+  hetzner_ccm_instances_address_family = local.cluster_has_ipv6 ? (local.cluster_has_ipv4 ? "dualstack" : "ipv6") : "ipv4"
+
   # Keep the legacy single-network value available for templates that still
   # assume one primary network.
   network_gw_ipv4 = local.network_gw_ipv4_by_network_id[data.hcloud_network.k3s.id]
@@ -944,7 +965,7 @@ EOT
     !local.has_external_load_balancer_base
   )
   has_external_load_balancer = local.has_external_load_balancer_base || local.combine_load_balancers_effective
-  skip_ingress_lb_wait       = local.has_external_load_balancer_base
+  skip_ingress_lb_wait       = local.has_external_load_balancer_base || var.ingress_controller == "custom"
   load_balancer_name         = "${var.cluster_name}-${var.ingress_controller}"
   managed_ingress_controllers = [
     "traefik",
@@ -1225,10 +1246,20 @@ EOT
 ipam:
   mode: kubernetes
 k8s:
+%{if local.cluster_has_ipv4~}
   requireIPv4PodCIDR: true
+%{endif~}
+%{if local.cluster_has_ipv6~}
+  requireIPv6PodCIDR: true
+%{endif~}
 
-# Replace kube-proxy with Cilium
-kubeProxyReplacement: true
+ipv4:
+  enabled: ${local.cluster_has_ipv4}
+ipv6:
+  enabled: ${local.cluster_has_ipv6}
+
+# Replace kube-proxy with Cilium only when kube-proxy is disabled in k3s/rke2.
+kubeProxyReplacement: ${var.disable_kube_proxy}
 
 %{if var.disable_kube_proxy}
 # Enable health check server (healthz) for the kube-proxy replacement
@@ -1242,11 +1273,19 @@ k8sServicePort: "${local.kubernetes_distribution == "rke2" ? tostring(var.kubeap
 # Set Tunnel Mode or Native Routing Mode (supported by Hetzner CCM Route Controller)
 routingMode: "${var.cilium_routing_mode}"
 %{if var.cilium_routing_mode == "native"~}
+%{if local.cluster_has_ipv4~}
 # Set the native routable CIDR
 ipv4NativeRoutingCIDR: "${local.cilium_ipv4_native_routing_cidr}"
+%{endif~}
+%{if local.cluster_has_ipv6~}
+ipv6NativeRoutingCIDR: "${local.cluster_ipv6_cidr_effective}"
+%{endif~}
 
 # Bypass iptables Connection Tracking for Pod traffic (only works in Native Routing Mode)
 installNoConntrackIptablesRules: true
+%{endif~}
+%{if var.disable_kube_proxy && var.enable_wireguard && var.cilium_routing_mode == "tunnel"}
+tunnelProtocol: "geneve"
 %{endif~}
 
 # Perform a gradual roll out on config update.
@@ -1408,8 +1447,10 @@ controller:
 
   hetzner_ccm_values_default = <<EOT
 networking:
-  enabled: true
-  clusterCIDR: "${var.cluster_ipv4_cidr}"
+  enabled: ${local.cluster_has_ipv4}
+%{if local.cluster_has_ipv4~}
+  clusterCIDR: "${local.hetzner_ccm_route_cluster_cidr}"
+%{endif~}
 %{if local.use_robot_ccm~}
 robot:
   enabled: true
@@ -1435,6 +1476,10 @@ env:
 %{if local.use_robot_ccm~}
   HCLOUD_NETWORK_ROUTES_ENABLED:
     value: "false"
+%{endif~}
+%{if local.hetzner_ccm_instances_address_family != "ipv4"~}
+  HCLOUD_INSTANCES_ADDRESS_FAMILY:
+    value: "${local.hetzner_ccm_instances_address_family}"
 %{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
@@ -2014,10 +2059,13 @@ cloudinit_write_files_common = <<EOT
       # wait for a bit
       sleep 3
 
-      # Somehow sometimes on private-ip only setups, the
-      # interface may already be correctly named, and this
-      # block should be skipped.
-      if ! ip link show eth1 >/dev/null 2>&1; then
+      # Somehow sometimes on private-ip only setups, the interface may already
+      # be correctly named. Still refresh the udev rule so a stale MAC doesn't
+      # break the next boot.
+      if ip link show eth1 >/dev/null 2>&1; then
+        MAC=$(cat /sys/class/net/eth1/address) || return 1
+        echo "SUBSYSTEM==\"net\", ACTION==\"add\", DRIVERS==\"?*\", ATTR{address}==\"$MAC\", NAME=\"eth1\"" > /etc/udev/rules.d/70-persistent-net.rules
+      else
         # Find the private network interface by name, falling back to original logic.
         # The output of 'ip link show' is stored to avoid multiple calls.
         # Use '|| true' to prevent grep from causing script failure when no matches found
@@ -2091,6 +2139,57 @@ cloudinit_write_files_common = <<EOT
 
     systemctl restart NetworkManager
   permissions: "0744"
+
+# Lightweight wrapper invoked on every boot by kh-rename-interface.service.
+# Fast-paths the common case (eth1 already present and the udev rule's MAC
+# matches the current MAC) so subsequent boots pay no measurable cost. Only
+# when the rule is stale (e.g. Hetzner reassigned the private NIC's MAC) do
+# we fall through to the full rename_interface.sh — which handles detection,
+# udev rule rewrite, and NetworkManager restart.
+- path: /etc/cloud/rename_interface_boot.sh
+  content: |
+    #!/bin/bash
+    set -eu
+
+    UDEV_RULE=/etc/udev/rules.d/70-persistent-net.rules
+
+    if ip link show eth1 >/dev/null 2>&1; then
+      MAC=$(cat /sys/class/net/eth1/address)
+      if [ -r "$UDEV_RULE" ] && grep -q "ATTR{address}==\"$MAC\"" "$UDEV_RULE"; then
+        exit 0
+      fi
+    fi
+
+    exec /etc/cloud/rename_interface.sh
+  permissions: "0744"
+
+# Systemd oneshot that self-heals the eth1 rename on every boot. The cloud-init
+# run above only fires at first boot and freezes the current NIC MAC into
+# /etc/udev/rules.d/70-persistent-net.rules. If Hetzner later reassigns that
+# MAC (NIC detach/reattach, network reconfig, MicroOS transactional-update
+# wiping the overlay, etc.) the udev rule no longer matches, eth1 never
+# appears, and k3s/rke2 fails with `unable to find interface eth1`.
+#
+# Ordered After=NetworkManager.service because rename_interface.sh uses
+# `nmcli` and restarts NetworkManager — running Before= would deadlock the
+# boot. Ordered Before=k3s/rke2 so the rename (when needed) completes before
+# the kubernetes services try to bind flannel-iface=eth1.
+- path: /etc/systemd/system/kh-rename-interface.service
+  content: |
+    [Unit]
+    Description=Ensure Hetzner private NIC is renamed to eth1
+    After=systemd-udev-settle.service NetworkManager.service
+    Before=k3s.service k3s-agent.service rke2-server.service rke2-agent.service
+    ConditionPathExists=/etc/cloud/rename_interface_boot.sh
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=yes
+    ExecStart=/etc/cloud/rename_interface_boot.sh
+
+    [Install]
+    WantedBy=multi-user.target
+  permissions: "0644"
 
 # Disable ssh password authentication
 - content: |
@@ -2216,6 +2315,13 @@ cloudinit_runcmd_common = <<EOT
 
 # Allow network interface
 - [chmod, '+x', '/etc/cloud/rename_interface.sh']
+- [chmod, '+x', '/etc/cloud/rename_interface_boot.sh']
+
+# Enable the self-heal oneshot so it runs on every subsequent boot. We don't
+# start it here — first-boot rename happens via remote-exec before k3s/rke2
+# install, and starting it now while eth1 already exists is a no-op.
+- [systemctl, daemon-reload]
+- [systemctl, enable, kh-rename-interface.service]
 
 # Ensure sshd includes config.d directory and restart to apply the new config
 - |

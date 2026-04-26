@@ -57,17 +57,17 @@ data:
         continue
       fi
 
-      policies="$(kubectl get ciliumegressgatewaypolicies.cilium.io -A -l "$POLICY_SELECTOR" -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
+      policies="$(kubectl get ciliumegressgatewaypolicies.cilium.io -l "$POLICY_SELECTOR" -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
       if [ -z "$policies" ]; then
         sleep "$SLEEP_SECONDS"
         continue
       fi
 
-      printf '%s\n' "$policies" | while IFS=' ' read -r namespace policy; do
-        [ -z "$namespace" ] && continue
+      printf '%s\n' "$policies" | while IFS= read -r policy; do
+        [ -z "$policy" ] && continue
         patch='{"spec":{"egressGateway":{"nodeSelector":{"matchLabels":{"kubernetes.io/hostname":"'"$active_node"'"}}}}}'
-        kubectl patch ciliumegressgatewaypolicies.cilium.io "$policy" -n "$namespace" --type merge -p "$patch" >/dev/null
-        kubectl annotate ciliumegressgatewaypolicies.cilium.io "$policy" -n "$namespace" kube-hetzner.io/egress-ha-last-node="$active_node" --overwrite >/dev/null
+        kubectl patch ciliumegressgatewaypolicies.cilium.io "$policy" --type merge -p "$patch" >/dev/null
+        kubectl annotate ciliumegressgatewaypolicies.cilium.io "$policy" kube-hetzner.io/egress-ha-last-node="$active_node" --overwrite >/dev/null
       done
 
       sleep "$SLEEP_SECONDS"

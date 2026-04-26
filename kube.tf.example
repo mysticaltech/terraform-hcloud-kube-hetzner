@@ -267,6 +267,10 @@ module "kube-hetzner" {
       taints      = [],
       count       = 1
 
+      # Use a custom Hetzner snapshot (e.g. with LVM partitions pre-configured).
+      # Caution: you are responsible for matching the snapshot to the correct os type and node architecture (x86/arm).
+      # os_snapshot_id = "348644983"
+
       # In the case of using Longhorn, you can use Hetzner volumes instead of using the node's own storage by specifying a value from 10 to 10240 (in GB)
       # It will create one volume per node in the nodepool, and configure Longhorn to use them.
       # Something worth noting is that Volume storage is slower than node storage, which is achieved by not mentioning longhorn_volume_size or setting it to 0.
@@ -430,8 +434,10 @@ module "kube-hetzner" {
   #   enable_redundancy = true    # optional, default to false. Enable failover for the NAT router.
   #   standby_location  = "fsn1"  # optional, default to "". Must be set if enable_redundancy is true.
   #   labels            = {}      # optionally add labels.
+  #   extra_runcmd      = []      # optional, list of extra shell commands to run as root after NAT router cloud-init; changes rerun via Terraform SSH.
   # }
   # nat_router_hcloud_token = ""  # optional, default to "". Must be set if enable_redundancy is true. This token needs read/write to change the private alias ip in the nat_router subnetwork for failover
+  # use_private_bastion = true    # Use NAT router's private IP as bastion. Requires network access to the private network (e.g. Tailscale, WireGuard).
 
 
   ### The following values are entirely optional (and can be removed from this if unused)
@@ -640,6 +646,7 @@ module "kube-hetzner" {
   # Also, you can choose to use a Hetzner volume with Longhorn. By default, it will use the nodes own storage space, but if you add an attribute of
   # longhorn_volume_size (⚠️ not a variable, just a possible agent nodepool attribute) with a value between 10 and 10240 GB to your agent nodepool definition, it will create and use the volume in question.
   # See the agent nodepool section for an example of how to do that.
+  # Longhorn volumes are intentionally limited to static agent/control-plane nodepools. Autoscaled Longhorn volumes would require a write-capable Hetzner token in node user-data and leave detached volumes behind on scale-down.
 
   # To disable Hetzner CSI storage, you can set the following to "true", default is "false".
   # disable_hetzner_csi = true
@@ -1087,6 +1094,7 @@ module "kube-hetzner" {
   # cilium_ipv4_native_routing_cidr = "10.0.0.0/8"
 
   # Enables egress gateway to redirect and SNAT the traffic that leaves the cluster. Default: false
+  # Requires cni_plugin = "cilium" and disable_kube_proxy = true because Cilium Egress Gateway requires kube-proxy replacement.
   # cilium_egress_gateway_enabled = true
 
   # Optional: deploy a lightweight HA reconciler that retargets labeled CiliumEgressGatewayPolicy objects

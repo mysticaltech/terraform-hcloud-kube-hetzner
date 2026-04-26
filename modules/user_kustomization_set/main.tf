@@ -4,12 +4,12 @@
 
 resource "terraform_data" "install_scripts" {
 
-  triggers_replace = {
+  triggers_replace = merge({
     source_files_sha         = nonsensitive(local.source_files_sha)
     parameters_sha           = local.parameters_sha
     pre_commands_string_sha  = local.pre_commands_string_sha
     post_commands_string_sha = local.post_commands_string_sha
-  }
+  }, var.replacement_triggers)
 
   connection {
     user           = var.ssh_connection.user
@@ -26,7 +26,8 @@ resource "terraform_data" "install_scripts" {
 
   provisioner "remote-exec" {
     inline = [
-      "mkdir -p ${var.destination_folder}"
+      "rm -rf ${jsonencode(var.destination_folder)}",
+      "mkdir -p ${jsonencode(var.destination_folder)}"
     ]
   }
 
