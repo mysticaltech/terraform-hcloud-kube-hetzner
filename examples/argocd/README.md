@@ -30,7 +30,7 @@ terraform apply -target=module.kube-hetzner -auto-approve
 terraform apply -auto-approve
 ```
 
-The first apply creates the cluster and makes `kubeconfig_data` available.  
+The first apply creates the cluster and makes `kubeconfig_data` available.
 The second apply installs ArgoCD through Helm.
 
 ## Best practices

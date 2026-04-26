@@ -129,13 +129,14 @@ ${cloudinit_runcmd_common}
 - systemctl start k8s-selinux-policy.service
 %{ endif ~}
 
-# Configure default routes based on public ip availability
-%{if private_network_only~}
-# Private-only setup: detect the private interface dynamically
+# Configure default routes based on enabled public address families.
 - |
   route_dev() {
     awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
   }
+
+%{if private_ipv4_default_route~}
+  # Public IPv4 is disabled, so IPv4 egress/API reachability must use the private network gateway.
   PRIV_IF=$(ip -4 route get '${network_gw_ipv4}' 2>/dev/null | route_dev)
   if [ -z "$PRIV_IF" ]; then
     PRIV_IF=$(ip -4 route show scope link 2>/dev/null | route_dev)
@@ -145,25 +146,34 @@ ${cloudinit_runcmd_common}
   else
     echo "WARN: could not determine private interface for default route" >&2
   fi
-%{else~}
-# Standard setup: detect public interface dynamically (ARM uses enp7s0, x86 uses eth0)
-- |
-  route_dev() {
-    awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
-  }
-  PUB_IF=$(ip -4 route get 172.31.1.1 2>/dev/null | route_dev)
+%{endif~}
+
+%{if public_ipv4_default_route~}
+  # Standard public IPv4 setup: detect public interface dynamically (ARM uses enp7s0, x86 uses eth0).
+  PUB4_IF=$(ip -4 route get 172.31.1.1 2>/dev/null | route_dev)
   # Verify we didn't accidentally pick the private interface (can happen if network_ipv4_cidr overlaps 172.31.0.0/16)
   PRIV_IF=$(ip -4 route get '${network_gw_ipv4}' 2>/dev/null | route_dev)
-  if [ -n "$PRIV_IF" ] && [ "$PUB_IF" = "$PRIV_IF" ]; then
-    echo "WARN: detected interface $PUB_IF matches private interface, clearing to trigger fallback" >&2
-    PUB_IF=""
+  if [ -n "$PRIV_IF" ] && [ "$PUB4_IF" = "$PRIV_IF" ]; then
+    echo "WARN: detected interface $PUB4_IF matches private interface, clearing to trigger fallback" >&2
+    PUB4_IF=""
   fi
-  if [ -z "$PUB_IF" ]; then
+  if [ -z "$PUB4_IF" ]; then
     echo "WARN: could not detect public interface, falling back to eth0" >&2
-    PUB_IF="eth0"
+    PUB4_IF="eth0"
   fi
-  ip route replace default via 172.31.1.1 dev "$PUB_IF" metric 100
-  ip -6 route replace default via fe80::1 dev "$PUB_IF" metric 100
+  ip -4 route replace default via 172.31.1.1 dev "$PUB4_IF" metric 100
+%{endif~}
+
+%{if public_ipv6_default_route~}
+  PUB6_IF=$(ip -6 route show default 2>/dev/null | route_dev)
+  if [ -z "$PUB6_IF" ]; then
+    PUB6_IF=$(ip -o -6 addr show scope global 2>/dev/null | awk '$2 !~ /^(eth1|flannel|cilium|lxc|veth)/ {print $2; exit}')
+  fi
+  if [ -n "$PUB6_IF" ]; then
+    ip -6 route replace default via fe80::1 dev "$PUB6_IF" metric 100
+  else
+    echo "WARN: could not determine public IPv6 interface for default route" >&2
+  fi
 %{endif~}
 
 %{if swap_size != ""~}

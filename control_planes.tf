@@ -152,15 +152,30 @@ resource "terraform_data" "configure_control_plane_floating_ip" {
   provisioner "remote-exec" {
     inline = [
       <<-EOT
-      ETH=eth1
-      if ip link show eth0 &>/dev/null; then
-          ETH=eth0
-      fi
+	      route_dev() {
+	          awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+	      }
 
-      NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null)
-      if [ -z "$NM_CONNECTION" ]; then
-          echo "ERROR: No NetworkManager connection found for $ETH" >&2
-          exit 1
+	      PRIV_IF=$(ip -4 route show ${local.network_ipv4_cidr_by_network_id[local.control_plane_primary_network_id_by_node[each.key]]} 2>/dev/null | route_dev)
+	      ETH=$(ip -4 route get 172.31.1.1 2>/dev/null | route_dev)
+	      if [ -n "$PRIV_IF" ] && [ "$ETH" = "$PRIV_IF" ]; then
+	          ETH=""
+	      fi
+	      if [ -z "$ETH" ]; then
+	          ETH=$(ip -o -4 addr show scope global 2>/dev/null | awk -v priv="$PRIV_IF" '$2 != priv {print $2; exit}')
+	      fi
+	      if [ -z "$ETH" ]; then
+	          ETH=$(ip -o link show up 2>/dev/null | awk -F': ' -v priv="$PRIV_IF" '$2 != "lo" && $2 != priv {print $2; exit}')
+	      fi
+	      if [ -z "$ETH" ]; then
+	          echo "ERROR: Could not detect public interface for floating IP configuration" >&2
+	          exit 1
+	      fi
+
+	      NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null | head -1)
+	      if [ -z "$NM_CONNECTION" ]; then
+	          echo "ERROR: No NetworkManager connection found for $ETH" >&2
+	          exit 1
       fi
 
       nmcli connection modify "$NM_CONNECTION" \
@@ -233,13 +248,13 @@ resource "hcloud_load_balancer_service" "control_plane" {
 
   load_balancer_id = hcloud_load_balancer.control_plane.*.id[0]
   protocol         = "tcp"
-  # k3s always serves external API traffic on 6443; kubeapi_port is a frontend override.
-  destination_port = local.kubernetes_distribution == "k3s" ? 6443 : var.kubeapi_port
+  # Keep the LB backend aligned with the configured API listener port.
+  destination_port = var.kubeapi_port
   listen_port      = var.kubeapi_port
 
   health_check {
     protocol = "https"
-    port     = local.kubernetes_distribution == "k3s" ? 6443 : var.kubeapi_port
+    port     = var.kubeapi_port
     interval = tonumber(trimsuffix(var.load_balancer_health_check_interval, "s"))
     timeout  = tonumber(trimsuffix(var.load_balancer_health_check_timeout, "s"))
     retries  = var.load_balancer_health_check_retries
@@ -297,7 +312,7 @@ locals {
   }
 
   rke2_join_endpoint = coalesce(
-    var.control_plane_endpoint != null ? "https://${can(ipv6(local.control_plane_endpoint_host)) ? "[${local.control_plane_endpoint_host}]" : local.control_plane_endpoint_host}:9345" : null,
+    var.control_plane_endpoint != null ? "https://${provider::assert::ipv6(local.control_plane_endpoint_host) ? "[${local.control_plane_endpoint_host}]" : local.control_plane_endpoint_host}:9345" : null,
     "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:9345",
   )
 
@@ -675,7 +690,7 @@ resource "terraform_data" "control_planes_rke2" {
 
   # Install rke2 server
   provisioner "remote-exec" {
-    inline = local.install_k8s_server
+    inline = concat(local.k8s_install_network_env_by_control_plane[each.key], local.install_k8s_server)
   }
 
   # Start the server and wait until it is ready.
@@ -732,7 +747,7 @@ resource "terraform_data" "control_planes" {
 
   # Install k3s server
   provisioner "remote-exec" {
-    inline = local.install_k3s_server
+    inline = concat(local.k8s_install_network_env_by_control_plane[each.key], local.install_k3s_server)
   }
 
   # Start the server and wait until it is ready.
@@ -792,6 +807,7 @@ resource "terraform_data" "configure_attached_control_plane_volume" {
   triggers_replace = {
     control_plane_id = module.control_planes[each.value.node_key].id
     volume_id        = hcloud_volume.attached_control_plane_volume[each.key].id
+    volume_size      = hcloud_volume.attached_control_plane_volume[each.key].size
     mount_path       = each.value.mount_path
     filesystem       = each.value.filesystem
     volume_name      = hcloud_volume.attached_control_plane_volume[each.key].name
@@ -799,12 +815,43 @@ resource "terraform_data" "configure_attached_control_plane_volume" {
 
   provisioner "remote-exec" {
     inline = [
-      "set -e",
-      "systemctl enable --now iscsid",
-      "mkdir -p '${each.value.mount_path}' >/dev/null",
-      "mountpoint -q '${each.value.mount_path}' || mount -o discard,defaults ${hcloud_volume.attached_control_plane_volume[each.key].linux_device} '${each.value.mount_path}'",
-      "${each.value.filesystem == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.attached_control_plane_volume[each.key].linux_device}",
-      "awk -v path='${each.value.mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.attached_control_plane_volume[each.key].linux_device} ${each.value.mount_path} ${each.value.filesystem} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
+      <<-EOT
+      set -e
+      systemctl enable --now iscsid
+
+      device='${hcloud_volume.attached_control_plane_volume[each.key].linux_device}'
+      mount_path='${each.value.mount_path}'
+      fstype='${each.value.filesystem}'
+
+      mkdir -p "$mount_path" >/dev/null
+      uuid="$(blkid -s UUID -o value "$device")"
+      if [ -z "$uuid" ]; then
+        echo "Unable to determine filesystem UUID for $device" >&2
+        exit 1
+      fi
+
+      if mountpoint -q "$mount_path"; then
+        mounted_source="$(findmnt -rn -T "$mount_path" -o SOURCE)"
+        mounted_uuid="$(blkid -s UUID -o value "$mounted_source" 2>/dev/null || true)"
+        if [ "$mounted_uuid" != "$uuid" ]; then
+          umount "$mount_path"
+        fi
+      fi
+
+      mountpoint -q "$mount_path" || mount -o discard,defaults "$device" "$mount_path"
+
+      case "$fstype" in
+        ext4) resize2fs "$device" ;;
+        xfs) xfs_growfs "$mount_path" ;;
+        *) echo "Unsupported attached volume filesystem type: $fstype" >&2; exit 1 ;;
+      esac
+
+      tmp_fstab="$(mktemp)"
+      awk -v path="$mount_path" -v uuid="$uuid" -v device="$device" '$0 ~ /^#/ || ($1 != "UUID=" uuid && $1 != device && $2 != path) { print }' /etc/fstab > "$tmp_fstab"
+      cat "$tmp_fstab" > /etc/fstab
+      rm -f "$tmp_fstab"
+      printf 'UUID=%s %s %s discard,nofail,defaults 0 0\n' "$uuid" "$mount_path" "$fstype" >> /etc/fstab
+      EOT
     ]
   }
 

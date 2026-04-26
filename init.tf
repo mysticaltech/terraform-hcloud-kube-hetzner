@@ -104,6 +104,7 @@ resource "terraform_data" "first_control_plane" {
           disable-cloud-controller    = true
           disable-kube-proxy          = var.disable_kube_proxy
           disable                     = local.disable_extras
+          https-listen-port           = var.kubeapi_port
           kubelet-arg                 = local.kubelet_arg
           kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
@@ -122,14 +123,25 @@ resource "terraform_data" "first_control_plane" {
             compact([
               hcloud_load_balancer.control_plane.*.ipv4[0],
               hcloud_load_balancer_network.control_plane.*.ip[0],
-              var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+              local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
               local.control_plane_endpoint_host,
               !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
             ]),
             var.additional_tls_sans
           )
           } : {
-          tls-san = concat([local.first_control_plane_ip], var.additional_tls_sans)
+          tls-san = concat(
+            compact([
+              local.first_control_plane_ip,
+              local.control_plane_endpoint_host,
+              local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
+              module.control_planes[keys(module.control_planes)[0]].private_ipv4_address != "" ? module.control_planes[keys(module.control_planes)[0]].private_ipv4_address : null,
+              module.control_planes[keys(module.control_planes)[0]].ipv4_address != "" ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null,
+              module.control_planes[keys(module.control_planes)[0]].ipv6_address != "" ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null,
+              try(one(module.control_planes[keys(module.control_planes)[0]].network).ip, null)
+            ]),
+            var.additional_tls_sans
+          )
         },
         local.etcd_s3_snapshots,
         var.control_planes_custom_config,
@@ -146,14 +158,25 @@ resource "terraform_data" "first_control_plane" {
     destination = "/tmp/encryption-config.yaml"
   }
 
+  provisioner "file" {
+    content     = var.authentication_config
+    destination = "/tmp/authentication_config.yaml"
+  }
+
+  provisioner "file" {
+    content     = var.k3s_audit_policy_config
+    destination = "/tmp/audit-policy.yaml"
+  }
+
   # Install k3s server
   provisioner "remote-exec" {
-    inline = local.install_k3s_server
+    inline = concat(local.k8s_install_network_env_by_control_plane[keys(module.control_planes)[0]], local.install_k3s_server)
   }
 
   # Upon reboot start k3s and wait for it to be ready to receive commands
   provisioner "remote-exec" {
     inline = [
+      local.bootstrap_control_plane_api_config_script,
       "systemctl enable --now iscsid",
       "systemctl start k3s",
       # prepare the needed directories
@@ -197,6 +220,7 @@ resource "terraform_data" "control_plane_setup_rke2" {
   count = local.kubernetes_distribution == "rke2" ? 1 : 0
 
   triggers_replace = {
+    control_plane_id = module.control_planes[keys(module.control_planes)[0]].id
     # Redeploy helm charts when the underlying values change
     helm_values_yaml = join("---\n", [
       local.desired_cni_values
@@ -257,17 +281,28 @@ resource "terraform_data" "control_plane_setup_rke2" {
             compact([
               hcloud_load_balancer.control_plane.*.ipv4[0],
               hcloud_load_balancer_network.control_plane.*.ip[0],
-              var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : null,
+              local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
+              local.control_plane_endpoint_host,
               !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
             ]),
             var.additional_tls_sans
           )
           } : {
-          tls-san = concat([local.first_control_plane_ip], var.additional_tls_sans)
+          tls-san = concat(
+            compact([
+              module.control_planes[keys(module.control_planes)[0]].private_ipv4_address != "" ? module.control_planes[keys(module.control_planes)[0]].private_ipv4_address : null,
+              module.control_planes[keys(module.control_planes)[0]].ipv4_address != "" ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null,
+              module.control_planes[keys(module.control_planes)[0]].ipv6_address != "" ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null,
+              local.control_plane_endpoint_host,
+              local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
+              try(one(module.control_planes[keys(module.control_planes)[0]].network).ip, null)
+            ]),
+            var.additional_tls_sans
+          )
         },
         local.etcd_s3_snapshots,
         var.control_planes_custom_config,
-        (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {}),
+        (var.disable_selinux ? { selinux = false } : (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {})),
         local.prefer_bundled_bin_config
       )
     )
@@ -295,6 +330,10 @@ resource "terraform_data" "control_plane_setup_rke2" {
 resource "terraform_data" "first_control_plane_rke2" {
   count = local.kubernetes_distribution == "rke2" ? 1 : 0
 
+  triggers_replace = {
+    control_plane_id = module.control_planes[keys(module.control_planes)[0]].id
+  }
+
   connection {
     user           = "root"
     private_key    = var.ssh_private_key
@@ -308,14 +347,25 @@ resource "terraform_data" "first_control_plane_rke2" {
     bastion_private_key = local.ssh_bastion.bastion_private_key
   }
 
+  provisioner "file" {
+    content     = var.authentication_config
+    destination = "/tmp/authentication_config.yaml"
+  }
+
+  provisioner "file" {
+    content     = var.k3s_audit_policy_config
+    destination = "/tmp/audit-policy.yaml"
+  }
+
   # Install rke2 server
   provisioner "remote-exec" {
-    inline = local.install_k8s_server
+    inline = concat(local.k8s_install_network_env_by_control_plane[keys(module.control_planes)[0]], local.install_k8s_server)
   }
 
   # Upon reboot start k3s and wait for it to be ready to receive commands
   provisioner "remote-exec" {
     inline = [
+      local.bootstrap_control_plane_api_config_script,
       # "systemctl enable rke2-server",
       "systemctl enable --now iscsid",
       "systemctl start rke2-server",
@@ -333,7 +383,7 @@ resource "terraform_data" "first_control_plane_rke2" {
           echo "Waiting for kubectl config..."
           sleep 2
         done
-        until [[ "$(${local.kubectl_cli} get --raw='/readyz' 2> /dev/null)" == "ok" ]]; do
+        until [[ "\$(${local.kubectl_cli} get --raw='/readyz' 2> /dev/null)" == "ok" ]]; do
           echo "Waiting for the cluster to become ready..."
           sleep 2
         done
@@ -481,6 +531,121 @@ resource "terraform_data" "kustomization" {
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
     system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
     system_upgrade_enable_eviction = tostring(var.system_upgrade_enable_eviction)
+    rendered_addons_sha = sha256(join("\n---kube-hetzner---\n", compact([
+      local.kustomization_backup_yaml,
+      templatefile(
+        "${path.module}/templates/traefik_ingress.yaml.tpl",
+        {
+          version          = var.traefik_version
+          values           = indent(4, local.traefik_values)
+          target_namespace = local.ingress_controller_namespace
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/nginx_ingress.yaml.tpl",
+        {
+          version          = var.nginx_version
+          values           = indent(4, local.nginx_values)
+          target_namespace = local.ingress_controller_namespace
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/haproxy_ingress.yaml.tpl",
+        {
+          version          = var.haproxy_version
+          values           = indent(4, local.haproxy_values)
+          target_namespace = local.ingress_controller_namespace
+        }
+      ),
+      var.hetzner_ccm_use_helm ? templatefile(
+        "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
+        {
+          values              = indent(4, local.hetzner_ccm_values)
+          version             = coalesce(local.ccm_version, "*")
+          using_klipper_lb    = local.using_klipper_lb
+          default_lb_location = var.load_balancer_location
+        }
+      ) : "",
+      var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+        "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
+        {}
+      ) : "",
+      templatefile(
+        "${path.module}/templates/calico.yaml.tpl",
+        {
+          values = local.calico_values
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/cilium.yaml.tpl",
+        {
+          values  = indent(4, local.cilium_values)
+          version = var.cilium_version
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/cilium_egress_gateway_ha.yaml.tpl",
+        {}
+      ),
+      templatefile(
+        "${path.module}/templates/plans.yaml.tpl",
+        {
+          channel          = var.initial_k3s_channel
+          version          = var.install_k3s_version
+          disable_eviction = !var.system_upgrade_enable_eviction
+          drain            = var.system_upgrade_use_drain
+          upgrade_window   = var.system_upgrade_schedule_window
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/longhorn.yaml.tpl",
+        {
+          longhorn_namespace  = var.longhorn_namespace
+          longhorn_repository = var.longhorn_repository
+          version             = var.longhorn_version
+          bootstrap           = var.longhorn_helmchart_bootstrap
+          values              = indent(4, local.longhorn_values)
+        }
+      ),
+      var.disable_hetzner_csi ? "" : templatefile(
+        "${path.module}/templates/hcloud-csi.yaml.tpl",
+        {
+          version = coalesce(local.csi_version, "*")
+          values  = indent(4, local.hetzner_csi_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/csi-driver-smb.yaml.tpl",
+        {
+          version   = var.csi_driver_smb_version
+          bootstrap = var.csi_driver_smb_helmchart_bootstrap
+          values    = indent(4, local.csi_driver_smb_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/cert_manager.yaml.tpl",
+        {
+          version   = var.cert_manager_version
+          bootstrap = var.cert_manager_helmchart_bootstrap
+          values    = indent(4, local.cert_manager_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/rancher.yaml.tpl",
+        {
+          rancher_install_channel = var.rancher_install_channel
+          version                 = var.rancher_version
+          bootstrap               = var.rancher_helmchart_bootstrap
+          values                  = indent(4, local.rancher_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/kured.yaml.tpl",
+        {
+          options = local.kured_options
+        }
+      ),
+    ])))
   }
 
   connection {
@@ -788,7 +953,8 @@ resource "terraform_data" "rke2_kustomization" {
       local.csi_driver_smb_values,
       local.cert_manager_values,
       local.rancher_values,
-      local.hetzner_csi_values
+      local.hetzner_csi_values,
+      local.hetzner_ccm_values,
     ])
     # Redeploy when versions of addons need to be updated
     versions = join("\n", [
@@ -812,8 +978,126 @@ resource "terraform_data" "rke2_kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm             = var.hetzner_ccm_use_helm
-    cilium_egress_gateway_ha = var.cilium_egress_gateway_ha_enabled
+    ccm_use_helm                   = var.hetzner_ccm_use_helm
+    cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
+    system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
+    system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
+    system_upgrade_enable_eviction = tostring(var.system_upgrade_enable_eviction)
+    rendered_addons_sha = sha256(join("\n---kube-hetzner---\n", compact([
+      local.kustomization_backup_yaml,
+      templatefile(
+        "${path.module}/templates/traefik_ingress.yaml.tpl",
+        {
+          version          = var.traefik_version
+          values           = indent(4, local.traefik_values)
+          target_namespace = local.ingress_controller_namespace
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/nginx_ingress.yaml.tpl",
+        {
+          version          = var.nginx_version
+          values           = indent(4, local.nginx_values)
+          target_namespace = local.ingress_controller_namespace
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/haproxy_ingress.yaml.tpl",
+        {
+          version          = var.haproxy_version
+          values           = indent(4, local.haproxy_values)
+          target_namespace = local.ingress_controller_namespace
+        }
+      ),
+      var.hetzner_ccm_use_helm ? templatefile(
+        "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
+        {
+          values              = indent(4, local.hetzner_ccm_values)
+          version             = coalesce(local.ccm_version, "*")
+          using_klipper_lb    = local.using_klipper_lb
+          default_lb_location = var.load_balancer_location
+        }
+      ) : "",
+      var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+        "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
+        {}
+      ) : "",
+      templatefile(
+        "${path.module}/templates/calico.yaml.tpl",
+        {
+          values = local.calico_values
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/cilium.yaml.tpl",
+        {
+          values  = indent(4, local.cilium_values)
+          version = var.cilium_version
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/cilium_egress_gateway_ha.yaml.tpl",
+        {}
+      ),
+      templatefile(
+        "${path.module}/templates/plans_rke2.yaml.tpl",
+        {
+          channel          = var.initial_rke2_channel
+          version          = var.install_rke2_version
+          disable_eviction = !var.system_upgrade_enable_eviction
+          drain            = var.system_upgrade_use_drain
+          upgrade_window   = var.system_upgrade_schedule_window
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/longhorn.yaml.tpl",
+        {
+          longhorn_namespace  = var.longhorn_namespace
+          longhorn_repository = var.longhorn_repository
+          version             = var.longhorn_version
+          bootstrap           = var.longhorn_helmchart_bootstrap
+          values              = indent(4, local.longhorn_values)
+        }
+      ),
+      var.disable_hetzner_csi ? "" : templatefile(
+        "${path.module}/templates/hcloud-csi.yaml.tpl",
+        {
+          version = coalesce(local.csi_version, "*")
+          values  = indent(4, local.hetzner_csi_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/csi-driver-smb.yaml.tpl",
+        {
+          version   = var.csi_driver_smb_version
+          bootstrap = var.csi_driver_smb_helmchart_bootstrap
+          values    = indent(4, local.csi_driver_smb_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/cert_manager.yaml.tpl",
+        {
+          version   = var.cert_manager_version
+          bootstrap = var.cert_manager_helmchart_bootstrap
+          values    = indent(4, local.cert_manager_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/rancher.yaml.tpl",
+        {
+          rancher_install_channel = var.rancher_install_channel
+          version                 = var.rancher_version
+          bootstrap               = var.rancher_helmchart_bootstrap
+          values                  = indent(4, local.rancher_values)
+        }
+      ),
+      templatefile(
+        "${path.module}/templates/kured.yaml.tpl",
+        {
+          options = local.kured_options
+        }
+      ),
+    ])))
   }
 
   connection {
@@ -1015,15 +1299,6 @@ resource "terraform_data" "rke2_kustomization" {
     destination = "/var/post_install/kured.yaml"
   }
 
-  # Deploy secrets, logging is automatically disabled due to sensitive variables
-  provisioner "remote-exec" {
-    inline = [
-      "set -ex",
-      "${local.kubectl_cli} -n kube-system create secret generic hcloud --from-literal=token=${var.hcloud_token} --from-literal=network=${data.hcloud_network.k3s.name} --dry-run=client -o yaml | ${local.kubectl_cli} apply -f -",
-      "${local.kubectl_cli} -n kube-system create secret generic hcloud-csi --from-literal=token=${var.hcloud_token} --dry-run=client -o yaml | ${local.kubectl_cli} apply -f -",
-    ]
-  }
-
   # Deploy our post-installation kustomization
   provisioner "remote-exec" {
     inline = concat([
@@ -1043,7 +1318,7 @@ resource "terraform_data" "rke2_kustomization" {
       # the cluster had become unavailable for a few seconds, at this very instant.
       <<-EOT
       timeout 360 bash <<EOF
-        until [[ "$(${local.kubectl_cli} get --raw='/readyz' 2> /dev/null)" == "ok" ]]; do
+        until [[ "\$(${local.kubectl_cli} get --raw='/readyz' 2> /dev/null)" == "ok" ]]; do
           echo "Waiting for the cluster to become ready..."
           sleep 2
         done
@@ -1074,7 +1349,9 @@ resource "terraform_data" "rke2_kustomization" {
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "${local.kubectl_cli} -n system-upgrade wait --for=condition=available --timeout=360s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
-        "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml"
+        "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml",
+        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && ${local.kubectl_cli} get ns $ns &>/dev/null && ${local.kubectl_cli} -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
+        "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && ${local.kubectl_cli} get ns $ns &>/dev/null && ${local.kubectl_cli} -n $ns get job -o name 2>/dev/null | grep -q . && ${local.kubectl_cli} -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
       ],
       local.skip_ingress_lb_wait ? [] : [
         <<-EOT

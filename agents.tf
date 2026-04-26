@@ -115,7 +115,7 @@ locals {
     if coalesce(lookup(v, "floating_ip"), false)
   }
 
-  agent_external_ipv4_by_node = {
+  agent_external_ip_by_node = {
     for k, v in local.agent_nodes :
     k => coalesce(
       try(data.hcloud_floating_ip.agents_existing[k].ip_address, null),
@@ -142,8 +142,8 @@ locals {
       node-label    = v.labels
       node-taint    = v.taints
     },
-    lookup(local.agent_external_ipv4_by_node, k, null) != null ? {
-      node-external-ip    = local.agent_external_ipv4_by_node[k]
+    lookup(local.agent_external_ip_by_node, k, null) != null ? {
+      node-external-ip    = local.agent_external_ip_by_node[k]
       flannel-external-ip = true
     } : {},
     var.agent_nodes_custom_config,
@@ -171,8 +171,8 @@ locals {
       node-label = v.labels
       node-taint = v.taints
     },
-    lookup(local.agent_external_ipv4_by_node, k, null) != null ? {
-      node-external-ip = local.agent_external_ipv4_by_node[k]
+    lookup(local.agent_external_ip_by_node, k, null) != null ? {
+      node-external-ip = local.agent_external_ip_by_node[k]
     } : {},
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
@@ -270,7 +270,7 @@ resource "terraform_data" "agents" {
 
   # Install k3s agent
   provisioner "remote-exec" {
-    inline = local.install_k8s_agent
+    inline = concat(local.k8s_install_network_env_by_agent[each.key], local.install_k8s_agent)
   }
 
   # Start the k3s agent and wait for it to have started
@@ -441,6 +441,7 @@ resource "terraform_data" "configure_attached_agent_volume" {
   triggers_replace = {
     agent_id    = module.agents[each.value.node_key].id
     volume_id   = hcloud_volume.attached_agent_volume[each.key].id
+    volume_size = hcloud_volume.attached_agent_volume[each.key].size
     mount_path  = each.value.mount_path
     filesystem  = each.value.filesystem
     volume_name = hcloud_volume.attached_agent_volume[each.key].name
@@ -448,12 +449,43 @@ resource "terraform_data" "configure_attached_agent_volume" {
 
   provisioner "remote-exec" {
     inline = [
-      "set -e",
-      "systemctl enable --now iscsid",
-      "mkdir -p '${each.value.mount_path}' >/dev/null",
-      "mountpoint -q '${each.value.mount_path}' || mount -o discard,defaults ${hcloud_volume.attached_agent_volume[each.key].linux_device} '${each.value.mount_path}'",
-      "${each.value.filesystem == "ext4" ? "resize2fs" : "xfs_growfs"} ${hcloud_volume.attached_agent_volume[each.key].linux_device}",
-      "awk -v path='${each.value.mount_path}' '$0 !~ /^#/ && $2 == path { found=1; exit } END { exit !found }' /etc/fstab || echo '${hcloud_volume.attached_agent_volume[each.key].linux_device} ${each.value.mount_path} ${each.value.filesystem} discard,nofail,defaults 0 0' | tee -a /etc/fstab >/dev/null"
+      <<-EOT
+      set -e
+      systemctl enable --now iscsid
+
+      device='${hcloud_volume.attached_agent_volume[each.key].linux_device}'
+      mount_path='${each.value.mount_path}'
+      fstype='${each.value.filesystem}'
+
+      mkdir -p "$mount_path" >/dev/null
+      uuid="$(blkid -s UUID -o value "$device")"
+      if [ -z "$uuid" ]; then
+        echo "Unable to determine filesystem UUID for $device" >&2
+        exit 1
+      fi
+
+      if mountpoint -q "$mount_path"; then
+        mounted_source="$(findmnt -rn -T "$mount_path" -o SOURCE)"
+        mounted_uuid="$(blkid -s UUID -o value "$mounted_source" 2>/dev/null || true)"
+        if [ "$mounted_uuid" != "$uuid" ]; then
+          umount "$mount_path"
+        fi
+      fi
+
+      mountpoint -q "$mount_path" || mount -o discard,defaults "$device" "$mount_path"
+
+      case "$fstype" in
+        ext4) resize2fs "$device" ;;
+        xfs) xfs_growfs "$mount_path" ;;
+        *) echo "Unsupported attached volume filesystem type: $fstype" >&2; exit 1 ;;
+      esac
+
+      tmp_fstab="$(mktemp)"
+      awk -v path="$mount_path" -v uuid="$uuid" -v device="$device" '$0 ~ /^#/ || ($1 != "UUID=" uuid && $1 != device && $2 != path) { print }' /etc/fstab > "$tmp_fstab"
+      cat "$tmp_fstab" > /etc/fstab
+      rm -f "$tmp_fstab"
+      printf 'UUID=%s %s %s discard,nofail,defaults 0 0\n' "$uuid" "$mount_path" "$fstype" >> /etc/fstab
+      EOT
     ]
   }
 
@@ -514,7 +546,7 @@ resource "hcloud_rdns" "agents" {
   }
 
   floating_ip_id = local.agent_floating_ip_id_by_node[each.key]
-  ip_address     = local.agent_external_ipv4_by_node[each.key]
+  ip_address     = local.agent_external_ip_by_node[each.key]
   dns_ptr        = local.agent_nodes[each.key].floating_ip_rdns
 
   depends_on = [
@@ -537,37 +569,77 @@ resource "terraform_data" "configure_floating_ip" {
       # - IPv6 floating IPs: assign floating + node public IPv6 addresses.
       # The configuration is stored in file /etc/NetworkManager/system-connections/cloud-init-eth0.nmconnection
       <<-EOT
-      ETH=eth1
-      if ip link show eth0 &>/dev/null; then
-          ETH=eth0
-      fi
+	      route_dev() {
+	          awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+	      }
 
-      NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null)
-      if [ -z "$NM_CONNECTION" ]; then
-          echo "ERROR: No NetworkManager connection found for $ETH" >&2
-          exit 1
-      fi
+	      detect_public_ipv4_interface() {
+	          PRIV_IF=$(ip -4 route show ${local.network_ipv4_cidr_by_network_id[local.agent_primary_network_id_by_node[each.key]]} 2>/dev/null | route_dev)
+	          PUB_IF=$(ip -4 route get 172.31.1.1 2>/dev/null | route_dev)
+	          if [ -n "$PRIV_IF" ] && [ "$PUB_IF" = "$PRIV_IF" ]; then
+	              PUB_IF=""
+	          fi
+	          if [ -z "$PUB_IF" ]; then
+	              PUB_IF=$(ip -o -4 addr show scope global 2>/dev/null | awk -v priv="$PRIV_IF" '$2 != priv {print $2; exit}')
+	          fi
+	          if [ -z "$PUB_IF" ]; then
+	              PUB_IF=$(ip -o link show up 2>/dev/null | awk -F': ' -v priv="$PRIV_IF" '$2 != "lo" && $2 != priv {print $2; exit}')
+	          fi
+	          printf '%s\n' "$PUB_IF"
+	      }
 
-      if [ "${local.agent_nodes[each.key].floating_ip_type}" = "ipv6" ]; then
-          if [ -z "${module.agents[each.key].ipv6_address}" ]; then
-              echo "ERROR: Floating IPv6 is enabled but node has no public IPv6 address" >&2
-              exit 1
-          fi
+	      detect_public_ipv6_interface() {
+	          PRIV_IF=$(ip -4 route show ${local.network_ipv4_cidr_by_network_id[local.agent_primary_network_id_by_node[each.key]]} 2>/dev/null | route_dev)
+	          PUB_IF=$(ip -6 route show default 2>/dev/null | route_dev)
+	          if [ -n "$PRIV_IF" ] && [ "$PUB_IF" = "$PRIV_IF" ]; then
+	              PUB_IF=""
+	          fi
+	          if [ -z "$PUB_IF" ]; then
+	              PUB_IF=$(ip -o -6 addr show scope global 2>/dev/null | awk -v priv="$PRIV_IF" '$2 != priv && $2 !~ /^(flannel|cilium|lxc|veth)/ {print $2; exit}')
+	          fi
+	          printf '%s\n' "$PUB_IF"
+	      }
+
+	      if [ "${local.agent_nodes[each.key].floating_ip_type}" = "ipv6" ]; then
+	          ETH=$(detect_public_ipv6_interface)
+	          if [ -z "$ETH" ]; then
+	              echo "ERROR: Could not detect public IPv6 interface for floating IP configuration" >&2
+	              exit 1
+	          fi
+	          NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null | head -1)
+	          if [ -z "$NM_CONNECTION" ]; then
+	              echo "ERROR: No NetworkManager connection found for $ETH" >&2
+	              exit 1
+	          fi
+	          if [ -z "${module.agents[each.key].ipv6_address}" ]; then
+	              echo "ERROR: Floating IPv6 is enabled but node has no public IPv6 address" >&2
+	              exit 1
+	          fi
 
           nmcli connection modify "$NM_CONNECTION" \
               ipv6.method manual \
-              ipv6.addresses ${local.agent_external_ipv4_by_node[each.key]}/128,${module.agents[each.key].ipv6_address}/64 \
+              ipv6.addresses ${local.agent_external_ip_by_node[each.key]}/128,${module.agents[each.key].ipv6_address}/64 \
               ipv6.route-metric 100 \
-          && nmcli connection up "$NM_CONNECTION"
-      else
-          if [ -z "${module.agents[each.key].ipv4_address}" ]; then
-              echo "ERROR: Floating IPv4 is enabled but node has no public IPv4 address" >&2
-              exit 1
+	          && nmcli connection up "$NM_CONNECTION"
+	      else
+	          ETH=$(detect_public_ipv4_interface)
+	          if [ -z "$ETH" ]; then
+	              echo "ERROR: Could not detect public IPv4 interface for floating IP configuration" >&2
+	              exit 1
+	          fi
+	          NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null | head -1)
+	          if [ -z "$NM_CONNECTION" ]; then
+	              echo "ERROR: No NetworkManager connection found for $ETH" >&2
+	              exit 1
+	          fi
+	          if [ -z "${module.agents[each.key].ipv4_address}" ]; then
+	              echo "ERROR: Floating IPv4 is enabled but node has no public IPv4 address" >&2
+	              exit 1
           fi
 
           nmcli connection modify "$NM_CONNECTION" \
               ipv4.method manual \
-              ipv4.addresses ${local.agent_external_ipv4_by_node[each.key]}/32,${module.agents[each.key].ipv4_address}/32 gw4 172.31.1.1 \
+              ipv4.addresses ${local.agent_external_ip_by_node[each.key]}/32,${module.agents[each.key].ipv4_address}/32 gw4 172.31.1.1 \
               ipv4.route-metric 100 \
           && nmcli connection up "$NM_CONNECTION"
       fi

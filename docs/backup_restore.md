@@ -216,7 +216,7 @@ module "kube-hetzner" {
           --token=${local.k3s_token}
         systemctl enable rke2-server
         systemctl start rke2-server
-      
+
       else
         echo this is not the first control plane node > /tmp/restorenotes
       fi

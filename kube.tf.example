@@ -716,7 +716,9 @@ module "kube-hetzner" {
   # Please note that because the klipperLB points to all nodes, we automatically allow scheduling on the control plane when it is active.
   # enable_klipper_metal_lb = true
 
-  # Configure the Kubernetes API port (default 6443).
+  # Configure the Kubernetes API port (default 6443). For RKE2, keep this at 6443;
+  # RKE2 node registration uses supervisor port 9345 and does not support changing
+  # the Kubernetes API listener through this module yet.
   # kubeapi_port = 6443
   # When using an external load balancer, you can specify a stable control plane endpoint URL.
   # Make sure the endpoint port matches kubeapi_port when you override it.

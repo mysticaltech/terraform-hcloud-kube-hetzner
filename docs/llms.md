@@ -2353,7 +2353,7 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.21: Kustomize and Post-Deployment Operations**
 
 ```terraform
-  # You can add user kustomizations to be deployed in sequence by setting the `user_kustomizations` variable. 
+  # You can add user kustomizations to be deployed in sequence by setting the `user_kustomizations` variable.
   # The Kustomization "sets" are run in sequential order (by numeric key) so that you can for example install a CRD and wait for it to be deployed.
   #
   # Properties of each value:
@@ -2364,7 +2364,7 @@ Locked and loaded! Let's continue the detailed exploration.
   # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
   # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
   # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
-  # 
+  #
   # An example:
   # user_kustomizations = {
   #   "1" = {

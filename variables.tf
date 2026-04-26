@@ -244,13 +244,18 @@ variable "cluster_dns_ipv4" {
 }
 
 variable "kubeapi_port" {
-  description = "Kubernetes API server port used for control-plane listeners, load balancer listeners, firewall rules, and default join endpoints."
+  description = "Kubernetes API server port used for k3s control-plane listeners, load balancer listeners, firewall rules, and default join endpoints. RKE2 currently requires the default 6443 API port; RKE2 node registration still uses supervisor port 9345."
   type        = number
   default     = 6443
 
   validation {
     condition     = var.kubeapi_port >= 1 && var.kubeapi_port <= 65535
     error_message = "kubeapi_port must be between 1 and 65535."
+  }
+
+  validation {
+    condition     = var.kubernetes_distribution_type != "rke2" || var.kubeapi_port == 6443
+    error_message = "RKE2 currently requires kubeapi_port = 6443. RKE2 node registration uses supervisor port 9345, and RKE2 does not expose a supported https-listen-port equivalent for changing the Kubernetes API listener."
   }
 }
 

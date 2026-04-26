@@ -122,6 +122,8 @@
 | [terraform_data.kube_system_secrets](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.kustomization](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.nat_router_await_cloud_init](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.nat_router_config](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.nat_router_connection_contract](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.nat_router_extra_runcmd](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.nat_router_fail2ban](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.rke2_kustomization](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
@@ -284,7 +286,7 @@
 | <a name="input_k8s_config_updates_use_kured_sentinel"></a> [k8s\_config\_updates\_use\_kured\_sentinel](#input\_k8s\_config\_updates\_use\_kured\_sentinel) | When true, k3s/rke2 config updates trigger Kured via reboot sentinel instead of immediate service restarts. | `bool` | `false` | no |
 | <a name="input_keep_disk_agents"></a> [keep\_disk\_agents](#input\_keep\_disk\_agents) | Whether to keep OS disks of nodes the same size when upgrading an agent node | `bool` | `false` | no |
 | <a name="input_keep_disk_cp"></a> [keep\_disk\_cp](#input\_keep\_disk\_cp) | Whether to keep OS disks of nodes the same size when upgrading a control-plane node | `bool` | `false` | no |
-| <a name="input_kubeapi_port"></a> [kubeapi\_port](#input\_kubeapi\_port) | Kubernetes API server port used for control-plane listeners, load balancer listeners, firewall rules, and default join endpoints. | `number` | `6443` | no |
+| <a name="input_kubeapi_port"></a> [kubeapi\_port](#input\_kubeapi\_port) | Kubernetes API server port used for k3s control-plane listeners, load balancer listeners, firewall rules, and default join endpoints. RKE2 currently requires the default 6443 API port; RKE2 node registration still uses supervisor port 9345. | `number` | `6443` | no |
 | <a name="input_kubeconfig_server_address"></a> [kubeconfig\_server\_address](#input\_kubeconfig\_server\_address) | The hostname used for kubeconfig. | `string` | `""` | no |
 | <a name="input_kubernetes_distribution_type"></a> [kubernetes\_distribution\_type](#input\_kubernetes\_distribution\_type) | Kubernetes distribution type. Can be either k3s or rke2. | `string` | `"k3s"` | no |
 | <a name="input_kured_options"></a> [kured\_options](#input\_kured\_options) | n/a | `map(string)` | `{}` | no |

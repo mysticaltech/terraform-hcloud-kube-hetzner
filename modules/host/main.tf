@@ -306,7 +306,9 @@ data "cloudinit_config" "config" {
         cloudinit_runcmd_extra       = var.cloudinit_runcmd_extra
         swap_size                    = var.swap_size
         os                           = var.os
-        private_network_only         = (var.disable_ipv4 && var.disable_ipv6)
+        private_ipv4_default_route   = var.disable_ipv4
+        public_ipv4_default_route    = !var.disable_ipv4
+        public_ipv6_default_route    = !var.disable_ipv6
         network_gw_ipv4              = var.network_gw_ipv4
       }
     )

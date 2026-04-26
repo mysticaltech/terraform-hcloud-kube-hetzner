@@ -80,6 +80,16 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **extra_network_ids Attachment** - Wired `extra_network_ids` into host provisioning so additional Hetzner networks are actually attached to control-plane and agent nodes.
 - **Connection Override Consistency** - Unified control-plane and agent `node_connection_overrides` resolution so provisioning and follow-up operations honor the same override key strategy (including suffixed node names).
 - **RKE2 TLS SAN Parity (No LB)** - Added kubeconfig/control-plane advertised endpoints to RKE2 non-LB TLS SAN generation to prevent certificate mismatch on custom kubeconfig server addresses.
+- **Control Plane Bootstrap Config Files** - First-node k3s/RKE2 bootstrap now installs authentication and audit policy config files before starting the API server when the matching API-server args are enabled.
+- **RKE2 First Bootstrap Parity** - RKE2 first bootstrap now respects `disable_selinux` and uses the effective kubeconfig/control-plane endpoints in its initial `tls-san` list, matching steady-state config.
+- **Attached Volume Mount Safety** - Attached control-plane and agent volumes now rerun mount configuration on size changes, resize XFS via mount path, and persist fstab entries by filesystem UUID instead of mutable device paths.
+- **API Port Consistency** - k3s first bootstrap now honors `kubeapi_port`, the control-plane LB health check/backend follows the configured listener port, IPv6 kubeconfig endpoints are bracketed correctly, and RKE2 now rejects unsupported non-6443 API port settings.
+- **RKE2 Apply Parity** - RKE2 kustomization triggers now include CCM values and system-upgrade drain/eviction/window settings, readiness waits evaluate dynamically, deployment/job waits match k3s, and RKE2 secret deployment uses the shared file-based secret path instead of shell argv literals.
+- **Node Route Robustness** - Host cloud-init now handles public-IPv6-only nodes by routing IPv4 through the private gateway while preserving public IPv6 routing, matching autoscaler behavior.
+- **Upgrade-Safe Detection/Provisioning** - Existing hyphenated nodepool names without random suffixes are detected correctly for OS defaults, NAT routers no longer recreate for image/user-data drift, and RKE2 autoscaler SSH keys use the normalized authorized-key list.
+- **RKE2 Replacement/Reapply Safety** - RKE2 first-node bootstrap now retriggers on first control-plane replacement, and RKE2 addon application hashes the rendered kustomization payload so template/resource toggles are reapplied.
+- **Per-Network Route/Floating IP Detection** - Install-time private-route repair and floating IP public-NIC detection now use each node's actual private network CIDR/gateway instead of the primary cluster network.
+- **NAT Router Config Reconciliation** - Existing NAT routers now reconcile cloud-init-owned SSH, DNS, iptables, and keepalived config through Terraform provisioners while connection-critical SSH/user/key changes force router replacement.
 
 ### 🔧 Changes
 

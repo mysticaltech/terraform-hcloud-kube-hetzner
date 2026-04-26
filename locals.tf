@@ -147,6 +147,72 @@ EOT
   EOF
   EOT
 
+  private_default_route_repair_script = join("\n", [
+    "# Ensure persistent private-network default route (Hetzner DHCP change Aug 11, 2025)",
+    "set +e  # Allow idempotent network adjustments",
+    "METRIC=30000",
+    "if [ -z \"$KH_NETWORK_IPV4_CIDR\" ]; then KH_NETWORK_IPV4_CIDR=\"${var.network_ipv4_cidr}\"; fi",
+    "if [ -z \"$KH_NETWORK_GW_IPV4\" ]; then KH_NETWORK_GW_IPV4=\"${local.network_gw_ipv4}\"; fi",
+    "",
+    "# Determine the private interface dynamically (no hardcoded eth1)",
+    "PRIV_IF=$(ip -4 route show \"$KH_NETWORK_IPV4_CIDR\" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
+    "if [ -z \"$PRIV_IF\" ]; then",
+    "  ROUTE_LINE=$(ip -4 route get \"$KH_NETWORK_GW_IPV4\" 2>/dev/null)",
+    "  if [ -n \"$ROUTE_LINE\" ] && ! echo \"$ROUTE_LINE\" | grep -q ' via '; then",
+    "    PRIV_IF=$(echo \"$ROUTE_LINE\" | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
+    "  fi",
+    "fi",
+    "if [ -n \"$PRIV_IF\" ]; then",
+    "  if systemctl is-active --quiet NetworkManager; then",
+    "    NM_CONN=$(nmcli -g GENERAL.CONNECTION device show \"$PRIV_IF\" 2>/dev/null | head -1)",
+    "    if [ -n \"$NM_CONN\" ]; then",
+    "      # Persist a default route via the private gateway with higher metric than public NICs",
+    "      ROUTE_READY=0",
+    "      ROUTE_LINE=$(nmcli -g ipv4.routes connection show \"$NM_CONN\" | tr ',' '\\n' | awk -v gw=\"$KH_NETWORK_GW_IPV4\" '$1==\"0.0.0.0/0\" && $2==gw{print $0; exit}')",
+    "      if [ -n \"$ROUTE_LINE\" ]; then",
+    "        CUR_ROUTE_METRIC=$(echo \"$ROUTE_LINE\" | awk '{print $3}')",
+    "        if [ -z \"$CUR_ROUTE_METRIC\" ] || [ \"$CUR_ROUTE_METRIC\" != \"$METRIC\" ]; then",
+    "          nmcli connection modify \"$NM_CONN\" -ipv4.routes \"$ROUTE_LINE\" >/dev/null 2>&1 || true",
+    "          if nmcli connection modify \"$NM_CONN\" +ipv4.routes \"0.0.0.0/0 $KH_NETWORK_GW_IPV4 $METRIC\" >/dev/null 2>&1; then",
+    "            ROUTE_READY=1",
+    "          else",
+    "            echo \"Warning: Failed to update default route metric on $PRIV_IF. Node may be affected by Hetzner DHCP changes.\" >&2",
+    "          fi",
+    "        else",
+    "          ROUTE_READY=1",
+    "        fi",
+    "      else",
+    "        if nmcli connection modify \"$NM_CONN\" +ipv4.routes \"0.0.0.0/0 $KH_NETWORK_GW_IPV4 $METRIC\" >/dev/null 2>&1; then",
+    "          ROUTE_READY=1",
+    "        else",
+    "          echo \"Warning: Failed to persist default route on $PRIV_IF. Node may be affected by Hetzner DHCP changes.\" >&2",
+    "        fi",
+    "      fi",
+    "      if [ \"$ROUTE_READY\" -eq 1 ]; then",
+    "        nmcli connection modify \"$NM_CONN\" ipv4.never-default yes >/dev/null 2>&1 || true",
+    "        nmcli connection modify \"$NM_CONN\" ipv6.never-default yes >/dev/null 2>&1 || true",
+    "        nmcli connection modify \"$NM_CONN\" ipv4.route-metric $METRIC >/dev/null 2>&1 || true",
+    "        nmcli connection up \"$NM_CONN\" >/dev/null 2>&1 || true",
+    "      fi",
+    "    fi",
+    "  fi",
+    "  # Runtime guard to cover current leases before dispatcher hooks fire",
+    "  EXISTING_RT=$(ip -4 route show default dev \"$PRIV_IF\" | awk -v gw=\"$KH_NETWORK_GW_IPV4\" '$3==gw{print $0; exit}')",
+    "  if [ -n \"$EXISTING_RT\" ]; then",
+    "    CUR_RT_METRIC=$(echo \"$EXISTING_RT\" | awk 'match($0,/metric ([0-9]+)/,m){print m[1]}')",
+    "    if [ -z \"$CUR_RT_METRIC\" ] || [ \"$CUR_RT_METRIC\" != \"$METRIC\" ]; then",
+    "      ip -4 route change default via \"$KH_NETWORK_GW_IPV4\" dev \"$PRIV_IF\" metric $METRIC 2>/dev/null || true",
+    "    fi",
+    "  else",
+    "    ip -4 route add default via \"$KH_NETWORK_GW_IPV4\" dev \"$PRIV_IF\" metric $METRIC 2>/dev/null || true",
+    "  fi",
+    "else",
+    "  echo \"Info: Unable to identify interface that reaches $KH_NETWORK_GW_IPV4; skipping private default route setup.\"",
+    "fi",
+    "",
+    "set -e"
+  ])
+
   common_pre_install_k3s_commands = concat(
     [
       "set -ex",
@@ -189,71 +255,7 @@ EOT
       ]))
     ] : [],
     local.has_dns_servers ? ["systemctl restart NetworkManager"] : [],
-    [
-      join("\n", [
-        "# Ensure persistent private-network default route (Hetzner DHCP change Aug 11, 2025)",
-        "set +e  # Allow idempotent network adjustments",
-        "METRIC=30000",
-        "",
-        "# Determine the private interface dynamically (no hardcoded eth1)",
-        "PRIV_IF=$(ip -4 route show ${var.network_ipv4_cidr} 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
-        "if [ -z \"$PRIV_IF\" ]; then",
-        "  ROUTE_LINE=$(ip -4 route get ${local.network_gw_ipv4} 2>/dev/null)",
-        "  if [ -n \"$ROUTE_LINE\" ] && ! echo \"$ROUTE_LINE\" | grep -q ' via '; then",
-        "    PRIV_IF=$(echo \"$ROUTE_LINE\" | awk '{for(i=1;i<=NF;i++) if($i==\"dev\"){print $(i+1); exit}}' | head -n 1)",
-        "  fi",
-        "fi",
-        "if [ -n \"$PRIV_IF\" ]; then",
-        "  if systemctl is-active --quiet NetworkManager; then",
-        "    NM_CONN=$(nmcli -g GENERAL.CONNECTION device show \"$PRIV_IF\" 2>/dev/null | head -1)",
-        "    if [ -n \"$NM_CONN\" ]; then",
-        "      # Persist a default route via the private gateway with higher metric than public NICs",
-        "      ROUTE_READY=0",
-        "      ROUTE_LINE=$(nmcli -g ipv4.routes connection show \"$NM_CONN\" | tr ',' '\\n' | awk '$1==\"0.0.0.0/0\" && $2==\"${local.network_gw_ipv4}\"{print $0; exit}')",
-        "      if [ -n \"$ROUTE_LINE\" ]; then",
-        "        CUR_ROUTE_METRIC=$(echo \"$ROUTE_LINE\" | awk '{print $3}')",
-        "        if [ -z \"$CUR_ROUTE_METRIC\" ] || [ \"$CUR_ROUTE_METRIC\" != \"$METRIC\" ]; then",
-        "          nmcli connection modify \"$NM_CONN\" -ipv4.routes \"$ROUTE_LINE\" >/dev/null 2>&1 || true",
-        "          if nmcli connection modify \"$NM_CONN\" +ipv4.routes \"0.0.0.0/0 ${local.network_gw_ipv4} $METRIC\" >/dev/null 2>&1; then",
-        "            ROUTE_READY=1",
-        "          else",
-        "            echo \"Warning: Failed to update default route metric on $PRIV_IF. Node may be affected by Hetzner DHCP changes.\" >&2",
-        "          fi",
-        "        else",
-        "          ROUTE_READY=1",
-        "        fi",
-        "      else",
-        "        if nmcli connection modify \"$NM_CONN\" +ipv4.routes \"0.0.0.0/0 ${local.network_gw_ipv4} $METRIC\" >/dev/null 2>&1; then",
-        "          ROUTE_READY=1",
-        "        else",
-        "          echo \"Warning: Failed to persist default route on $PRIV_IF. Node may be affected by Hetzner DHCP changes.\" >&2",
-        "        fi",
-        "      fi",
-        "      if [ \"$ROUTE_READY\" -eq 1 ]; then",
-        "        nmcli connection modify \"$NM_CONN\" ipv4.never-default yes >/dev/null 2>&1 || true",
-        "        nmcli connection modify \"$NM_CONN\" ipv6.never-default yes >/dev/null 2>&1 || true",
-        "        nmcli connection modify \"$NM_CONN\" ipv4.route-metric $METRIC >/dev/null 2>&1 || true",
-        "        nmcli connection up \"$NM_CONN\" >/dev/null 2>&1 || true",
-        "      fi",
-        "    fi",
-        "  fi",
-        "  # Runtime guard to cover current leases before dispatcher hooks fire",
-        "  EXISTING_RT=$(ip -4 route show default dev \"$PRIV_IF\" | awk '$3==\"${local.network_gw_ipv4}\"{print $0; exit}')",
-        "  if [ -n \"$EXISTING_RT\" ]; then",
-        "    CUR_RT_METRIC=$(echo \"$EXISTING_RT\" | awk 'match($0,/metric ([0-9]+)/,m){print m[1]}')",
-        "    if [ -z \"$CUR_RT_METRIC\" ] || [ \"$CUR_RT_METRIC\" != \"$METRIC\" ]; then",
-        "      ip -4 route change default via ${local.network_gw_ipv4} dev \"$PRIV_IF\" metric $METRIC 2>/dev/null || true",
-        "    fi",
-        "  else",
-        "    ip -4 route add default via ${local.network_gw_ipv4} dev \"$PRIV_IF\" metric $METRIC 2>/dev/null || true",
-        "  fi",
-        "else",
-        "  echo \"Info: Unable to identify interface that reaches ${local.network_gw_ipv4}; skipping private default route setup.\"",
-        "fi",
-        "",
-        "set -e"
-      ])
-    ],
+    [local.private_default_route_repair_script],
     # User-defined commands to execute just before installing k3s.
     var.preinstall_exec,
     # Wait for a successful connection to the internet.
@@ -277,13 +279,31 @@ EOT
       local.install_system_alias,
       local.install_kubectl_bash_completion,
     ],
-    length(local.dns_servers_ipv4) > 0 ? [
-      "nmcli con mod eth0 ipv4.dns ${join(",", local.dns_servers_ipv4)}"
-    ] : [],
-    length(local.dns_servers_ipv6) > 0 ? [
-      "nmcli con mod eth0 ipv6.dns ${join(",", local.dns_servers_ipv6)}"
+    local.has_dns_servers ? [
+      join("\n", compact([
+        "# Wait for NetworkManager to be ready",
+        "if ! timeout 60 bash -c 'until systemctl is-active --quiet NetworkManager; do echo \"Waiting for NetworkManager to be ready...\"; sleep 2; done'; then",
+        "  echo \"ERROR: NetworkManager is not active after timeout\" >&2",
+        "  exit 0  # Don't fail cloud-init",
+        "fi",
+        "# Get the default interface",
+        "IFACE=$(ip route show default 2>/dev/null | awk '/^default/ && /dev/ {for(i=1;i<=NF;i++) if($i==\"dev\") {print $(i+1); exit}}')",
+        "if [ -z \"$IFACE\" ]; then",
+        "  # Fallback: try to get any interface that's up and has an IP",
+        "  IFACE=$(ip route show 2>/dev/null | awk '!/^default/ && /dev/ {for(i=1;i<=NF;i++) if($i==\"dev\") {print $(i+1); exit}}')",
+        "fi",
+        "if [ -n \"$IFACE\" ]; then",
+        "  CONNECTION=$(nmcli -g GENERAL.CONNECTION device show \"$IFACE\" 2>/dev/null | head -1)",
+        "  if [ -n \"$CONNECTION\" ]; then",
+        "    nmcli con mod \"$CONNECTION\" ipv4.ignore-auto-dns yes ipv6.ignore-auto-dns yes",
+        length(local.dns_servers_ipv4) > 0 ? "    nmcli con mod \"$CONNECTION\" ipv4.dns ${join(",", local.dns_servers_ipv4)}" : "",
+        length(local.dns_servers_ipv6) > 0 ? "    nmcli con mod \"$CONNECTION\" ipv6.dns ${join(",", local.dns_servers_ipv6)}" : "",
+        "  fi",
+        "fi"
+      ]))
     ] : [],
     local.has_dns_servers ? ["systemctl restart NetworkManager"] : [],
+    [local.private_default_route_repair_script],
     # User-defined commands to execute just before installing rke2.
     var.preinstall_exec,
     # Wait for a successful connection to the internet.
@@ -427,7 +447,8 @@ EOT
   install_k8s_agent  = var.kubernetes_distribution_type == "rke2" ? local.install_rke2_agent : local.install_k3s_agent
   kubectl_cli        = var.kubernetes_distribution_type == "rke2" ? "/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml" : "kubectl"
 
-  # Used for mapping existing node names (which include the random suffix) back into nodepool names.
+  # Used for mapping existing node names back into nodepool names. Matching below
+  # handles optional random suffixes via longest-prefix semantics.
   cluster_prefix_for_node_names = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
 
   configured_control_plane_nodepool_names = distinct([for np in var.control_plane_nodepools : np.name])
@@ -441,13 +462,7 @@ EOT
 
   existing_control_plane_servers_info = [
     for s in data.hcloud_servers.existing_control_plane_nodes.servers : {
-      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
-      name_base = trimprefix(
-        length(split("-", s.name)) > 1
-        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
-        : s.name,
-        local.cluster_prefix_for_node_names,
-      )
+      name_base = trimprefix(s.name, local.cluster_prefix_for_node_names)
 
       # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
       os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
@@ -456,13 +471,7 @@ EOT
 
   existing_agent_servers_info = [
     for s in data.hcloud_servers.existing_agent_nodes.servers : {
-      # Remove the per-server random suffix (e.g. "-abc") that the host module appends.
-      name_base = trimprefix(
-        length(split("-", s.name)) > 1
-        ? join("-", slice(split("-", s.name), 0, length(split("-", s.name)) - 1))
-        : s.name,
-        local.cluster_prefix_for_node_names,
-      )
+      name_base = trimprefix(s.name, local.cluster_prefix_for_node_names)
 
       # Optional: populated after the first apply on this version. Missing labels => treated as unknown.
       os_label = contains(["microos", "leapmicro"], try(s.labels["kube-hetzner/os"], "")) ? try(s.labels["kube-hetzner/os"], null) : null
@@ -859,6 +868,30 @@ EOT
       tonumber(network_id) => cidrhost(network.ip_range, 1)
     }
   )
+
+  network_ipv4_cidr_by_network_id = merge(
+    { (data.hcloud_network.k3s.id) = data.hcloud_network.k3s.ip_range },
+    {
+      for network_id, network in data.hcloud_network.additional_nodepool_networks :
+      tonumber(network_id) => network.ip_range
+    }
+  )
+
+  k8s_install_network_env_by_control_plane = {
+    for node_key, network_id in local.control_plane_primary_network_id_by_node :
+    node_key => [
+      "KH_NETWORK_IPV4_CIDR='${local.network_ipv4_cidr_by_network_id[network_id]}'",
+      "KH_NETWORK_GW_IPV4='${local.network_gw_ipv4_by_network_id[network_id]}'",
+    ]
+  }
+
+  k8s_install_network_env_by_agent = {
+    for node_key, network_id in local.agent_primary_network_id_by_node :
+    node_key => [
+      "KH_NETWORK_IPV4_CIDR='${local.network_ipv4_cidr_by_network_id[network_id]}'",
+      "KH_NETWORK_GW_IPV4='${local.network_gw_ipv4_by_network_id[network_id]}'",
+    ]
+  }
 
   external_agent_network_ids = distinct([
     for _, node in local.agent_nodes :
@@ -1931,6 +1964,19 @@ fi
 mkdir -p $(dirname ${var.k3s_audit_log_path})
 chmod 750 $(dirname ${var.k3s_audit_log_path})
 chown root:root $(dirname ${var.k3s_audit_log_path})
+EOF
+
+bootstrap_control_plane_api_config_script = <<EOF
+if [ -s /tmp/authentication_config.yaml ]; then
+  install -D -m 0600 /tmp/authentication_config.yaml "${local.authentication_config_file}"
+fi
+
+if [ -s /tmp/audit-policy.yaml ]; then
+  install -D -m 0600 /tmp/audit-policy.yaml "${local.audit_policy_file}"
+  mkdir -p "$(dirname "${var.k3s_audit_log_path}")"
+  chmod 750 "$(dirname "${var.k3s_audit_log_path}")"
+  chown root:root "$(dirname "${var.k3s_audit_log_path}")"
+fi
 EOF
 
 k3s_authentication_config_update_script = <<EOF
