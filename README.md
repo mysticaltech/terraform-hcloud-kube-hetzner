@@ -524,6 +524,7 @@ locals {
 }
 
 cluster_ipv4_cidr = local.cluster_ipv4_cidr
+disable_kube_proxy = true
 
 cilium_values = <<-EOT
 ipam:
@@ -543,6 +544,8 @@ egressGateway:
   enabled: true
 MTU: 1450
 EOT
+
+Cilium Egress Gateway requires kube-proxy replacement, so keep `disable_kube_proxy = true` when enabling it.
 
 # Optional: keep selected egress policies pinned to a Ready egress node automatically
 cilium_egress_gateway_ha_enabled = true

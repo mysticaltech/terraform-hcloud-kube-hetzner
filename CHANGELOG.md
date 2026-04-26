@@ -55,6 +55,8 @@ This branch is the v3 major-release line. Before upgrading from any `v2.x` relea
 - **Custom Ingress Mode** - `ingress_controller = "custom"` now skips managed ingress Service lookup/wait logic (#2173).
 - **Autoscaler Without Public IPv4** - Autoscaler cloud-init now routes IPv4 through the private gateway when public IPv4 is disabled, while keeping public IPv6 routing when enabled (#2154).
 - **Hetzner CCM Dual-Stack Address Family** - Hetzner CCM now keeps route reconciliation on the IPv4 pod CIDR and sets `HCLOUD_INSTANCES_ADDRESS_FAMILY` for IPv6/dual-stack clusters (#2170).
+- **Cilium Egress Gateway Validation** - Enforces `disable_kube_proxy = true` when Cilium Egress Gateway is enabled, matching Cilium's kube-proxy replacement requirement (#2178).
+- **Cilium Egress Gateway HA Reconciler** - Treats `CiliumEgressGatewayPolicy` as cluster-scoped when retargeting labeled policies (#2178).
 - **Upgrade-Safe Ingress Namespace Defaults** - Restored legacy nginx default namespace (`nginx`) to avoid Helm ownership conflicts during upgrades from v2.19.x clusters.
 - **CCM Ownership Compatibility** - Reverted Hetzner CCM management to the existing HelmChart manifest flow for `hetzner_ccm_use_helm`, avoiding release-name collisions with already-installed CCM chart instances.
 - **Subnet Topology Compatibility** - Restored per-nodepool control-plane/agent subnet resources and nodepool subnet attachment while keeping auto-assigned private IPv4 behavior.

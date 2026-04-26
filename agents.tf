@@ -95,6 +95,8 @@ module "agents" {
     hcloud_placement_group.agent,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
+    terraform_data.nat_router_fail2ban,
+    terraform_data.nat_router_extra_runcmd,
   ]
 }
 

@@ -1939,6 +1939,7 @@ Excellent! Let's continue our meticulous dissection.
   * **Use Case:**
     * Providing a stable, predictable source IP for outbound traffic for whitelisting with external services.
     * Applying common network policies or monitoring to all egress traffic.
+  * **Requirements:** Must be used with `cni_plugin = "cilium"` and `disable_kube_proxy = true`; Cilium Egress Gateway requires kube-proxy replacement.
   * **Integration:** Often used with the "egress" `agent_nodepool` example shown earlier, which had `floating_ip = true`. The floating IP(s) on the egress nodes become the source IP(s) for the SNAT'd traffic.
 
 ```terraform

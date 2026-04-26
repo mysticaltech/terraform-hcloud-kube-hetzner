@@ -98,6 +98,8 @@ module "control_planes" {
     hcloud_placement_group.control_plane,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
+    terraform_data.nat_router_fail2ban,
+    terraform_data.nat_router_extra_runcmd,
   ]
 }
 

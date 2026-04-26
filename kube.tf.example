@@ -1094,6 +1094,7 @@ module "kube-hetzner" {
   # cilium_ipv4_native_routing_cidr = "10.0.0.0/8"
 
   # Enables egress gateway to redirect and SNAT the traffic that leaves the cluster. Default: false
+  # Requires cni_plugin = "cilium" and disable_kube_proxy = true because Cilium Egress Gateway requires kube-proxy replacement.
   # cilium_egress_gateway_enabled = true
 
   # Optional: deploy a lightweight HA reconciler that retargets labeled CiliumEgressGatewayPolicy objects

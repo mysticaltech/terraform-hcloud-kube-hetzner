@@ -1507,6 +1507,11 @@ variable "cilium_egress_gateway_enabled" {
   type        = bool
   default     = false
   description = "Enables egress gateway to redirect and SNAT the traffic that leaves the cluster."
+
+  validation {
+    condition     = !var.cilium_egress_gateway_enabled || (var.cni_plugin == "cilium" && var.disable_kube_proxy)
+    error_message = "cilium_egress_gateway_enabled requires cni_plugin = \"cilium\" and disable_kube_proxy = true because Cilium Egress Gateway requires kube-proxy replacement."
+  }
 }
 
 variable "cilium_egress_gateway_ha_enabled" {
