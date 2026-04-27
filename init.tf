@@ -493,6 +493,16 @@ resource "terraform_data" "kustomization" {
     destination = "/var/post_install/rancher.yaml"
   }
 
+  # Upload the kured base manifest (DaemonSet + RBAC) fetched at plan
+  # time by data.http.kured_manifest. Pairs with the `kured-base.yaml`
+  # entry in local.kustomization_backup_yaml.resources; the kured.yaml
+  # uploaded just below is the patch overlay that injects
+  # `local.kured_options` as DaemonSet container args.
+  provisioner "file" {
+    content     = data.http.kured_manifest.response_body
+    destination = "/var/post_install/kured-base.yaml"
+  }
+
   provisioner "file" {
     content = templatefile(
       "${path.module}/templates/kured.yaml.tpl",

@@ -203,7 +203,11 @@ locals {
     kind       = "Kustomization"
     resources = concat(
       [
-        "https://github.com/kubereboot/kured/releases/download/${local.kured_version}/kured-${local.kured_version}-${local.kured_yaml_suffix}.yaml",
+        # kured base manifest is fetched at plan time via data.http and
+        # uploaded as a local file (see data.tf and init.tf). Inlining the
+        # github.com release-asset URL here breaks `kubectl apply -k` on
+        # kustomize >=5, which mis-detects it as a git repository source.
+        "kured-base.yaml",
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/system-upgrade-controller.yaml",
         "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/crd.yaml"
       ],
