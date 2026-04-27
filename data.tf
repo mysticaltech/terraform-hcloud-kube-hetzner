@@ -25,6 +25,19 @@ data "http" "kured_release" {
   }
 }
 
+# Fetch the kured base manifest at plan time so kustomize on the control
+# plane reads it from a local file under /var/post_install/ instead of
+# from `https://github.com/kubereboot/kured/releases/download/...`.
+# Kustomize >=5 mis-detects github.com release-asset URLs as git
+# repository sources and fails `kubectl apply -k` with
+# `URL is a git repository`. Following the redirect server-side via
+# `data "http"` returns the YAML body, which we then upload as a flat
+# file (see init.tf) and reference by name in
+# `local.kustomization_backup_yaml.resources` (locals.tf).
+data "http" "kured_manifest" {
+  url = "https://github.com/kubereboot/kured/releases/download/${local.kured_version}/kured-${local.kured_version}-${local.kured_yaml_suffix}.yaml"
+}
+
 data "http" "calico_release" {
   count = var.calico_version == null && var.cni_plugin == "calico" ? 1 : 0
   url   = "https://api.github.com/repos/projectcalico/calico/releases/latest"
