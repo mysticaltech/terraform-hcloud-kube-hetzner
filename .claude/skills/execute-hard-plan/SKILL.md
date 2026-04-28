@@ -45,13 +45,13 @@ terraform plan
 
 ## Model Policy
 
-- Deep/non-obvious reasoning: use `gpt-5.3-codex`.
+- Deep/non-obvious reasoning: use `gpt-5.5`.
 ```bash
-codex exec -m gpt-5.3-codex -s read-only -c model_reasoning_effort="xhigh" "Analyze risk and migration strategy for <task>."
+codex exec -m gpt-5.5 -s read-only -c model_reasoning_effort="xhigh" "Analyze risk and migration strategy for <task>."
 ```
-- Fast triage/small checks: use `gpt-5.3-codex-sparks`.
+- Fast triage/small checks: use the default Codex CLI model or `gpt-5.5-mini` when explicitly configured.
 ```bash
-codex exec -m gpt-5.3-codex-sparks -s read-only "Is discussion #<n> already implemented in origin/staging?"
+codex exec -s read-only "Is discussion #<n> already implemented in origin/staging?"
 ```
 
 ## Workflow

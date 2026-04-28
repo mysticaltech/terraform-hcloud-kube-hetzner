@@ -21,7 +21,7 @@ resource "hcloud_load_balancer" "cluster" {
 }
 
 resource "hcloud_load_balancer_network" "cluster" {
-  count = local.has_external_load_balancer ? 0 : 1
+  count = local.has_external_load_balancer || local.multinetwork_overlay_enabled ? 0 : 1
 
   load_balancer_id = hcloud_load_balancer.cluster.*.id[0]
   # Use the last usable IP in the subnet. If control-plane LB is also enabled
@@ -32,7 +32,7 @@ resource "hcloud_load_balancer_network" "cluster" {
       ? hcloud_network_subnet.agent.*.ip_range[0]
       : hcloud_network_subnet.control_plane.*.ip_range[0]
     )
-  , (var.use_control_plane_lb && length(hcloud_network_subnet.agent) == 0 ? -3 : -2))
+  , (var.enable_control_plane_load_balancer && length(hcloud_network_subnet.agent) == 0 ? -3 : -2))
   subnet_id = (
     length(hcloud_network_subnet.agent) > 0
     ? hcloud_network_subnet.agent.*.id[0]
@@ -69,7 +69,7 @@ resource "hcloud_load_balancer_target" "cluster" {
       })"
     ]
   ))
-  use_private_ip = true
+  use_private_ip = !local.multinetwork_overlay_enabled
 }
 
 locals {
@@ -99,14 +99,14 @@ resource "terraform_data" "first_control_plane" {
       merge(
         {
           node-name                   = module.control_planes[keys(module.control_planes)[0]].name
-          token                       = local.k3s_token
+          token                       = local.cluster_token
           cluster-init                = true
           disable-cloud-controller    = true
-          disable-kube-proxy          = var.disable_kube_proxy
+          disable-kube-proxy          = !var.enable_kube_proxy
           disable                     = local.disable_extras
-          https-listen-port           = var.kubeapi_port
+          https-listen-port           = var.kubernetes_api_port
           kubelet-arg                 = local.kubelet_arg
-          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
+          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
           flannel-iface               = local.flannel_iface
           node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -118,14 +118,14 @@ resource "terraform_data" "first_control_plane" {
           cluster-dns                 = local.cluster_dns
         },
         lookup(local.cni_k3s_settings, var.cni_plugin, {}),
-        var.use_control_plane_lb ? {
+        var.enable_control_plane_load_balancer ? {
           tls-san = concat(
             compact([
               hcloud_load_balancer.control_plane.*.ipv4[0],
               hcloud_load_balancer_network.control_plane.*.ip[0],
               local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
               local.control_plane_endpoint_host,
-              !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
+              !var.control_plane_load_balancer_enable_public_network && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
             ]),
             var.additional_tls_sans
           )
@@ -145,7 +145,7 @@ resource "terraform_data" "first_control_plane" {
         },
         local.etcd_s3_snapshots,
         var.control_planes_custom_config,
-        (var.disable_selinux ? { selinux = false } : (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {})),
+        (!var.enable_selinux ? { selinux = false } : (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {})),
         local.prefer_bundled_bin_config
       )
     )
@@ -164,7 +164,7 @@ resource "terraform_data" "first_control_plane" {
   }
 
   provisioner "file" {
-    content     = var.k3s_audit_policy_config
+    content     = var.audit_policy_config
     destination = "/tmp/audit-policy.yaml"
   }
 
@@ -258,12 +258,12 @@ resource "terraform_data" "control_plane_setup_rke2" {
       merge(
         {
           node-name                   = module.control_planes[keys(module.control_planes)[0]].name
-          token                       = local.k3s_token
+          token                       = local.cluster_token
           disable-cloud-controller    = true
-          disable-kube-proxy          = var.disable_kube_proxy
+          disable-kube-proxy          = !var.enable_kube_proxy
           disable                     = local.disable_rke2_extras
-          kubelet-arg                 = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_control_plane_kubelet_args, local.control_plane_nodes[keys(module.control_planes)[0]].kubelet_args)
-          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
+          kubelet-arg                 = concat(local.kubelet_arg, var.global_kubelet_args, var.control_plane_kubelet_args, local.control_plane_nodes[keys(module.control_planes)[0]].kubelet_args)
+          kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
           node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -276,14 +276,14 @@ resource "terraform_data" "control_plane_setup_rke2" {
           cluster-dns                 = local.cluster_dns
           cni                         = local.rke2_cni
         },
-        var.use_control_plane_lb ? {
+        var.enable_control_plane_load_balancer ? {
           tls-san = concat(
             compact([
               hcloud_load_balancer.control_plane.*.ipv4[0],
               hcloud_load_balancer_network.control_plane.*.ip[0],
               local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
               local.control_plane_endpoint_host,
-              !var.control_plane_lb_enable_public_interface && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
+              !var.control_plane_load_balancer_enable_public_network && var.nat_router != null ? hcloud_server.nat_router[0].ipv4_address : null
             ]),
             var.additional_tls_sans
           )
@@ -302,7 +302,7 @@ resource "terraform_data" "control_plane_setup_rke2" {
         },
         local.etcd_s3_snapshots,
         var.control_planes_custom_config,
-        (var.disable_selinux ? { selinux = false } : (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {})),
+        (!var.enable_selinux ? { selinux = false } : (local.control_plane_nodes[keys(module.control_planes)[0]].selinux == true ? { selinux = true } : {})),
         local.prefer_bundled_bin_config
       )
     )
@@ -324,6 +324,12 @@ resource "terraform_data" "control_plane_setup_rke2" {
         version = local.desired_cni_version
     })
     destination = "/var/lib/rancher/rke2/server/manifests/${local.rke2_manifest_cni_plugin}.yaml"
+  }
+
+  # Upload bundled RKE2 CNI HelmChartConfig overrides.
+  provisioner "file" {
+    content     = local.rke2_cni_config_manifest
+    destination = "/var/lib/rancher/rke2/server/manifests/kube-hetzner-rke2-cni-config.yaml"
   }
 }
 
@@ -353,7 +359,7 @@ resource "terraform_data" "first_control_plane_rke2" {
   }
 
   provisioner "file" {
-    content     = var.k3s_audit_policy_config
+    content     = var.audit_policy_config
     destination = "/tmp/audit-policy.yaml"
   }
 
@@ -506,8 +512,8 @@ resource "terraform_data" "kustomization" {
     ])
     # Redeploy when versions of addons need to be updated
     versions = join("\n", [
-      coalesce(var.initial_k3s_channel, "N/A"),
-      coalesce(var.install_k3s_version, "N/A"),
+      coalesce(var.k3s_channel, "N/A"),
+      coalesce(var.k3s_version, "N/A"),
       coalesce(var.cluster_autoscaler_version, "N/A"),
       coalesce(var.hetzner_ccm_version, "N/A"),
       coalesce(var.hetzner_csi_version, "N/A"),
@@ -521,12 +527,12 @@ resource "terraform_data" "kustomization" {
       coalesce(var.csi_driver_smb_version, "N/A"),
       coalesce(var.longhorn_version, "N/A"),
       coalesce(var.rancher_version, "N/A"),
-      coalesce(var.sys_upgrade_controller_version, "N/A"),
+      coalesce(var.system_upgrade_controller_version, "N/A"),
     ])
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                   = var.hetzner_ccm_use_helm
+    ccm_use_helm                   = var.enable_hetzner_ccm_helm
     cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
     system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
@@ -557,7 +563,7 @@ resource "terraform_data" "kustomization" {
           target_namespace = local.ingress_controller_namespace
         }
       ),
-      var.hetzner_ccm_use_helm ? templatefile(
+      var.enable_hetzner_ccm_helm ? templatefile(
         "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
         {
           values              = indent(4, local.hetzner_ccm_values)
@@ -565,8 +571,8 @@ resource "terraform_data" "kustomization" {
           using_klipper_lb    = local.using_klipper_lb
           default_lb_location = var.load_balancer_location
         }
-      ) : "",
-      var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+      ) : local.legacy_ccm_patch_yaml,
+      var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
         "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
         {}
       ) : "",
@@ -590,8 +596,8 @@ resource "terraform_data" "kustomization" {
       templatefile(
         "${path.module}/templates/plans.yaml.tpl",
         {
-          channel          = var.initial_k3s_channel
-          version          = var.install_k3s_version
+          channel          = var.k3s_channel
+          version          = var.k3s_version
           disable_eviction = !var.system_upgrade_enable_eviction
           drain            = var.system_upgrade_use_drain
           upgrade_window   = var.system_upgrade_schedule_window
@@ -607,13 +613,13 @@ resource "terraform_data" "kustomization" {
           values              = indent(4, local.longhorn_values)
         }
       ),
-      var.disable_hetzner_csi ? "" : templatefile(
+      var.enable_hetzner_csi ? templatefile(
         "${path.module}/templates/hcloud-csi.yaml.tpl",
         {
           version = coalesce(local.csi_version, "*")
           values  = indent(4, local.hetzner_csi_values)
         }
-      ),
+      ) : "",
       templatefile(
         "${path.module}/templates/csi-driver-smb.yaml.tpl",
         {
@@ -713,20 +719,13 @@ resource "terraform_data" "kustomization" {
 
   # Upload the CCM patch config using the legacy deployment
   provisioner "file" {
-    content = var.hetzner_ccm_use_helm ? "" : templatefile(
-      "${path.module}/templates/ccm.yaml.tpl",
-      {
-        cluster_cidr_ipv4        = local.hetzner_ccm_route_cluster_cidr
-        default_lb_location      = var.load_balancer_location
-        using_klipper_lb         = local.using_klipper_lb
-        instances_address_family = local.hetzner_ccm_instances_address_family
-    })
+    content     = var.enable_hetzner_ccm_helm ? "" : local.legacy_ccm_patch_yaml
     destination = "/var/post_install/ccm.yaml"
   }
 
   # Upload the CCM patch config using helm
   provisioner "file" {
-    content = var.hetzner_ccm_use_helm ? templatefile(
+    content = var.enable_hetzner_ccm_helm ? templatefile(
       "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
       {
         values              = indent(4, local.hetzner_ccm_values)
@@ -740,7 +739,7 @@ resource "terraform_data" "kustomization" {
 
   # Upload optional load balancer monitoring resources for Hetzner CCM
   provisioner "file" {
-    content = var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+    content = var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
       "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
       {}
     ) : ""
@@ -783,8 +782,8 @@ resource "terraform_data" "kustomization" {
     content = templatefile(
       "${path.module}/templates/plans.yaml.tpl",
       {
-        channel          = var.initial_k3s_channel
-        version          = var.install_k3s_version
+        channel          = var.k3s_channel
+        version          = var.k3s_version
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
         upgrade_window   = var.system_upgrade_schedule_window
@@ -808,13 +807,13 @@ resource "terraform_data" "kustomization" {
 
   # Upload the csi-driver config (ignored if csi is disabled)
   provisioner "file" {
-    content = var.disable_hetzner_csi ? "" : templatefile(
+    content = var.enable_hetzner_csi ? templatefile(
       "${path.module}/templates/hcloud-csi.yaml.tpl",
       {
         version = coalesce(local.csi_version, "*")
         values  = indent(4, local.hetzner_csi_values)
       }
-    )
+    ) : ""
     destination = "/var/post_install/hcloud-csi.yaml"
   }
 
@@ -892,7 +891,10 @@ resource "terraform_data" "kustomization" {
       EOT
       ]
       ,
-      var.hetzner_ccm_use_helm ? [
+      local.cluster_has_ipv6 ? [] : [
+        replace(local.ipv4_only_coredns_aaaa_filter_script, "__KUBECTL__", "kubectl")
+      ],
+      var.enable_hetzner_ccm_helm ? [
         "echo 'Remove legacy ccm manifests if they exist'",
         "kubectl delete serviceaccount,deployment -n kube-system --field-selector 'metadata.name=hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
         "kubectl delete clusterrolebinding -n kube-system --field-selector 'metadata.name=system:hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
@@ -908,21 +910,23 @@ resource "terraform_data" "kustomization" {
       [
         # Ready, set, go for the kustomization
         "kubectl apply -k /var/post_install",
+      ],
+      local.cluster_has_ipv6 ? [] : [
+        replace(local.ipv4_only_coredns_aaaa_filter_script, "__KUBECTL__", "kubectl")
+      ],
+      [
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "kubectl -n system-upgrade wait --for=condition=available --timeout=900s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml",
-        # Wait for system namespace deployments to become available
-        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
         # Work around stale cainjector leader leases after interrupted cert-manager helm installs.
         "kubectl -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true",
-        # Wait for helm install jobs to complete (only in namespaces that have jobs)
-        "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && kubectl get ns $ns &>/dev/null && kubectl -n $ns get job -o name 2>/dev/null | grep -q . && kubectl -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
+        replace(local.post_install_readiness_wait_script, "__KUBECTL__", "kubectl")
       ],
       local.skip_ingress_lb_wait ? [] : [
         <<-EOT
       timeout 360 bash <<EOF
-      until [ -n "\$(kubectl get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.lb_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
+      until [ -n "\$(kubectl get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.load_balancer_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
           echo "Waiting for load-balancer to get an IP..."
           sleep 2
       done
@@ -958,8 +962,8 @@ resource "terraform_data" "rke2_kustomization" {
     ])
     # Redeploy when versions of addons need to be updated
     versions = join("\n", [
-      coalesce(var.initial_rke2_channel, "N/A"),
-      coalesce(var.install_rke2_version, "N/A"),
+      coalesce(var.rke2_channel, "N/A"),
+      coalesce(var.rke2_version, "N/A"),
       coalesce(var.cluster_autoscaler_version, "N/A"),
       coalesce(var.hetzner_ccm_version, "N/A"),
       coalesce(var.hetzner_csi_version, "N/A"),
@@ -973,12 +977,12 @@ resource "terraform_data" "rke2_kustomization" {
       coalesce(var.csi_driver_smb_version, "N/A"),
       coalesce(var.longhorn_version, "N/A"),
       coalesce(var.rancher_version, "N/A"),
-      coalesce(var.sys_upgrade_controller_version, "N/A"),
+      coalesce(var.system_upgrade_controller_version, "N/A"),
     ])
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                   = var.hetzner_ccm_use_helm
+    ccm_use_helm                   = var.enable_hetzner_ccm_helm
     cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
     system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
@@ -1009,7 +1013,7 @@ resource "terraform_data" "rke2_kustomization" {
           target_namespace = local.ingress_controller_namespace
         }
       ),
-      var.hetzner_ccm_use_helm ? templatefile(
+      var.enable_hetzner_ccm_helm ? templatefile(
         "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
         {
           values              = indent(4, local.hetzner_ccm_values)
@@ -1017,8 +1021,8 @@ resource "terraform_data" "rke2_kustomization" {
           using_klipper_lb    = local.using_klipper_lb
           default_lb_location = var.load_balancer_location
         }
-      ) : "",
-      var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+      ) : local.legacy_ccm_patch_yaml,
+      var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
         "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
         {}
       ) : "",
@@ -1042,8 +1046,8 @@ resource "terraform_data" "rke2_kustomization" {
       templatefile(
         "${path.module}/templates/plans_rke2.yaml.tpl",
         {
-          channel          = var.initial_rke2_channel
-          version          = var.install_rke2_version
+          channel          = var.rke2_channel
+          version          = var.rke2_version
           disable_eviction = !var.system_upgrade_enable_eviction
           drain            = var.system_upgrade_use_drain
           upgrade_window   = var.system_upgrade_schedule_window
@@ -1059,13 +1063,13 @@ resource "terraform_data" "rke2_kustomization" {
           values              = indent(4, local.longhorn_values)
         }
       ),
-      var.disable_hetzner_csi ? "" : templatefile(
+      var.enable_hetzner_csi ? templatefile(
         "${path.module}/templates/hcloud-csi.yaml.tpl",
         {
           version = coalesce(local.csi_version, "*")
           values  = indent(4, local.hetzner_csi_values)
         }
-      ),
+      ) : "",
       templatefile(
         "${path.module}/templates/csi-driver-smb.yaml.tpl",
         {
@@ -1155,9 +1159,15 @@ resource "terraform_data" "rke2_kustomization" {
     destination = "/var/post_install/haproxy_ingress.yaml"
   }
 
+  # Upload the CCM patch config using the legacy deployment
+  provisioner "file" {
+    content     = var.enable_hetzner_ccm_helm ? "" : local.legacy_ccm_patch_yaml
+    destination = "/var/post_install/ccm.yaml"
+  }
+
   # Upload the CCM patch config using helm
   provisioner "file" {
-    content = var.hetzner_ccm_use_helm ? templatefile(
+    content = var.enable_hetzner_ccm_helm ? templatefile(
       "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
       {
         values              = indent(4, local.hetzner_ccm_values)
@@ -1172,17 +1182,15 @@ resource "terraform_data" "rke2_kustomization" {
 
   # Upload optional load balancer monitoring resources for Hetzner CCM
   provisioner "file" {
-    content = var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? templatefile(
+    content = var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
       "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
       {}
     ) : ""
     destination = "/var/post_install/load_balancer_monitoring.yaml"
   }
 
-
-  # Upload the calico patch config, for the kustomization of the calico manifest
-  # This method is a stub which could be replaced by a more practical helm implementation
-  # TODO: Does this need to move to /var/lib/rancher/rke2/server/manifests?
+  # Upload the k3s Calico kustomization patch. RKE2 CNI manifests are handled
+  # separately through /var/lib/rancher/rke2/server/manifests.
   provisioner "file" {
     content = templatefile(
       "${path.module}/templates/calico.yaml.tpl",
@@ -1217,8 +1225,8 @@ resource "terraform_data" "rke2_kustomization" {
     content = templatefile(
       "${path.module}/templates/plans_rke2.yaml.tpl",
       {
-        channel          = var.initial_rke2_channel
-        version          = var.install_rke2_version
+        channel          = var.rke2_channel
+        version          = var.rke2_version
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
         upgrade_window   = var.system_upgrade_schedule_window
@@ -1242,13 +1250,13 @@ resource "terraform_data" "rke2_kustomization" {
 
   # Upload the csi-driver config (ignored if csi is disabled)
   provisioner "file" {
-    content = var.disable_hetzner_csi ? "" : templatefile(
+    content = var.enable_hetzner_csi ? templatefile(
       "${path.module}/templates/hcloud-csi.yaml.tpl",
       {
         version = coalesce(local.csi_version, "*")
         values  = indent(4, local.hetzner_csi_values)
       }
-    )
+    ) : ""
     destination = "/var/post_install/hcloud-csi.yaml"
   }
 
@@ -1326,7 +1334,10 @@ resource "terraform_data" "rke2_kustomization" {
       EOT
       ]
       ,
-      var.hetzner_ccm_use_helm ? [
+      local.cluster_has_ipv6 ? [] : [
+        replace(local.ipv4_only_coredns_aaaa_filter_script, "__KUBECTL__", local.kubectl_cli)
+      ],
+      var.enable_hetzner_ccm_helm ? [
         "echo 'Remove legacy ccm manifests if they exist'",
         "${local.kubectl_cli} delete serviceaccount,deployment -n kube-system --field-selector 'metadata.name=hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
         "${local.kubectl_cli} delete clusterrolebinding -n kube-system --field-selector 'metadata.name=system:hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
@@ -1344,19 +1355,23 @@ resource "terraform_data" "rke2_kustomization" {
         "echo 'Deploying the kustomization.yaml...'",
         "echo 'Applying everything in /var/post_install...'",
         "${local.kubectl_cli} apply -k /var/post_install",
+      ],
+      local.cluster_has_ipv6 ? [] : [
+        replace(local.ipv4_only_coredns_aaaa_filter_script, "__KUBECTL__", local.kubectl_cli)
+      ],
+      [
         # Work around stale cainjector leader leases after interrupted cert-manager helm installs.
         "${local.kubectl_cli} -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true",
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "${local.kubectl_cli} -n system-upgrade wait --for=condition=available --timeout=360s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml",
-        "for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do [ -n \"$ns\" ] && ${local.kubectl_cli} get ns $ns &>/dev/null && ${local.kubectl_cli} -n $ns wait deployment --all --for=condition=Available --timeout=300s || true; done",
-        "for ns in kube-system ${var.enable_longhorn ? var.longhorn_namespace : ""}; do [ -n \"$ns\" ] && ${local.kubectl_cli} get ns $ns &>/dev/null && ${local.kubectl_cli} -n $ns get job -o name 2>/dev/null | grep -q . && ${local.kubectl_cli} -n $ns wait job --all --for=condition=Complete --timeout=300s || true; done"
+        replace(local.post_install_readiness_wait_script, "__KUBECTL__", local.kubectl_cli)
       ],
       local.skip_ingress_lb_wait ? [] : [
         <<-EOT
       timeout 360 bash <<EOF
-      until [ -n "\$(${local.kubectl_cli} get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.lb_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
+      until [ -n "\$(${local.kubectl_cli} get -n ${local.ingress_controller_namespace} service/${lookup(local.ingress_controller_service_names, var.ingress_controller)} --output=jsonpath='{.status.loadBalancer.ingress[0].${var.load_balancer_hostname != "" ? "hostname" : "ip"}}' 2> /dev/null)" ]; do
           echo "Waiting for load-balancer to get an IP..."
           sleep 2
       done

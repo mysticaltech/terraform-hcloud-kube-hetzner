@@ -70,7 +70,7 @@ ${cloudinit_write_files_common}
   encoding: base64
   path: /tmp/config.yaml
 
-# TODO: Extend this for rke2
+# Distro-specific agent installation script rendered by the module.
 - content: ${base64encode(install_k8s_agent_script)}
   encoding: base64
   path: /var/pre_install/install-k8s-agent.sh
@@ -158,6 +158,52 @@ ${cloudinit_runcmd_common}
     ip -6 route replace default via fe80::1 dev "$PUB6_IF" metric 100
   else
     echo "WARN: could not determine public IPv6 interface for default route" >&2
+  fi
+%{endif~}
+
+%{if multinetwork_public_overlay_enabled~}
+- |
+  route_dev() {
+    awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+  }
+
+  OVERLAY_NODE_IPS=""
+%{if multinetwork_transport_ipv4_enabled~}
+  PUB4_IF=$(ip -4 route get 172.31.1.1 2>/dev/null | route_dev)
+  PUB4_IP=$(curl -fsS --max-time 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4 2>/dev/null || true)
+  if [ -z "$PUB4_IP" ] && [ -n "$PUB4_IF" ]; then
+    PUB4_IP=$(ip -o -4 addr show dev "$PUB4_IF" scope global 2>/dev/null | awk '{split($4,a,"/"); print a[1]; exit}')
+  fi
+  if [ -n "$PUB4_IP" ]; then
+    OVERLAY_NODE_IPS="$PUB4_IP"
+  fi
+%{endif~}
+%{if multinetwork_transport_ipv6_enabled~}
+  PUB6_IF=$(ip -6 route show default 2>/dev/null | route_dev)
+  if [ -z "$PUB6_IF" ]; then
+    PUB6_IF=$(ip -o -6 addr show scope global 2>/dev/null | awk '$2 !~ /^(eth1|flannel|cilium|lxc|veth)/ {print $2; exit}')
+  fi
+  PUB6_IP=""
+  if [ -n "$PUB6_IF" ]; then
+    PUB6_IP=$(ip -o -6 addr show dev "$PUB6_IF" scope global 2>/dev/null | awk '{split($4,a,"/"); print a[1]; exit}')
+  fi
+  if [ -n "$PUB6_IP" ]; then
+    if [ -n "$OVERLAY_NODE_IPS" ]; then
+      OVERLAY_NODE_IPS="$OVERLAY_NODE_IPS,$PUB6_IP"
+    else
+      OVERLAY_NODE_IPS="$PUB6_IP"
+    fi
+  fi
+%{endif~}
+
+  if [ -n "$OVERLAY_NODE_IPS" ]; then
+    sed -i '/^node-ip:/d;/^node-external-ip:/d' /tmp/config.yaml
+    {
+      printf 'node-ip: "%s"\n' "$OVERLAY_NODE_IPS"
+      printf 'node-external-ip: "%s"\n' "$OVERLAY_NODE_IPS"
+    } >> /tmp/config.yaml
+  else
+    echo "WARN: cilium_public_overlay could not determine a public node IP" >&2
   fi
 %{endif~}
 

@@ -13,19 +13,25 @@ This example shows how to configure both the `kubernetes` and `helm` providers f
 
 ## Usage
 
-Create `terraform.tfvars`:
+Create `terraform.tfvars` for non-secret values:
 
 ```hcl
-hcloud_token    = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-ssh_public_key  = file("~/.ssh/id_ed25519.pub")
-ssh_private_key = file("~/.ssh/id_ed25519")
 cluster_name    = "argocd-demo"
 ```
 
-Run Terraform:
+Pass secrets and SSH key contents through environment variables so they are not
+stored in a committed example file:
 
 ```sh
-terraform init
+export TF_VAR_hcloud_token="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+export TF_VAR_ssh_public_key="$(cat ~/.ssh/id_ed25519.pub)"
+export TF_VAR_ssh_private_key="$(cat ~/.ssh/id_ed25519)"
+```
+
+Run Terraform or OpenTofu:
+
+```sh
+terraform init -upgrade
 terraform apply -target=module.kube-hetzner -auto-approve
 terraform apply -auto-approve
 ```

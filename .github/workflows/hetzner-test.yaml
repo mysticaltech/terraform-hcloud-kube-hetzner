@@ -27,13 +27,14 @@ env:
 
 jobs:
   tests:
-    name: Run Hetzner Tests (${{ matrix.preset }})
+    name: Run Hetzner Tests (${{ matrix.engine }}, ${{ matrix.preset }})
     runs-on: ubuntu-latest
     environment: hetzner-test
     if: ${{ vars.TEST_IN_HETZNER == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     strategy:
       fail-fast: false
       matrix:
+        engine: [terraform, tofu]
         preset: [default, nginx_ingress, rke2]
 
     steps:
@@ -65,8 +66,12 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Terraform
-        if: steps.prerequisites.outputs.enabled == 'true'
+        if: steps.prerequisites.outputs.enabled == 'true' && matrix.engine == 'terraform'
         uses: hashicorp/setup-terraform@v3
+
+      - name: Install OpenTofu
+        if: steps.prerequisites.outputs.enabled == 'true' && matrix.engine == 'tofu'
+        uses: opentofu/setup-opentofu@v1
 
       - name: Install kubectl
         if: steps.prerequisites.outputs.enabled == 'true'
@@ -80,23 +85,36 @@ jobs:
         if: steps.prerequisites.outputs.enabled == 'true'
         timeout-minutes: 20
         run: |
-          TEST_CLUSTER_NAME="kh-ci-${{ matrix.preset }}-${{ github.run_id }}-${{ github.run_attempt }}"
+          IAC_BIN="${{ matrix.engine }}"
+          PRESET_NAME="${{ matrix.preset }}"
+          TEST_CLUSTER_NAME="kh-ci-${IAC_BIN}-${PRESET_NAME//_/-}-${{ github.run_id }}-${{ github.run_attempt }}"
+          TEST_DIR="${RUNNER_TEMP}/kube-hetzner-${IAC_BIN}-${PRESET_NAME}"
           echo "TEST_CLUSTER_NAME=${TEST_CLUSTER_NAME}" >> "$GITHUB_ENV"
-          cp kube.tf.example kube.tf
-          cp "tests/presets/${{ matrix.preset }}.tfvars" tests.auto.tfvars
-          terraform init
-          terraform validate
-          terraform apply -auto-approve -var="cluster_name=${TEST_CLUSTER_NAME}"
+          echo "TEST_DIR=${TEST_DIR}" >> "$GITHUB_ENV"
+          rm -rf "${TEST_DIR}"
+          mkdir -p "${TEST_DIR}"
+          cp tests/ci-kube.tf "${TEST_DIR}/kube.tf"
+          cp "tests/presets/${{ matrix.preset }}.tfvars" "${TEST_DIR}/tests.auto.tfvars"
+          perl -0pi -e "s#source\\s*=\\s*\"kube-hetzner/kube-hetzner/hcloud\"#source = \"${GITHUB_WORKSPACE}\"#" "${TEST_DIR}/kube.tf"
+          "${IAC_BIN}" -chdir="${TEST_DIR}" init
+          "${IAC_BIN}" -chdir="${TEST_DIR}" validate
+          "${IAC_BIN}" -chdir="${TEST_DIR}" apply -auto-approve -var="cluster_name=${TEST_CLUSTER_NAME}"
 
       - name: Basic cluster health
         if: steps.prerequisites.outputs.enabled == 'true'
         timeout-minutes: 5
         run: |
           KUBECONFIG_FILE="${TEST_CLUSTER_NAME}_kubeconfig.yaml"
-          test -f "${KUBECONFIG_FILE}"
-          kubectl --kubeconfig "${KUBECONFIG_FILE}" get nodes -o wide
-          kubectl --kubeconfig "${KUBECONFIG_FILE}" get pods -A
+          test -f "${TEST_DIR}/${KUBECONFIG_FILE}"
+          kubectl --kubeconfig "${TEST_DIR}/${KUBECONFIG_FILE}" get nodes -o wide
+          kubectl --kubeconfig "${TEST_DIR}/${KUBECONFIG_FILE}" get pods -A
 
       - name: Destroy cluster
         if: steps.prerequisites.outputs.enabled == 'true' && always()
-        run: terraform destroy -auto-approve -var="cluster_name=${TEST_CLUSTER_NAME}"
+        run: |
+          if [ -z "${TEST_DIR:-}" ] || [ ! -d "${TEST_DIR}" ] || [ -z "${TEST_CLUSTER_NAME:-}" ]; then
+            echo "No initialized test directory was created; skipping destroy."
+            exit 0
+          fi
+
+          ${{ matrix.engine }} -chdir="${TEST_DIR}" destroy -auto-approve -var="cluster_name=${TEST_CLUSTER_NAME}"

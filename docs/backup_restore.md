@@ -9,14 +9,14 @@ kube-hetzner, even for a single control plane cluster, hence this should work fo
 
 1. Fill the kube.tf config `etcd_s3_backup`, it will enable automated, scheduled backups to S3. See the example in the
    Restore section below.
-2. Add the k3s_token as an output to your kube.tf
+2. Add the cluster_token as an output to your kube.tf
    ```tf
-   output "k3s_token" {
-     value     = module.kube-hetzner.k3s_token
+   output "cluster_token" {
+     value     = module.kube-hetzner.cluster_token
      sensitive = true
    }
    ```
-3. Make sure you can access the k3s_token via `terraform output k3s_token`.
+3. Make sure you can access the cluster_token via `terraform output cluster_token`.
 
 ### On-demand backups
 
@@ -61,7 +61,7 @@ For k3s:
 locals {
   # ...
 
-  k3s_token = var.k3s_token  # this is secret information, hence it is passed as an environment variable
+  cluster_token = var.cluster_token  # this is secret information, hence it is passed as an environment variable
 
   # to get the corresponding etcd_version for a k3s version you need to
   # - start k3s or have it running
@@ -79,7 +79,7 @@ locals {
   # ...
 }
 
-variable "k3s_token" {
+variable "cluster_token" {
   sensitive = true
   type      = string
 }
@@ -92,7 +92,7 @@ variable "etcd_s3_secret_key" {
 module "kube-hetzner" {
   # ...
 
-  k3s_token = local.k3s_token
+  cluster_token = local.cluster_token
 
   # ...
 
@@ -165,7 +165,7 @@ For RKE2:
 locals {
   # ...
 
-  k3s_token = var.k3s_token  # this is secret information, hence it is passed as an environment variable
+  cluster_token = var.cluster_token  # this is secret information, hence it is passed as an environment variable
 
   etcd_snapshot_name = "name-of-the-snapshot(no-path,just-the-name)"
   etcd_s3_endpoint   = "your-s3-endpoint(without-https://)"
@@ -178,7 +178,7 @@ locals {
   # ...
 }
 
-variable "k3s_token" {
+variable "cluster_token" {
   sensitive = true
   type      = string
 }
@@ -191,7 +191,7 @@ variable "etcd_s3_secret_key" {
 module "kube-hetzner" {
   # ...
 
-  k3s_token = local.k3s_token
+  cluster_token = local.cluster_token
 
   # ...
 
@@ -213,7 +213,7 @@ module "kube-hetzner" {
           --etcd-s3-folder=${local.etcd_s3_folder} \
           --etcd-s3-access-key=${local.etcd_s3_access_key} \
           --etcd-s3-secret-key=${local.etcd_s3_secret_key} \
-          --token=${local.k3s_token}
+          --token=${local.cluster_token}
         systemctl enable rke2-server
         systemctl start rke2-server
 
@@ -230,7 +230,7 @@ module "kube-hetzner" {
 2. Set the following sensible environment variables
 
     - `export TF_VAR_k3s_token="..."` (Be careful, this token is like an admin password to the entire cluster. You need
-      to use the same k3s_token which you saved when creating the backup.)
+      to use the same cluster_token which you saved when creating the backup.)
     - `export etcd_s3_secret_key="..."`
 
 3. Create the cluster as usual. You can also change the cluster-name and deploy it next to the original backed up

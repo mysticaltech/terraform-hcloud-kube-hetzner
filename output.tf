@@ -59,8 +59,8 @@ output "ingress_public_ipv6" {
   description = "The public IPv6 address of the Hetzner load balancer (with fallback to first control plane node)"
   value = (
     local.combine_load_balancers_effective
-    ? (var.load_balancer_disable_ipv6 ? null : one(hcloud_load_balancer.control_plane[*].ipv6))
-    : (local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_disable_ipv6 ? null : hcloud_load_balancer.cluster[0].ipv6))
+    ? (var.load_balancer_enable_ipv6 ? one(hcloud_load_balancer.control_plane[*].ipv6) : null)
+    : (local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_enable_ipv6 ? hcloud_load_balancer.cluster[0].ipv6 : null))
   )
 }
 
@@ -79,15 +79,15 @@ output "k3s_endpoint" {
   value       = local.k3s_endpoint
 }
 
-output "k3s_token" {
-  description = "The k3s token to register new nodes"
-  value       = local.k3s_token
+output "cluster_token" {
+  description = "The cluster token to register new nodes"
+  value       = local.cluster_token
   sensitive   = true
 }
 
 output "join_script_external" {
   description = "Helper command for joining non-managed external nodes to k3s with external-IP and wireguard-native flannel."
-  value       = local.kubernetes_distribution == "k3s" ? "curl -sfL https://get.k3s.io | K3S_URL='${local.k3s_endpoint}' K3S_TOKEN='${local.k3s_token}' sh -s - agent --node-external-ip=<PUBLIC_NODE_IP> --flannel-backend=wireguard-native" : "External join helper is available only for k3s clusters."
+  value       = local.kubernetes_distribution == "k3s" ? "curl -sfL https://get.k3s.io | K3S_URL='${local.k3s_endpoint}' K3S_TOKEN='${local.cluster_token}' sh -s - agent --node-external-ip=<PUBLIC_NODE_IP> --flannel-backend=wireguard-native" : "External join helper is available only for k3s clusters."
   sensitive   = true
 }
 

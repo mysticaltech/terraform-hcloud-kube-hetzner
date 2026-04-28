@@ -11,8 +11,9 @@
 
 A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k3s on openSUSE Leap Micro (default) / MicroOS (legacy)<br>deployed for peanuts on [Hetzner Cloud](https://hetzner.com)
 
-[![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.10-844FBA?style=flat-square&logo=terraform)](https://terraform.io)&nbsp;&nbsp;
+[![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.10.1-844FBA?style=flat-square&logo=terraform)](https://terraform.io)&nbsp;&nbsp;
 [![OpenTofu](https://img.shields.io/badge/OpenTofu-Compatible-FFDA18?style=flat-square&logo=opentofu)](https://opentofu.org)&nbsp;&nbsp;
+[![HCloud Provider](https://img.shields.io/badge/hcloud-%3E%3D1.59.0-00ADEF?style=flat-square)](https://registry.terraform.io/providers/hetznercloud/hcloud/latest)&nbsp;&nbsp;
 [![K3s](https://img.shields.io/badge/K3s-v1.35-FFC61C?style=flat-square&logo=k3s)](https://k3s.io)&nbsp;&nbsp;
 [![License](https://img.shields.io/github/license/kube-hetzner/terraform-hcloud-kube-hetzner?style=flat-square&color=blue)](LICENSE)&nbsp;&nbsp;
 [![GitHub Stars](https://img.shields.io/github/stars/kube-hetzner/terraform-hcloud-kube-hetzner?style=flat-square&logo=github)](https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/stargazers)
@@ -91,7 +92,9 @@ Built on the shoulders of giants:
 
 Upgrading from `v2.x` to `v3.x`?
 
-Review the migration checklist in [`MIGRATION.md`](MIGRATION.md) first, then run:
+Review the operator playbook in
+[`docs/v2-to-v3-migration.md`](docs/v2-to-v3-migration.md) and the variable map
+in [`MIGRATION.md`](MIGRATION.md) first, then run:
 
 ```bash
 terraform init -upgrade
@@ -117,9 +120,10 @@ Only apply after reviewing all planned resource actions.
 ### 🌐 Networking & CNI
 - [x] **CNI flexibility** — Flannel, Calico, or Cilium
 - [x] **Cilium XDP** — Hardware-level load balancing
-- [x] **Wireguard encryption** — Optional encrypted overlay
+- [x] **WireGuard encryption** — Optional encrypted overlay
 - [x] **Dual-stack** — Full IPv4 & IPv6 support
 - [x] **Custom subnets** — Define CIDR blocks per nodepool
+- [x] **Cilium multinetwork scale** — Opt-in encrypted public overlay across Hetzner Networks
 
 ### ⚖️ Load Balancing
 - [x] **Ingress controllers** — Traefik, Nginx, or HAProxy
@@ -144,8 +148,9 @@ Only apply after reviewing all planned resource actions.
 - [x] **Audit logging** — Configurable retention policies
 - [x] **Firewall rules** — Granular SSH/API access control
 - [x] **NAT router** — Fully private clusters
+- [x] **Plan-time validation** — Terraform/OpenTofu rejects invalid config combinations early
 - [x] **190+ variables** — Fine-tune everything
-- [x] **Kustomization** — Extend with custom manifests
+- [x] **User kustomizations** — Ordered custom manifests with hooks
 
 </td>
 </tr>
@@ -181,7 +186,7 @@ Only apply after reviewing all planned resource actions.
 </tr>
 <tr>
 <td><strong>Homebrew</strong> (macOS/Linux)</td>
-<td><code>brew install hashicorp/tap/terraform hashicorp/tap/packer kubectl hcloud</code></td>
+<td><code>brew install opentofu hashicorp/tap/packer kubectl hcloud</code><br><small>Optional Terraform CLI: <code>brew install hashicorp/tap/terraform</code></small></td>
 </tr>
 <tr>
 <td><strong>Arch Linux</strong></td>
@@ -201,9 +206,26 @@ Only apply after reviewing all planned resource actions.
 </tr>
 </table>
 
-> **Required tools:** [terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [tofu](https://opentofu.org/docs/intro/install/), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli)
+> **Required tools:** [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [OpenTofu](https://opentofu.org/docs/intro/install/) >= 1.10.1 (`brew install opentofu`), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli). The module requires `hetznercloud/hcloud` provider >= 1.59.0.
 
-OpenTofu is officially supported. Pull requests are validated in CI with both Terraform and OpenTofu.
+OpenTofu is officially supported. Pull requests are validated in CI with both Terraform and OpenTofu, including real Hetzner preset apply/health/destroy tests when Hetzner E2E is enabled.
+
+### Plan-Time Validation
+
+Kube-Hetzner uses Terraform/OpenTofu input validation as the module contract. Run `terraform plan` or `tofu plan` before every apply; invalid combinations fail before resources are created.
+
+The validation layer checks pure configuration invariants: non-empty tokens and SSH keys, supported regions and locations, CIDR syntax and IP-family pairs, nodepool name/count rules, odd control-plane quorum, Hetzner network/subnet/placement-group limits, multi-network join requirements, autoscaler boundaries, Cilium-only options, load balancer dependencies, firewall source formats, Robot/vSwitch/NAT requirements, audit settings, YAML snippets, and attached volume definitions.
+
+When validating the module itself with both CLIs in the same checkout, run OpenTofu in a temporary copy so its ignored lock file and plugin cache never disturb Terraform's local state:
+
+```bash
+tmpdir="$(mktemp -d)"
+rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
+(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+rm -rf "$tmpdir"
+```
+
+Provider/runtime assertions still belong in resource preconditions, postconditions, or checks. If an invariant can be decided from module inputs, it should be enforced at this plan-time validation layer.
 
 ---
 
@@ -280,7 +302,17 @@ hcloud context create <project-name>
 cd <your-project-folder>
 terraform init --upgrade
 terraform validate
+terraform plan
 terraform apply -auto-approve
+```
+
+OpenTofu works the same way:
+
+```sh
+tofu init --upgrade
+tofu validate
+tofu plan
+tofu apply -auto-approve
 ```
 
 **~5 minutes later:** Your cluster is ready! 🎉
@@ -330,7 +362,7 @@ Customize via `cilium_values` with [Cilium helm values](https://github.com/ciliu
 
 | Feature | Variable |
 |---------|----------|
-| Full kube-proxy replacement | `disable_kube_proxy = true` |
+| Full kube-proxy replacement | `enable_kube_proxy = false` |
 | Hubble observability | `cilium_hubble_enabled = true` |
 
 Access Hubble UI:
@@ -395,7 +427,7 @@ Managed by [system-upgrade-controller](https://github.com/rancher/system-upgrade
 automatically_upgrade_os = false
 
 # Disable k3s upgrades
-automatically_upgrade_k3s = false
+automatically_upgrade_kubernetes = false
 ```
 
 <details>
@@ -458,6 +490,14 @@ Use [Kustomize](https://kustomize.io) for additional deployments:
 ---
 
 ## 📚 Examples
+
+Repository examples:
+
+- [`examples/argocd`](examples/argocd/) — configure Kubernetes/Helm providers from `kubeconfig_data` and install ArgoCD.
+- [`examples/cilium-multinetwork`](examples/cilium-multinetwork/) — v3 Cilium-only scale-out across multiple Hetzner Cloud Networks.
+- [`examples/external-overlay-tailscale`](examples/external-overlay-tailscale/) — external Tailscale overlay access with `node_connection_overrides`.
+- [`examples/kustomization_user_deploy`](examples/kustomization_user_deploy/) — ordered `user_kustomizations` sets.
+- [`examples/tls`](examples/tls/) — basic Ingress TLS resources for Traefik and cert-manager.
 
 <details>
 <summary><strong>Custom post-install actions (ArgoCD, etc.)</strong></summary>
@@ -524,7 +564,7 @@ locals {
 }
 
 cluster_ipv4_cidr = local.cluster_ipv4_cidr
-disable_kube_proxy = true
+enable_kube_proxy = false
 
 cilium_values = <<-EOT
 ipam:
@@ -545,7 +585,7 @@ egressGateway:
 MTU: 1450
 EOT
 
-Cilium Egress Gateway requires kube-proxy replacement, so keep `disable_kube_proxy = true` when enabling it.
+Cilium Egress Gateway requires kube-proxy replacement, so keep `enable_kube_proxy = false` when enabling it.
 
 # Optional: keep selected egress policies pinned to a Ready egress node automatically
 cilium_egress_gateway_ha_enabled = true
@@ -615,7 +655,7 @@ spec:
 
 [Full Traefik + Cert-Manager guide](https://traefik.io/blog/secure-web-applications-with-traefik-proxy-cert-manager-and-lets-encrypt/)
 
-> **Ingress-Nginx with HTTP challenge:** Add `lb_hostname = "cluster.example.org"` to work around [this known issue](https://github.com/cert-manager/cert-manager/issues/466).
+> **Ingress-Nginx with HTTP challenge:** Add `load_balancer_hostname = "cluster.example.org"` to work around [this known issue](https://github.com/cert-manager/cert-manager/issues/466).
 </details>
 
 <details>
@@ -793,7 +833,7 @@ parameters:
 
 Enable admission controllers:
 ```tf
-k3s_exec_server_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
+control_plane_exec_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
 ```
 
 Assign namespace to architecture:
@@ -824,11 +864,11 @@ metadata:
 **Setup backup:**
 
 1. Configure `etcd_s3_backup` in kube.tf
-2. Add k3s_token output:
+2. Add cluster_token output:
 
 ```tf
-output "k3s_token" {
-  value     = module.kube-hetzner.k3s_token
+output "cluster_token" {
+  value     = module.kube-hetzner.cluster_token
   sensitive = true
 }
 ```
@@ -839,7 +879,7 @@ output "k3s_token" {
 
 ```tf
 locals {
-  k3s_token = var.k3s_token
+  cluster_token = var.cluster_token
   etcd_version = "v3.5.9"
   etcd_snapshot_name = "name-of-the-snapshot"
   etcd_s3_endpoint = "your-s3-endpoint"
@@ -848,7 +888,7 @@ locals {
   etcd_s3_secret_key = var.etcd_s3_secret_key
 }
 
-variable "k3s_token" {
+variable "cluster_token" {
   sensitive = true
   type      = string
 }
@@ -859,7 +899,7 @@ variable "etcd_s3_secret_key" {
 }
 
 module "kube-hetzner" {
-  k3s_token = local.k3s_token
+  cluster_token = local.cluster_token
 
   postinstall_exec = compact([
     (
@@ -910,7 +950,7 @@ module "kube-hetzner" {
 
 2. Set environment variables:
 ```sh
-export TF_VAR_k3s_token="..."
+export TF_VAR_cluster_token="..."
 export TF_VAR_etcd_s3_secret_key="..."
 ```
 
@@ -943,9 +983,9 @@ resource "hcloud_server_network" "your_proxy_server" {
 }
 
 module "kube-hetzner" {
-  existing_network_id = [hcloud_network.k3s_proxied.id]  # Note: brackets required!
+  existing_network = { id = hcloud_network.k3s_proxied.id }  # Note: object required!
   network_ipv4_cidr = "10.0.0.0/9"
-  additional_k3s_environment = {
+  additional_kubernetes_install_environment = {
     "http_proxy" : "http://10.128.0.1:3128",
     "HTTP_PROXY" : "http://10.128.0.1:3128",
     "HTTPS_PROXY" : "http://10.128.0.1:3128",
@@ -960,9 +1000,20 @@ module "kube-hetzner" {
 <details>
 <summary><strong>Multinetwork (agent scale-out)</strong></summary>
 
-You can place agent nodepools on existing external private networks with `network_id`:
+For clusters that need more than one Hetzner Cloud Network, enable the explicit
+Cilium public overlay mode. In this mode Hetzner private Networks remain the
+server attachment boundary, while Cilium provides encrypted pod-to-pod
+reachability over public node addresses.
 
 ```tf
+cni_plugin = "cilium"
+
+multinetwork_mode                = "cilium_public_overlay"
+multinetwork_transport_ip_family = "ipv4" # ipv4 | ipv6 | dualstack
+
+enable_control_plane_load_balancer                   = true
+control_plane_load_balancer_enable_public_network = true
+
 agent_nodepools = [
   {
     name        = "agent-small-a"
@@ -971,7 +1022,7 @@ agent_nodepools = [
     labels      = []
     taints      = []
     count       = 50
-    network_id  = 0 # primary kube-hetzner network
+    # network_id omitted/null means the primary kube-hetzner network
   },
   {
     name        = "agent-small-b"
@@ -984,14 +1035,47 @@ agent_nodepools = [
   },
 ]
 
-# required for multinetwork joins
-control_plane_endpoint = "https://<public-control-plane-endpoint>:6443"
+autoscaler_nodepools = [
+  {
+    name        = "autoscaled-a"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 50
+    # network_id omitted/null means the primary kube-hetzner network
+  },
+  {
+    name        = "autoscaled-b"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 50
+    network_id  = 11959154
+  },
+]
 ```
 
-Current constraints:
-- Control planes must stay on the primary kube-hetzner network (`network_id = 0`).
-- Multinetwork + cluster autoscaler is not supported yet.
-- Keep each Hetzner private network at or below 100 attached servers.
+The module validates the important Hetzner and Kubernetes constraints during
+`terraform plan`:
+
+- `cilium_public_overlay` requires `cni_plugin = "cilium"` and public node
+  addresses for the selected transport family.
+- Control planes always stay on the primary kube-hetzner network and no longer
+  accept `network_id`.
+- Agent and autoscaler nodepools use the primary kube-hetzner network when
+  `network_id` is omitted or null.
+- Control planes are not auto-attached to every external agent network in this
+  mode, avoiding Hetzner's 3-Networks-per-server limit.
+- Each Hetzner Network is counted against the 100 attached-resource limit,
+  including static nodes, autoscaler `max_nodes`, load balancers, NAT routers,
+  and `extra_network_ids`.
+- Cluster autoscaler is split into one Deployment per effective Network so each
+  Deployment gets the correct `HCLOUD_NETWORK`.
+- Managed load balancers target public node IPs in this mode. Private-only
+  multinetwork scale remains out of scope until a routed/VPN fabric is modeled.
+- Outside this mode, `network_id` is a bounded static-agent compatibility path,
+  not the large-cluster scale-out path; autoscaler external Networks require the
+  Cilium public overlay.
 </details>
 
 <details>
@@ -1010,10 +1094,12 @@ agent_nodepools = [
 
 Legacy compatibility:
 ```tf
-placement_group_compat_idx = 1
+placement_group_index = 1
 ```
 
-For >10 nodes, use map-based definition:
+Count-based nodepools without an explicit `placement_group` are automatically
+sharded into spread groups of 10 servers. If you set an explicit
+`placement_group`, split groups manually:
 ```tf
 agent_nodepools = [
   {
@@ -1025,7 +1111,7 @@ agent_nodepools = [
 ]
 ```
 
-Disable globally: `placement_group_disable = true`
+Disable globally: `enable_placement_groups = false`
 </details>
 
 <details>
@@ -1076,29 +1162,29 @@ enable_delete_protection = {
 </details>
 
 <details>
-<summary><strong>Private-only cluster (Wireguard)</strong></summary>
+<summary><strong>Private-only cluster (WireGuard)</strong></summary>
 
 Requirements:
 1. Pre-configured network
 2. NAT gateway with public IP ([Hetzner guide](https://community.hetzner.com/tutorials/how-to-set-up-nat-for-cloud-networks))
-3. Wireguard VPN access ([Hetzner guide](https://docs.hetzner.com/cloud/apps/list/wireguard/))
+3. WireGuard VPN access ([Hetzner guide](https://docs.hetzner.com/cloud/apps/list/wireguard/))
 4. Route `0.0.0.0/0` through NAT gateway
 
 Configuration:
 ```tf
-existing_network_id = [YOURID]
+existing_network = { id = 1234567 }
 network_ipv4_cidr = "10.0.0.0/9"
 
 # In all nodepools:
-disable_ipv4 = true
-disable_ipv6 = true
+enable_public_ipv4 = false
+enable_public_ipv6 = false
 
 # For autoscaler:
-autoscaler_disable_ipv4 = true
-autoscaler_disable_ipv6 = true
+autoscaler_enable_public_ipv4 = false
+autoscaler_enable_public_ipv6 = false
 
 # Optional private LB:
-control_plane_lb_enable_public_interface = false
+control_plane_load_balancer_enable_public_network = false
 ```
 </details>
 
@@ -1111,21 +1197,49 @@ Fully private setup with:
 - **Control plane:** Through LB or NAT router port forwarding
 - **Ingress:** Through agents LB only
 
+```tf
+enable_control_plane_load_balancer = true
+
+nat_router = {
+  server_type = "cax21"
+  location    = "nbg1"
+}
+
+# Optional: use the router's private IP for SSH bastion traffic when the
+# operator already reaches the private network through Tailscale/WireGuard/etc.
+# use_private_nat_router_bastion = true
+```
+
 > **August 11, 2025:** Hetzner removed legacy Router DHCP option. This module now automatically persists routes via the virtual gateway.
 </details>
 
 <details>
 <summary><strong>External overlay access (Tailscale/ZeroTier/WARP)</strong></summary>
 
-Overlay providers are intentionally kept outside of core kube-hetzner logic.
-Use your overlay setup in an outer module and then pass resulting endpoints
-back into kube-hetzner.
+Tailscale is a supported external overlay pattern, not a managed
+kube-hetzner subsystem. There is intentionally no `enable_tailscale` input:
+kube-hetzner does not manage tailnets, ACLs, auth keys, MagicDNS, subnet
+routers, Tailscale Services, or overlay DNS. Use your overlay setup in an
+outer module or out-of-band bootstrap, then pass resulting endpoints back into
+kube-hetzner.
+
+The supported kube-hetzner primitives are:
+
+- `preinstall_exec` / `postinstall_exec` for user-owned bootstrap hooks.
+- `node_connection_overrides` for Terraform SSH/provisioners over Tailnet IPs.
+- `control_plane_endpoint` for a stable external kube API endpoint.
+- `use_private_nat_router_bastion` when a Tailscale/WireGuard/WARP path already reaches the private network.
+- `firewall_ssh_source` / `firewall_kube_api_source` tightening after overlay access is proven.
 
 ```tf
-# Bootstrap overlay client on each node (example command only)
+# Bootstrap overlay client on each node (example commands only).
+# Avoid long-lived auth keys here; command strings and cloud-init user-data can
+# be visible in Terraform state/provider state or instance logs. Prefer an
+# external bootstrap or short-lived, one-use preauth keys that are immediately
+# rotated/revoked.
 preinstall_exec = [
   "curl -fsSL https://tailscale.com/install.sh | sh",
-  "tailscale up --auth-key=${var.tailscale_auth_key} --ssh",
+  # "tailscale up --auth-key=${var.tailscale_auth_key} --ssh --hostname=$(hostname)",
 ]
 
 # After overlay IPs are known, route Terraform SSH through them
@@ -1140,11 +1254,14 @@ control_plane_endpoint = "https://cp.tailnet.example:6443"
 ```
 
 Typical workflow:
-1. Apply once to bootstrap nodes and overlay agents.
+1. Apply once to bootstrap nodes and install/join overlay agents.
 2. Resolve overlay addresses and set `node_connection_overrides`.
 3. Apply again and optionally tighten `firewall_ssh_source` / `firewall_kube_api_source`.
+4. After Kubernetes is healthy, deploy the Tailscale Kubernetes Operator with
+   Helm, ArgoCD, or `user_kustomizations` if you want Tailscale Services,
+   workload ingress/egress, subnet routers, or kube API proxying.
 
-See `/examples/external-overlay-tailscale/README.md` for a concrete outer-module pattern.
+See [`examples/external-overlay-tailscale/README.md`](examples/external-overlay-tailscale/README.md) for a concrete outer-module pattern.
 </details>
 
 <details>
@@ -1277,6 +1394,7 @@ This project includes [agent skills](https://agentskills.io) in `.claude/skills/
 | `/fix-issue <num>` | Guided workflow for fixing GitHub issues |
 | `/review-pr <num>` | Security-focused PR review |
 | `/test-changes` | Run terraform fmt, validate, plan |
+| `/migrate-v2-to-v3 <terraform-root>` | Guided v2 to v3 migration and plan review |
 
 **PRs to improve these skills are welcome!** See `.claude/skills/` for the skill definitions.
 

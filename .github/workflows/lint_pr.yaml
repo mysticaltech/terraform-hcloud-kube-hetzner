@@ -4,6 +4,20 @@ on:
   pull_request:
 
 jobs:
+  forbid-null-resource:
+    runs-on: ubuntu-latest
+    name: Forbid null_resource usage
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for null provider resources
+        run: |
+          if grep -RInE 'resource[[:space:]]+"null_resource"|provider[[:space:]]+"null"|hashicorp/null' --include='*.tf' --include='*.tf.json' .; then
+            echo "::error::Use terraform_data instead of null_resource/hashicorp/null. Moved blocks from old null_resource addresses are allowed for state migration."
+            exit 1
+          fi
+
   tfsec:
     runs-on: ubuntu-latest
     permissions:

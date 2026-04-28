@@ -87,8 +87,37 @@ resource "hcloud_server" "server" {
     inline = [
       "echo 'Waiting for system to become fully ready...'",
 
-      # Wait until the system is fully booted and in a running state.
-      "timeout 600 bash -c 'until systemctl is-system-running --quiet; do echo \"Waiting for system...\"; sleep 3; done'",
+      # Wait until the system is fully booted. Leap Micro can leave
+      # transactional-update.service failed after the first-boot update race;
+      # that unit is non-critical here and is managed explicitly later.
+      <<-EOT
+      timeout 600 bash <<'EOF'
+      while true; do
+        state="$(systemctl is-system-running 2>/dev/null || true)"
+
+        if [ "$state" = "running" ]; then
+          exit 0
+        fi
+
+        if [ "$state" = "degraded" ]; then
+          systemctl reset-failed transactional-update.service >/dev/null 2>&1 || true
+          failed_units="$(systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | grep -vx 'transactional-update.service' || true)"
+
+          if [ -z "$failed_units" ]; then
+            exit 0
+          fi
+
+          echo "Waiting for system; failed units remain:"
+          printf '%s\n' "$failed_units"
+        else
+          echo "Waiting for system... ($state)"
+        fi
+
+        sleep 3
+      done
+      EOF
+      EOT
+      ,
 
       "echo 'System is fully ready!'"
     ]
@@ -163,7 +192,7 @@ resource "terraform_data" "ssh_authorized_keys" {
 
 resource "terraform_data" "registries" {
   triggers_replace = {
-    registries = var.k3s_registries
+    registries = var.registries_config
   }
 
   connection {
@@ -181,12 +210,12 @@ resource "terraform_data" "registries" {
   }
 
   provisioner "file" {
-    content     = var.k3s_registries
+    content     = var.registries_config
     destination = "/tmp/registries.yaml"
   }
 
   provisioner "remote-exec" {
-    inline = [var.k3s_registries_update_script]
+    inline = [var.registries_update_script]
   }
 
   depends_on = [hcloud_server.server]
@@ -197,10 +226,10 @@ moved {
 }
 
 resource "terraform_data" "kubelet_config" {
-  count = var.k3s_kubelet_config != "" ? 1 : 0
+  count = var.kubelet_config != "" ? 1 : 0
 
   triggers_replace = {
-    kubelet_config = var.k3s_kubelet_config
+    kubelet_config = var.kubelet_config
   }
 
   connection {
@@ -217,12 +246,12 @@ resource "terraform_data" "kubelet_config" {
   }
 
   provisioner "file" {
-    content     = var.k3s_kubelet_config
+    content     = var.kubelet_config
     destination = "/tmp/kubelet-config.yaml"
   }
 
   provisioner "remote-exec" {
-    inline = [var.k3s_kubelet_config_update_script]
+    inline = [var.kubelet_config_update_script]
   }
 
   depends_on = [hcloud_server.server]
@@ -233,10 +262,10 @@ moved {
 }
 
 resource "terraform_data" "audit_policy" {
-  count = var.k3s_audit_policy_config != "" ? 1 : 0
+  count = var.audit_policy_config != "" ? 1 : 0
 
   triggers_replace = {
-    audit_policy = var.k3s_audit_policy_config
+    audit_policy = var.audit_policy_config
   }
 
   connection {
@@ -253,12 +282,12 @@ resource "terraform_data" "audit_policy" {
   }
 
   provisioner "file" {
-    content     = var.k3s_audit_policy_config
+    content     = var.audit_policy_config
     destination = "/tmp/audit-policy.yaml"
   }
 
   provisioner "remote-exec" {
-    inline = [var.k3s_audit_policy_update_script]
+    inline = [var.audit_policy_update_script]
   }
 
   depends_on = [hcloud_server.server]

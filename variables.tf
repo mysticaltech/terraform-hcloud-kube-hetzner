@@ -2,30 +2,34 @@ variable "hcloud_token" {
   description = "Hetzner Cloud API Token."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = trimspace(var.hcloud_token) != ""
+    error_message = "hcloud_token must be non-empty."
+  }
 }
 
-variable "kubernetes_distribution_type" {
+variable "kubernetes_distribution" {
   description = "Kubernetes distribution type. Can be either k3s or rke2."
   type        = string
   default     = "k3s"
 
   validation {
-    condition     = contains(["k3s", "rke2"], var.kubernetes_distribution_type)
+    condition     = contains(["k3s", "rke2"], var.kubernetes_distribution)
     error_message = "The Kubernetes distribution type must be either k3s or rke2."
   }
 }
 
-variable "k3s_token" {
-  description = "k3s master token (must match when restoring a cluster)."
+variable "cluster_token" {
+  description = "Cluster join token (must match when restoring a cluster)."
   type        = string
   sensitive   = true
   default     = null
-}
 
-variable "k3s_encryption_at_rest" {
-  description = "Enable Kubernetes Secret encryption at rest for k3s by provisioning an EncryptionConfiguration file and applying it to the kube-apiserver."
-  type        = bool
-  default     = false
+  validation {
+    condition     = var.cluster_token == null || trimspace(var.cluster_token) != ""
+    error_message = "cluster_token must be null or a non-empty token string."
+  }
 }
 
 variable "robot_user" {
@@ -42,46 +46,82 @@ variable "robot_password" {
   description = "Password for the Hetzner Robot webservice"
 }
 
-variable "robot_ccm_enabled" {
+variable "enable_robot_ccm" {
   type        = bool
   default     = false
   description = "Enables the integration of Hetzner Robot dedicated servers via the Cloud Controller Manager (CCM). If true, `robot_user` and `robot_password` must also be provided, otherwise the integration will not be activated."
+
+  validation {
+    condition     = !var.enable_robot_ccm || (trimspace(var.robot_user) != "" && trimspace(var.robot_password) != "")
+    error_message = "enable_robot_ccm requires non-empty robot_user and robot_password."
+  }
 }
 
 variable "leapmicro_x86_snapshot_id" {
-  description = "Leap Micro x86 snapshot ID to be used. If empty, the most recent leapmicro snapshot matching the selected kubernetes_distribution_type will be used."
+  description = "Leap Micro x86 snapshot ID to be used. If empty, the most recent leapmicro snapshot matching the selected kubernetes_distribution will be used."
   type        = string
   default     = ""
+
+  validation {
+    condition     = trimspace(var.leapmicro_x86_snapshot_id) == "" || can(regex("^[0-9]+$", trimspace(var.leapmicro_x86_snapshot_id)))
+    error_message = "leapmicro_x86_snapshot_id must be empty or a numeric Hetzner image/snapshot ID."
+  }
 }
 
 variable "leapmicro_arm_snapshot_id" {
-  description = "Leap Micro ARM snapshot ID to be used. If empty, the most recent leapmicro snapshot matching the selected kubernetes_distribution_type will be used."
+  description = "Leap Micro ARM snapshot ID to be used. If empty, the most recent leapmicro snapshot matching the selected kubernetes_distribution will be used."
   type        = string
   default     = ""
+
+  validation {
+    condition     = trimspace(var.leapmicro_arm_snapshot_id) == "" || can(regex("^[0-9]+$", trimspace(var.leapmicro_arm_snapshot_id)))
+    error_message = "leapmicro_arm_snapshot_id must be empty or a numeric Hetzner image/snapshot ID."
+  }
 }
 
-variable "enable_x86" {
-  description = "Enable x86 image lookups and node validation."
-  type        = bool
-  default     = true
-}
+variable "enabled_architectures" {
+  description = "CPU architectures allowed for nodepools and snapshot lookups. Use [\"x86\"], [\"arm\"], or [\"x86\", \"arm\"]. Hetzner CAX server types are ARM; other Cloud server families are treated as x86."
+  type        = list(string)
+  default     = ["x86", "arm"]
 
-variable "enable_arm" {
-  description = "Enable ARM image lookups and node validation."
-  type        = bool
-  default     = true
+  validation {
+    condition = (
+      length(var.enabled_architectures) > 0 &&
+      length(var.enabled_architectures) == length(distinct(var.enabled_architectures)) &&
+      alltrue([for architecture in var.enabled_architectures : contains(["x86", "arm"], architecture)])
+    )
+    error_message = "enabled_architectures must contain one or both of: x86, arm."
+  }
+
+  validation {
+    condition = alltrue([
+      for server_type in local.validation_all_server_types :
+      contains(var.enabled_architectures, substr(server_type, 0, 3) == "cax" ? "arm" : "x86")
+    ])
+    error_message = "enabled_architectures must include every architecture used by control_plane_nodepools, agent_nodepools, and autoscaler_nodepools."
+  }
 }
 
 variable "microos_x86_snapshot_id" {
   description = "MicroOS x86 snapshot ID to be used. If empty, the most recent image created will be used."
   type        = string
   default     = ""
+
+  validation {
+    condition     = trimspace(var.microos_x86_snapshot_id) == "" || can(regex("^[0-9]+$", trimspace(var.microos_x86_snapshot_id)))
+    error_message = "microos_x86_snapshot_id must be empty or a numeric Hetzner image/snapshot ID."
+  }
 }
 
 variable "microos_arm_snapshot_id" {
   description = "MicroOS ARM snapshot ID to be used. If empty, the most recent image created will be used."
   type        = string
   default     = ""
+
+  validation {
+    condition     = trimspace(var.microos_arm_snapshot_id) == "" || can(regex("^[0-9]+$", trimspace(var.microos_arm_snapshot_id)))
+    error_message = "microos_arm_snapshot_id must be empty or a numeric Hetzner image/snapshot ID."
+  }
 }
 
 variable "ssh_port" {
@@ -112,6 +152,11 @@ variable "ssh_private_key" {
   description = "SSH private Key."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = var.ssh_private_key == null || trimspace(var.ssh_private_key) != ""
+    error_message = "ssh_private_key must be null for ssh-agent based authentication or a non-empty private key."
+  }
 }
 
 variable "ssh_hcloud_key_label" {
@@ -124,6 +169,17 @@ variable "ssh_additional_public_keys" {
   description = "Additional SSH public Keys. Use them to grant other team members root access to your cluster nodes."
   type        = list(string)
   default     = []
+
+  validation {
+    condition = alltrue([
+      for key in var.ssh_additional_public_keys :
+      trimspace(key) == "" || can(regex(
+        "^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)\\s+",
+        trimspace(key)
+      ))
+    ])
+    error_message = "ssh_additional_public_keys entries must be empty or valid OpenSSH public keys."
+  }
 }
 
 variable "authentication_config" {
@@ -136,33 +192,60 @@ variable "hcloud_ssh_key_id" {
   description = "If passed, a key already registered within hetzner is used. Otherwise, a new one will be created by the module."
   type        = string
   default     = null
+
+  validation {
+    condition     = var.hcloud_ssh_key_id == null || can(regex("^[1-9][0-9]*$", trimspace(var.hcloud_ssh_key_id)))
+    error_message = "hcloud_ssh_key_id must be null or a positive numeric Hetzner SSH key ID."
+  }
 }
 
 variable "ssh_max_auth_tries" {
   description = "The maximum number of authentication attempts permitted per connection."
   type        = number
   default     = 2
+
+  validation {
+    condition     = var.ssh_max_auth_tries >= 1 && var.ssh_max_auth_tries <= 100 && floor(var.ssh_max_auth_tries) == var.ssh_max_auth_tries
+    error_message = "ssh_max_auth_tries must be an integer between 1 and 100."
+  }
 }
 
 variable "network_region" {
   description = "Default region for network."
   type        = string
   default     = "eu-central"
-}
-variable "existing_network_id" {
-  # Unfortunately, we need this to be a list or null. If we only use a plain
-  # string here, and check that existing_network_id is null, terraform will
-  # complain that it cannot set `count` variables based on existing_network_id
-  # != null, because that id is an output value from
-  # hcloud_network.your_network.id, which terraform will only know after its
-  # construction.
-  description = "If you want to create the private network before calling this module, you can do so and pass its id here. NOTE: make sure to adapt network_ipv4_cidr accordingly to a range which does not collide with your other nodes."
-  type        = list(string)
-  default     = []
-  nullable    = false
+
   validation {
-    condition     = length(var.existing_network_id) == 0 || (can(var.existing_network_id[0]) && length(var.existing_network_id) == 1)
-    error_message = "If you pass an existing_network_id, it must be enclosed in square brackets: [id]. This is necessary to be able to unambiguously distinguish between an empty network id (default) and a user-supplied network id."
+    condition     = contains(keys(local.validation_locations_by_region), var.network_region)
+    error_message = "network_region must be one of: eu-central, us-east, us-west, ap-southeast."
+  }
+
+  validation {
+    condition = alltrue([
+      for location in local.validation_all_locations :
+      contains(lookup(local.validation_locations_by_region, var.network_region, []), location)
+    ])
+    error_message = "network_region must match every configured control-plane, primary-network agent, primary-network autoscaler, NAT router, and private-network load balancer location."
+  }
+
+  validation {
+    condition = var.network_region == var.network_region && alltrue([
+      for _, attachment_count in local.validation_network_attachment_count_by_network :
+      attachment_count <= 100
+    ])
+    error_message = "Each Hetzner private network supports at most 100 attached resources. Reduce static nodes, autoscaler max_nodes, NAT routers, load balancers, control-plane fanout, or extra_network_ids per network."
+  }
+}
+variable "existing_network" {
+  description = "Existing Hetzner Cloud Network to use as the primary kube-hetzner network. If null, the module creates the primary Network. NOTE: make sure network_ipv4_cidr matches the existing Network IP range."
+  type = object({
+    id = number
+  })
+  default = null
+
+  validation {
+    condition     = var.existing_network == null || (var.existing_network.id > 0 && floor(var.existing_network.id) == var.existing_network.id)
+    error_message = "existing_network.id must be a positive integer Hetzner Network ID."
   }
 }
 
@@ -170,12 +253,192 @@ variable "extra_network_ids" {
   description = "Additional network IDs to attach to every control plane and agent node."
   type        = list(number)
   default     = []
+
+  validation {
+    condition = (
+      length(var.extra_network_ids) == length(distinct(var.extra_network_ids)) &&
+      alltrue([for network_id in var.extra_network_ids : network_id > 0 && floor(network_id) == network_id])
+    )
+    error_message = "extra_network_ids must contain distinct positive integer Hetzner Network IDs."
+  }
+
+  validation {
+    condition     = length(var.extra_network_ids) <= 2
+    error_message = "A Hetzner server can attach to at most 3 Networks; extra_network_ids can contain at most 2 additional Networks."
+  }
+}
+
+variable "multinetwork_mode" {
+  description = "Optional multinetwork topology mode. Use \"disabled\" for the existing single-private-network behavior, or \"cilium_public_overlay\" to let Cilium span multiple Hetzner Networks over public node addresses with WireGuard encryption."
+  type        = string
+  default     = "disabled"
+
+  validation {
+    condition     = contains(["disabled", "cilium_public_overlay"], var.multinetwork_mode)
+    error_message = "multinetwork_mode must be either \"disabled\" or \"cilium_public_overlay\"."
+  }
+
+  validation {
+    condition     = var.multinetwork_mode != "cilium_public_overlay" || var.cni_plugin == "cilium"
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" requires cni_plugin=\"cilium\"."
+  }
+
+  validation {
+    condition     = var.multinetwork_mode != "cilium_public_overlay" || var.nat_router == null
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" is incompatible with nat_router. Public overlay nodes need direct public transport, not private-only NAT routing."
+  }
+
+  validation {
+    condition = (
+      var.multinetwork_mode != "cilium_public_overlay" ||
+      var.control_plane_endpoint != null
+    )
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" requires control_plane_endpoint to be set to a Kubernetes API endpoint reachable from every configured Hetzner Network."
+  }
+
+  validation {
+    condition = (
+      var.multinetwork_mode != "cilium_public_overlay" ||
+      !var.enable_control_plane_load_balancer ||
+      var.control_plane_load_balancer_enable_public_network
+    )
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" requires control_plane_load_balancer_enable_public_network=true when the module-managed control-plane load balancer is enabled."
+  }
+
+  validation {
+    condition = (
+      var.multinetwork_mode != "cilium_public_overlay" ||
+      var.ingress_controller == "none" ||
+      var.ingress_controller == "custom" ||
+      var.enable_klipper_metal_lb ||
+      var.load_balancer_enable_public_network
+    )
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" requires public Hetzner Load Balancers for managed ingress controllers. Set load_balancer_enable_public_network=true, use a custom/no ingress controller, or use Klipper/MetalLB."
+  }
+
+}
+
+variable "multinetwork_transport_ip_family" {
+  description = "Public transport address family for cilium_public_overlay. IPv4 is the conservative default; IPv6 and dualstack require public IPv6 on every node."
+  type        = string
+  default     = "ipv4"
+
+  validation {
+    condition     = contains(["ipv4", "ipv6", "dualstack"], var.multinetwork_transport_ip_family)
+    error_message = "multinetwork_transport_ip_family must be one of: ipv4, ipv6, dualstack."
+  }
+
+  validation {
+    condition = (
+      var.multinetwork_mode != "cilium_public_overlay" ||
+      !contains(["ipv4", "dualstack"], var.multinetwork_transport_ip_family) ||
+      (
+        (length(var.autoscaler_nodepools) == 0 || var.autoscaler_enable_public_ipv4) &&
+        alltrue([
+          for control_plane_nodepool in var.control_plane_nodepools :
+          control_plane_nodepool.enable_public_ipv4 &&
+          alltrue([
+            for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+            coalesce(control_plane_node.enable_public_ipv4, control_plane_nodepool.enable_public_ipv4)
+          ])
+        ]) &&
+        alltrue([
+          for agent_nodepool in var.agent_nodepools :
+          agent_nodepool.enable_public_ipv4 &&
+          alltrue([
+            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+            coalesce(agent_node.enable_public_ipv4, agent_nodepool.enable_public_ipv4)
+          ])
+        ])
+      )
+    )
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" with IPv4 transport requires public IPv4 enabled on all control-plane and agent nodes, plus autoscaler nodes when autoscaler_nodepools are configured."
+  }
+
+  validation {
+    condition = (
+      var.multinetwork_mode != "cilium_public_overlay" ||
+      !contains(["ipv6", "dualstack"], var.multinetwork_transport_ip_family) ||
+      (
+        (length(var.autoscaler_nodepools) == 0 || var.autoscaler_enable_public_ipv6) &&
+        alltrue([
+          for control_plane_nodepool in var.control_plane_nodepools :
+          control_plane_nodepool.enable_public_ipv6 &&
+          alltrue([
+            for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+            coalesce(control_plane_node.enable_public_ipv6, control_plane_nodepool.enable_public_ipv6)
+          ])
+        ]) &&
+        alltrue([
+          for agent_nodepool in var.agent_nodepools :
+          agent_nodepool.enable_public_ipv6 &&
+          alltrue([
+            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+            coalesce(agent_node.enable_public_ipv6, agent_nodepool.enable_public_ipv6)
+          ])
+        ])
+      )
+    )
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" with IPv6 or dual-stack transport requires public IPv6 enabled on all control-plane and agent nodes, plus autoscaler nodes when autoscaler_nodepools are configured."
+  }
+}
+
+variable "multinetwork_cilium_mtu" {
+  description = "Cilium device MTU used by cilium_public_overlay. The default leaves room for Hetzner public networking plus Cilium tunnel and WireGuard overhead."
+  type        = number
+  default     = 1370
+
+  validation {
+    condition     = var.multinetwork_cilium_mtu >= 1280 && var.multinetwork_cilium_mtu <= 1450 && floor(var.multinetwork_cilium_mtu) == var.multinetwork_cilium_mtu
+    error_message = "multinetwork_cilium_mtu must be an integer between 1280 and 1450."
+  }
+}
+
+variable "multinetwork_cilium_peer_ipv4_cidrs" {
+  description = "IPv4 source CIDRs allowed to reach Cilium public overlay peer ports on every node when cilium_public_overlay is enabled."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+
+  validation {
+    condition = alltrue([
+      for cidr in var.multinetwork_cilium_peer_ipv4_cidrs :
+      can(cidrhost(cidr, 0)) && provider::assert::ipv4(cidrhost(cidr, 0))
+    ])
+    error_message = "multinetwork_cilium_peer_ipv4_cidrs must contain valid IPv4 CIDR blocks."
+  }
+}
+
+variable "multinetwork_cilium_peer_ipv6_cidrs" {
+  description = "IPv6 source CIDRs allowed to reach Cilium public overlay peer ports on every node when cilium_public_overlay is enabled with IPv6 or dual-stack transport."
+  type        = list(string)
+  default     = ["::/0"]
+
+  validation {
+    condition = alltrue([
+      for cidr in var.multinetwork_cilium_peer_ipv6_cidrs :
+      can(cidrhost(cidr, 0)) && provider::assert::ipv6(cidrhost(cidr, 0))
+    ])
+    error_message = "multinetwork_cilium_peer_ipv6_cidrs must contain valid IPv6 CIDR blocks."
+  }
 }
 
 variable "network_ipv4_cidr" {
   description = "The main network cidr that all subnets will be created upon."
   type        = string
   default     = "10.0.0.0/8"
+
+  validation {
+    condition = (
+      can(cidrhost(var.network_ipv4_cidr, 0)) &&
+      provider::assert::ipv4(cidrhost(var.network_ipv4_cidr, 0)) &&
+      (
+        can(regex("^10\\.", cidrhost(var.network_ipv4_cidr, 0))) ||
+        can(regex("^172\\.(1[6-9]|2[0-9]|3[0-1])\\.", cidrhost(var.network_ipv4_cidr, 0))) ||
+        can(regex("^192\\.168\\.", cidrhost(var.network_ipv4_cidr, 0)))
+      )
+    )
+    error_message = "network_ipv4_cidr must be a valid RFC1918 IPv4 CIDR."
+  }
 }
 
 variable "network_subnet_mode" {
@@ -188,21 +451,25 @@ variable "network_subnet_mode" {
   }
 }
 
-variable "subnet_amount" {
+variable "subnet_count" {
   description = "The amount of subnets into which the network will be split. Must be a power of 2."
   type        = number
   default     = 256
   validation {
-    condition     = floor(log(var.subnet_amount, 2)) == log(var.subnet_amount, 2)
+    condition     = var.subnet_count > 0 ? floor(log(var.subnet_count, 2)) == log(var.subnet_count, 2) : false
     error_message = "Subnet amount must be a power of 2."
   }
   validation {
-    # Host bits = 32 - prefix, must have enough bits to create subnet_amount subnets
-    condition     = pow(2, 32 - tonumber(split("/", var.network_ipv4_cidr)[1])) >= var.subnet_amount
-    error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_amount or use a larger network."
+    condition     = var.subnet_count > 0
+    error_message = "Subnet amount must be greater than 0."
   }
   validation {
-    condition = var.subnet_amount >= (
+    # Host bits = 32 - prefix, must have enough bits to create subnet_count subnets
+    condition     = can(cidrhost(var.network_ipv4_cidr, 0)) ? pow(2, 32 - tonumber(split("/", var.network_ipv4_cidr)[1])) >= var.subnet_count : true
+    error_message = "The network CIDR is too small for the requested subnet amount. Reduce subnet_count or use a larger network."
+  }
+  validation {
+    condition = var.subnet_count >= (
       (
         var.network_subnet_mode == "per_nodepool"
         ? length(var.control_plane_nodepools) + length(var.agent_nodepools)
@@ -217,51 +484,139 @@ variable "cluster_ipv4_cidr" {
   description = "Internal Pod CIDR, used for the controller and currently for calico/cilium."
   type        = string
   default     = "10.42.0.0/16"
+
+  validation {
+    condition = (
+      trimspace(var.cluster_ipv4_cidr) == "" ||
+      provider::assert::cidrv4(var.cluster_ipv4_cidr)
+    )
+    error_message = "cluster_ipv4_cidr must be empty or a valid IPv4 CIDR."
+  }
 }
 
 variable "service_ipv4_cidr" {
   description = "Internal Service CIDR, used for the controller and currently for calico/cilium."
   type        = string
   default     = "10.43.0.0/16"
+
+  validation {
+    condition = (
+      trimspace(var.service_ipv4_cidr) == "" ||
+      provider::assert::cidrv4(var.service_ipv4_cidr)
+    )
+    error_message = "service_ipv4_cidr must be empty or a valid IPv4 CIDR."
+  }
+
+  validation {
+    condition     = (trimspace(var.service_ipv4_cidr) == "") == (trimspace(var.cluster_ipv4_cidr) == "")
+    error_message = "cluster_ipv4_cidr and service_ipv4_cidr must both be set for IPv4 networking, or both be empty for IPv6-only networking."
+  }
+
+  validation {
+    condition = (
+      trimspace(var.service_ipv4_cidr) == "" ||
+      trimspace(var.cluster_ipv4_cidr) == "" ||
+      trimspace(var.service_ipv4_cidr) != trimspace(var.cluster_ipv4_cidr)
+    )
+    error_message = "cluster_ipv4_cidr and service_ipv4_cidr must not be identical."
+  }
 }
 
 variable "cluster_ipv6_cidr" {
   description = "Internal Pod IPv6 CIDR. Set together with service_ipv6_cidr to enable dual-stack or IPv6-only cluster networking."
   type        = string
   default     = null
+
+  validation {
+    condition = (
+      try(trimspace(var.cluster_ipv6_cidr), "") == "" ||
+      provider::assert::cidrv6(var.cluster_ipv6_cidr)
+    )
+    error_message = "cluster_ipv6_cidr must be null, empty, or a valid IPv6 CIDR."
+  }
+
+  validation {
+    condition = (
+      (try(trimspace(var.cluster_ipv6_cidr), "") == "") ==
+      (try(trimspace(var.service_ipv6_cidr), "") == "")
+    )
+    error_message = "cluster_ipv6_cidr and service_ipv6_cidr must be set together for dual-stack or IPv6-only networking."
+  }
+
+  validation {
+    condition     = try(trimspace(var.cluster_ipv6_cidr), "") == "" || var.cni_plugin == "cilium"
+    error_message = "IPv6 and dual-stack pod/service CIDRs are currently supported only with cni_plugin = \"cilium\"."
+  }
+
+  validation {
+    condition = (
+      try(trimspace(var.cluster_ipv6_cidr), "") == "" ||
+      try(trimspace(var.service_ipv6_cidr), "") == "" ||
+      trimspace(var.cluster_ipv6_cidr) != trimspace(var.service_ipv6_cidr)
+    )
+    error_message = "cluster_ipv6_cidr and service_ipv6_cidr must not be identical."
+  }
+
+  validation {
+    condition = (
+      trimspace(var.cluster_ipv4_cidr) != "" ||
+      try(trimspace(var.cluster_ipv6_cidr), "") != ""
+    )
+    error_message = "At least one pod/service IP family must be enabled. Keep IPv4 CIDRs set, or set both IPv6 CIDRs for IPv6-only mode."
+  }
 }
 
 variable "service_ipv6_cidr" {
   description = "Internal Service IPv6 CIDR. Set together with cluster_ipv6_cidr to enable dual-stack or IPv6-only cluster networking."
   type        = string
   default     = null
+
+  validation {
+    condition = (
+      try(trimspace(var.service_ipv6_cidr), "") == "" ||
+      provider::assert::cidrv6(var.service_ipv6_cidr)
+    )
+    error_message = "service_ipv6_cidr must be null, empty, or a valid IPv6 CIDR."
+  }
+
 }
 
 variable "cluster_dns_ipv4" {
   description = "Internal Service IPv4 address of core-dns."
   type        = string
   default     = null
+
+  validation {
+    condition = (
+      var.cluster_dns_ipv4 == null ||
+      (
+        provider::assert::ipv4(var.cluster_dns_ipv4) &&
+        trimspace(var.service_ipv4_cidr) != ""
+      )
+    )
+    error_message = "cluster_dns_ipv4 must be a valid IPv4 address and requires service_ipv4_cidr to be enabled."
+  }
 }
 
-variable "kubeapi_port" {
+variable "kubernetes_api_port" {
   description = "Kubernetes API server port used for k3s control-plane listeners, load balancer listeners, firewall rules, and default join endpoints. RKE2 currently requires the default 6443 API port; RKE2 node registration still uses supervisor port 9345."
   type        = number
   default     = 6443
 
   validation {
-    condition     = var.kubeapi_port >= 1 && var.kubeapi_port <= 65535
-    error_message = "kubeapi_port must be between 1 and 65535."
+    condition     = var.kubernetes_api_port >= 1 && var.kubernetes_api_port <= 65535
+    error_message = "kubernetes_api_port must be between 1 and 65535."
   }
 
   validation {
-    condition     = var.kubernetes_distribution_type != "rke2" || var.kubeapi_port == 6443
-    error_message = "RKE2 currently requires kubeapi_port = 6443. RKE2 node registration uses supervisor port 9345, and RKE2 does not expose a supported https-listen-port equivalent for changing the Kubernetes API listener."
+    condition     = var.kubernetes_distribution != "rke2" || var.kubernetes_api_port == 6443
+    error_message = "RKE2 currently requires kubernetes_api_port = 6443. RKE2 node registration uses supervisor port 9345, and RKE2 does not expose a supported https-listen-port equivalent for changing the Kubernetes API listener."
   }
 }
 
 
 variable "nat_router" {
-  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires use_control_plane_lb=true when enabled. Automatically forwards kubeapi_port to the control plane LB when control_plane_lb_enable_public_interface=false. extra_runcmd commands run as root after NAT router cloud-init completes and rerun when the command list changes."
+  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires enable_control_plane_load_balancer=true when enabled. Automatically forwards kubernetes_api_port to the control plane LB when control_plane_load_balancer_enable_public_network=false. extra_runcmd commands run as root after NAT router cloud-init completes and rerun when the command list changes."
   nullable    = true
   default     = null
   type = object({
@@ -278,16 +633,21 @@ variable "nat_router" {
     condition     = var.nat_router == null || !try(var.nat_router.enable_redundancy, false) || try(var.nat_router.standby_location, "") != ""
     error_message = "When nat_router.enable_redundancy is true, standby_location must be provided."
   }
+
+  validation {
+    condition     = var.nat_router == null || var.enable_control_plane_load_balancer
+    error_message = "When nat_router is enabled, enable_control_plane_load_balancer must be set to true."
+  }
 }
 
-variable "use_private_bastion" {
+variable "use_private_nat_router_bastion" {
   type        = bool
   default     = false
   description = "Use the NAT router's private IP as the SSH bastion instead of its public IP. Requires the operator to have network-level access to the private network (e.g. via Tailscale, Cloudflare Tunnel, WireGuard VPN, etc)."
 
   validation {
-    condition     = !var.use_private_bastion || var.nat_router != null
-    error_message = "use_private_bastion requires nat_router to be configured."
+    condition     = !var.use_private_nat_router_bastion || var.nat_router != null
+    error_message = "use_private_nat_router_bastion requires nat_router to be configured."
   }
 }
 
@@ -313,6 +673,18 @@ variable "optional_bastion_host" {
   })
   sensitive = true
   default   = null
+
+  validation {
+    condition = var.optional_bastion_host == null || (
+      trimspace(var.optional_bastion_host.bastion_host) != "" &&
+      trimspace(var.optional_bastion_host.bastion_user) != "" &&
+      trimspace(var.optional_bastion_host.bastion_private_key) != "" &&
+      var.optional_bastion_host.bastion_port >= 1 &&
+      var.optional_bastion_host.bastion_port <= 65535 &&
+      floor(var.optional_bastion_host.bastion_port) == var.optional_bastion_host.bastion_port
+    )
+    error_message = "optional_bastion_host requires non-empty host/user/private key and an integer bastion_port between 1 and 65535."
+  }
 }
 
 variable "nat_router_subnet_index" {
@@ -321,8 +693,24 @@ variable "nat_router_subnet_index" {
   description = "Subnet index for NAT router. Default 200 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
 
   validation {
-    condition     = var.nat_router_subnet_index >= 0 && var.nat_router_subnet_index < var.subnet_amount
-    error_message = "NAT router subnet index must be between 0 and subnet_amount."
+    condition     = var.nat_router_subnet_index >= 0 && var.nat_router_subnet_index < var.subnet_count
+    error_message = "NAT router subnet index must be between 0 and subnet_count."
+  }
+
+  validation {
+    condition     = var.nat_router == null || !contains(local.validation_reserved_primary_network_subnet_indexes, var.nat_router_subnet_index)
+    error_message = "nat_router_subnet_index must not collide with control-plane or agent subnet indexes."
+  }
+
+  validation {
+    condition = (
+      var.nat_router == null ||
+      length(distinct(concat(
+        local.validation_reserved_primary_network_subnet_indexes,
+        [var.nat_router_subnet_index]
+      ))) <= 50
+    )
+    error_message = "Hetzner Cloud Networks support at most 50 subnets. Disable NAT router subnet creation or reduce primary-network subnet allocations."
   }
 }
 
@@ -332,8 +720,30 @@ variable "vswitch_subnet_index" {
   description = "Subnet index (0-255) for vSwitch. Default 201 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0)."
 
   validation {
-    condition     = var.vswitch_subnet_index >= 0 && var.vswitch_subnet_index <= 255
-    error_message = "vSwitch subnet index must be between 0 and 255."
+    condition     = var.vswitch_subnet_index >= 0 && var.vswitch_subnet_index < var.subnet_count
+    error_message = "vSwitch subnet index must be between 0 and subnet_count."
+  }
+
+  validation {
+    condition     = var.vswitch_id == null || var.vswitch_subnet_index != var.nat_router_subnet_index || var.nat_router == null
+    error_message = "vswitch_subnet_index must not equal nat_router_subnet_index when both vSwitch and nat_router are enabled."
+  }
+
+  validation {
+    condition     = var.vswitch_id == null || !contains(local.validation_reserved_primary_network_subnet_indexes, var.vswitch_subnet_index)
+    error_message = "vswitch_subnet_index must not collide with control-plane or agent subnet indexes."
+  }
+
+  validation {
+    condition = (
+      var.vswitch_id == null ||
+      length(distinct(concat(
+        local.validation_reserved_primary_network_subnet_indexes,
+        var.nat_router == null ? [] : [var.nat_router_subnet_index],
+        [var.vswitch_subnet_index]
+      ))) <= 50
+    )
+    error_message = "Hetzner Cloud Networks support at most 50 subnets. Disable vSwitch subnet creation or reduce primary-network subnet allocations."
   }
 }
 
@@ -341,6 +751,31 @@ variable "vswitch_id" {
   description = "Hetzner Cloud vSwitch ID. If defined, a subnet will be created in the IP-range defined by vswitch_subnet_index. The vSwitch must exist before this module is called."
   type        = number
   default     = null
+
+  validation {
+    condition     = var.vswitch_id == null || (var.vswitch_id > 0 && floor(var.vswitch_id) == var.vswitch_id)
+    error_message = "vswitch_id must be null or a positive integer Hetzner vSwitch ID."
+  }
+
+  validation {
+    condition     = var.vswitch_id == null || var.network_region == "eu-central"
+    error_message = "Hetzner Cloud vSwitch coupling is supported only in network_region = \"eu-central\"."
+  }
+}
+
+variable "expose_routes_to_vswitch" {
+  description = "Expose primary Network routes to the coupled Robot vSwitch when vswitch_id is set and kube-hetzner manages the primary Network. Existing Networks must enable this outside the module."
+  type        = bool
+  default     = true
+
+  validation {
+    condition = (
+      !var.expose_routes_to_vswitch ||
+      var.vswitch_id == null ||
+      var.existing_network == null
+    )
+    error_message = "expose_routes_to_vswitch can only be managed when kube-hetzner creates the primary Network. For existing_network, enable route exposure on that Network manually or set expose_routes_to_vswitch=false."
+  }
 }
 
 variable "extra_robot_nodes" {
@@ -384,66 +819,162 @@ variable "extra_robot_nodes" {
     ])
     error_message = "Each extra_robot_nodes.mtu must be between 576 and 9000."
   }
+
+  validation {
+    condition = alltrue([
+      for node in var.extra_robot_nodes :
+      node.vlan_id >= 1 && node.vlan_id <= 4094 && floor(node.vlan_id) == node.vlan_id
+    ])
+    error_message = "Each extra_robot_nodes.vlan_id must be an integer between 1 and 4094."
+  }
+
+  validation {
+    condition = alltrue([
+      for node in var.extra_robot_nodes :
+      node.ssh_port >= 1 && node.ssh_port <= 65535 && floor(node.ssh_port) == node.ssh_port
+    ])
+    error_message = "Each extra_robot_nodes.ssh_port must be an integer between 1 and 65535."
+  }
+
+  validation {
+    condition = alltrue([
+      for node in var.extra_robot_nodes :
+      trimspace(node.interface) != "" && trimspace(node.ssh_user) != ""
+    ])
+    error_message = "Each extra_robot_nodes interface and ssh_user must be non-empty."
+  }
+
+  validation {
+    condition     = length(var.extra_robot_nodes) == 0 || var.vswitch_id != null
+    error_message = "extra_robot_nodes requires vswitch_id so Robot nodes have a Cloud Network vSwitch subnet to join."
+  }
+
+  validation {
+    condition     = length(var.extra_robot_nodes) == 0 || var.kubernetes_distribution == "k3s"
+    error_message = "extra_robot_nodes currently supports only kubernetes_distribution = \"k3s\"."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for node in var.extra_robot_nodes : [
+        for route in node.routes :
+        can(cidrhost(route, 0)) && provider::assert::ipv4(cidrhost(route, 0))
+      ]
+    ]))
+    error_message = "Each extra_robot_nodes.routes entry must be a valid IPv4 CIDR."
+  }
 }
 
 variable "load_balancer_location" {
   description = "Default load balancer location."
   type        = string
   default     = "nbg1"
+
+  validation {
+    condition     = contains(flatten(values(local.validation_locations_by_region)), var.load_balancer_location)
+    error_message = "load_balancer_location must be one of the supported Hetzner Cloud locations: fsn1, hel1, nbg1, ash, hil, sin."
+  }
 }
 
 variable "load_balancer_type" {
   description = "Default load balancer server type."
   type        = string
   default     = "lb11"
+
+  validation {
+    condition     = can(regex("^lb[1-9][0-9]*$", var.load_balancer_type))
+    error_message = "load_balancer_type must be a Hetzner Load Balancer type such as lb11, lb21, or lb31."
+  }
 }
 
-variable "load_balancer_disable_ipv6" {
-  description = "Disable IPv6 for the load balancer."
+variable "load_balancer_enable_ipv6" {
+  description = "Enable IPv6 for the ingress load balancer."
   type        = bool
-  default     = false
+  default     = true
 }
 
-variable "load_balancer_disable_public_network" {
-  description = "Disables the public network of the load balancer."
+variable "load_balancer_enable_public_network" {
+  description = "Enable the public network of the ingress load balancer."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "load_balancer_algorithm_type" {
   description = "Specifies the algorithm type of the load balancer."
   type        = string
   default     = "round_robin"
+
+  validation {
+    condition     = contains(["round_robin", "least_connections"], var.load_balancer_algorithm_type)
+    error_message = "load_balancer_algorithm_type must be either \"round_robin\" or \"least_connections\"."
+  }
 }
 
 variable "load_balancer_health_check_interval" {
   description = "Specifies the interval at which a health check is performed. Minimum is 3s."
   type        = string
   default     = "15s"
+
+  validation {
+    condition = (
+      can(regex("^[0-9]+s$", var.load_balancer_health_check_interval)) &&
+      tonumber(trimsuffix(var.load_balancer_health_check_interval, "s")) >= 3
+    )
+    error_message = "load_balancer_health_check_interval must be a duration in seconds with a minimum of 3s, for example \"15s\"."
+  }
 }
 
 variable "load_balancer_health_check_timeout" {
   description = "Specifies the timeout of a single health check. Must not be greater than the health check interval. Minimum is 1s."
   type        = string
   default     = "10s"
+
+  validation {
+    condition = (
+      can(regex("^[0-9]+s$", var.load_balancer_health_check_timeout)) &&
+      can(regex("^[0-9]+s$", var.load_balancer_health_check_interval)) &&
+      tonumber(trimsuffix(var.load_balancer_health_check_timeout, "s")) >= 1 &&
+      tonumber(trimsuffix(var.load_balancer_health_check_timeout, "s")) <= tonumber(trimsuffix(var.load_balancer_health_check_interval, "s"))
+    )
+    error_message = "load_balancer_health_check_timeout must be a duration in seconds, at least 1s, and not greater than load_balancer_health_check_interval."
+  }
 }
 
 variable "load_balancer_health_check_retries" {
   description = "Specifies the number of times a health check is retried before a target is marked as unhealthy."
   type        = number
   default     = 3
+
+  validation {
+    condition     = var.load_balancer_health_check_retries >= 1 && floor(var.load_balancer_health_check_retries) == var.load_balancer_health_check_retries
+    error_message = "load_balancer_health_check_retries must be a positive integer."
+  }
 }
 
 variable "enable_load_balancer_monitoring" {
-  description = "Enable ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics. Requires hetzner_ccm_use_helm=true and Prometheus Operator CRDs."
+  description = "Enable ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics. Requires enable_hetzner_ccm_helm=true and Prometheus Operator CRDs."
   type        = bool
   default     = false
+
+  validation {
+    condition     = !var.enable_load_balancer_monitoring || var.enable_hetzner_ccm_helm
+    error_message = "enable_load_balancer_monitoring requires enable_hetzner_ccm_helm = true."
+  }
 }
 
 variable "exclude_agents_from_external_load_balancers" {
   description = "Add node.kubernetes.io/exclude-from-external-load-balancers=true label to agent nodes. Enable this if you use both the Terraform-managed ingress LB and CCM-managed LoadBalancer services, and want to prevent double-registration of agents to the CCM LBs. Note: This excludes agents from ALL CCM-managed LoadBalancer services, not just ingress."
   type        = bool
   default     = false
+
+  validation {
+    condition = (
+      !var.exclude_agents_from_external_load_balancers ||
+      var.allow_scheduling_on_control_plane ||
+      local.validation_is_single_node_cluster
+    )
+    error_message = "exclude_agents_from_external_load_balancers=true with allow_scheduling_on_control_plane=false leaves no eligible targets for CCM-managed LoadBalancer services unless this is a single-node cluster."
+  }
 }
 
 variable "primary_ip_pool" {
@@ -454,39 +985,43 @@ variable "primary_ip_pool" {
   })
   default     = {}
   description = "Module-managed Primary IP pool settings. When enabled, kube-hetzner creates and assigns one Primary IP per node for the selected IP families."
+
+  validation {
+    condition     = !var.primary_ip_pool.auto_delete || var.primary_ip_pool.enable_ipv4 || var.primary_ip_pool.enable_ipv6
+    error_message = "primary_ip_pool.auto_delete has an effect only when enable_ipv4 or enable_ipv6 is true."
+  }
 }
 
 variable "control_plane_nodepools" {
   description = "Number of control plane nodes."
   type = list(object({
-    name                       = string
-    server_type                = string
-    location                   = string
-    backups                    = optional(bool)
-    floating_ip                = optional(bool, false)
-    floating_ip_id             = optional(number, null)
-    labels                     = list(string)
-    hcloud_labels              = optional(map(string), {})
-    taints                     = list(string)
-    count                      = optional(number, null)
-    append_random_suffix       = optional(bool, true)
-    swap_size                  = optional(string, "")
-    zram_size                  = optional(string, "")
-    kubelet_args               = optional(list(string), ["kube-reserved=cpu=250m,memory=1200Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
-    selinux                    = optional(bool, true)
-    placement_group_compat_idx = optional(number, 0)
-    placement_group            = optional(string, null)
-    os                         = optional(string)
-    os_snapshot_id             = optional(string, null)
-    disable_ipv4               = optional(bool, false)
-    disable_ipv6               = optional(bool, false)
-    primary_ipv4_id            = optional(number, null)
-    primary_ipv6_id            = optional(number, null)
-    network_id                 = optional(number, 0)
-    keep_disk                  = optional(bool)
-    join_endpoint_type         = optional(string, "private")
-    extra_write_files          = optional(list(any), [])
-    extra_runcmd               = optional(list(any), [])
+    name                  = string
+    server_type           = string
+    location              = string
+    backups               = optional(bool)
+    floating_ip           = optional(bool, false)
+    floating_ip_id        = optional(number, null)
+    labels                = list(string)
+    hcloud_labels         = optional(map(string), {})
+    taints                = list(string)
+    count                 = optional(number, null)
+    append_random_suffix  = optional(bool, true)
+    swap_size             = optional(string, "")
+    zram_size             = optional(string, "")
+    kubelet_args          = optional(list(string), ["kube-reserved=cpu=250m,memory=1200Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+    selinux               = optional(bool, true)
+    placement_group_index = optional(number, 0)
+    placement_group       = optional(string, null)
+    os                    = optional(string)
+    os_snapshot_id        = optional(string, null)
+    enable_public_ipv4    = optional(bool, true)
+    enable_public_ipv6    = optional(bool, true)
+    primary_ipv4_id       = optional(number, null)
+    primary_ipv6_id       = optional(number, null)
+    keep_disk             = optional(bool)
+    join_endpoint_type    = optional(string, "private")
+    extra_write_files     = optional(list(any), [])
+    extra_runcmd          = optional(list(any), [])
     attached_volumes = optional(list(object({
       size              = number
       mount_path        = string
@@ -497,32 +1032,31 @@ variable "control_plane_nodepools" {
       delete_protection = optional(bool, null)
     })), [])
     nodes = optional(map(object({
-      server_type                = optional(string)
-      location                   = optional(string)
-      backups                    = optional(bool)
-      floating_ip                = optional(bool)
-      floating_ip_id             = optional(number, null)
-      labels                     = optional(list(string))
-      hcloud_labels              = optional(map(string), {})
-      taints                     = optional(list(string))
-      append_random_suffix       = optional(bool)
-      swap_size                  = optional(string, "")
-      zram_size                  = optional(string, "")
-      kubelet_args               = optional(list(string), ["kube-reserved=cpu=250m,memory=1200Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
-      selinux                    = optional(bool, true)
-      placement_group_compat_idx = optional(number, 0)
-      placement_group            = optional(string, null)
-      os                         = optional(string)
-      os_snapshot_id             = optional(string, null)
-      disable_ipv4               = optional(bool)
-      disable_ipv6               = optional(bool)
-      primary_ipv4_id            = optional(number, null)
-      primary_ipv6_id            = optional(number, null)
-      network_id                 = optional(number)
-      keep_disk                  = optional(bool)
-      join_endpoint_type         = optional(string, null)
-      extra_write_files          = optional(list(any), [])
-      extra_runcmd               = optional(list(any), [])
+      server_type           = optional(string)
+      location              = optional(string)
+      backups               = optional(bool)
+      floating_ip           = optional(bool)
+      floating_ip_id        = optional(number, null)
+      labels                = optional(list(string))
+      hcloud_labels         = optional(map(string), {})
+      taints                = optional(list(string))
+      append_random_suffix  = optional(bool)
+      swap_size             = optional(string, "")
+      zram_size             = optional(string, "")
+      kubelet_args          = optional(list(string), ["kube-reserved=cpu=250m,memory=1200Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+      selinux               = optional(bool, true)
+      placement_group_index = optional(number, null)
+      placement_group       = optional(string, null)
+      os                    = optional(string)
+      os_snapshot_id        = optional(string, null)
+      enable_public_ipv4    = optional(bool)
+      enable_public_ipv6    = optional(bool)
+      primary_ipv4_id       = optional(number, null)
+      primary_ipv6_id       = optional(number, null)
+      keep_disk             = optional(bool)
+      join_endpoint_type    = optional(string, null)
+      extra_write_files     = optional(list(any), [])
+      extra_runcmd          = optional(list(any), [])
       attached_volumes = optional(list(object({
         size              = number
         mount_path        = string
@@ -566,8 +1100,35 @@ variable "control_plane_nodepools" {
   }
 
   validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", control_plane_nodepool.name))
+    ])
+    error_message = "Names in control_plane_nodepools must use lowercase alphanumeric characters and dashes, and must not start or end with a dash."
+  }
+
+  validation {
+    condition = (
+      var.network_subnet_mode != "per_nodepool" ||
+      length(var.control_plane_nodepools) + length(var.agent_nodepools) <= 50
+    )
+    error_message = "network_subnet_mode = \"per_nodepool\" creates one subnet per control-plane and agent nodepool, but Hetzner Cloud Networks support at most 50 subnets."
+  }
+
+  validation {
     condition     = alltrue([for control_plane_nodepool in var.control_plane_nodepools : (control_plane_nodepool.count == null) != (control_plane_nodepool.nodes == null)])
     error_message = "Set either nodes or count per control_plane_nodepool, not both."
+  }
+
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      control_plane_nodepool.count == null || (
+        control_plane_nodepool.count >= 0 &&
+        control_plane_nodepool.count == floor(control_plane_nodepool.count)
+      )
+    ])
+    error_message = "Each control_plane_nodepool count must be a non-negative integer."
   }
 
   validation {
@@ -588,6 +1149,80 @@ variable "control_plane_nodepools" {
   }
 
   validation {
+    condition = (
+      (length(var.control_plane_nodepools) == 0 ? 0 : sum([
+        for control_plane_nodepool in var.control_plane_nodepools :
+        length(coalesce(control_plane_nodepool.nodes, {})) + coalesce(control_plane_nodepool.count, 0)
+      ])) == 1 ||
+      (length(var.control_plane_nodepools) == 0 ? 0 : sum([
+        for control_plane_nodepool in var.control_plane_nodepools :
+        length(coalesce(control_plane_nodepool.nodes, {})) + coalesce(control_plane_nodepool.count, 0)
+      ])) % 2 == 1
+    )
+    error_message = "Control plane node count must be 1 or an odd number for etcd quorum safety."
+  }
+
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      contains(["private", "public"], control_plane_nodepool.join_endpoint_type) &&
+      alltrue([
+        for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+        control_plane_node.join_endpoint_type == null || contains(["private", "public"], control_plane_node.join_endpoint_type)
+      ])
+    ])
+    error_message = "control_plane_nodepools join_endpoint_type must be either \"private\" or \"public\"."
+  }
+
+  validation {
+    condition = (
+      var.control_plane_endpoint != null ||
+      !var.enable_control_plane_load_balancer ||
+      !var.control_plane_load_balancer_enable_public_network ||
+      alltrue([
+        for control_plane_nodepool in var.control_plane_nodepools :
+        control_plane_nodepool.join_endpoint_type != "public" &&
+        alltrue([
+          for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+          control_plane_node.join_endpoint_type != "public"
+        ])
+      ])
+    )
+    error_message = "control_plane_nodepools join_endpoint_type=\"public\" with the module-managed control-plane load balancer requires control_plane_endpoint. Hetzner Cloud nodes are not assumed to hairpin through the load balancer public IP."
+  }
+
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      (control_plane_nodepool.primary_ipv4_id == null || (control_plane_nodepool.enable_public_ipv4 && control_plane_nodepool.primary_ipv4_id > 0)) &&
+      (control_plane_nodepool.primary_ipv6_id == null || (control_plane_nodepool.enable_public_ipv6 && control_plane_nodepool.primary_ipv6_id > 0)) &&
+      alltrue([
+        for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+        (
+          control_plane_node.primary_ipv4_id == null ||
+          (coalesce(control_plane_node.enable_public_ipv4, control_plane_nodepool.enable_public_ipv4) && control_plane_node.primary_ipv4_id > 0)
+          ) && (
+          control_plane_node.primary_ipv6_id == null ||
+          (coalesce(control_plane_node.enable_public_ipv6, control_plane_nodepool.enable_public_ipv6) && control_plane_node.primary_ipv6_id > 0)
+        )
+      ])
+    ])
+    error_message = "primary_ipv4_id/primary_ipv6_id values must be positive and require the matching public IP family to be enabled."
+  }
+
+  validation {
+    condition = alltrue([
+      for control_plane_nodepool in var.control_plane_nodepools :
+      (
+        control_plane_nodepool.placement_group == null ||
+        control_plane_nodepool.count == null ||
+        control_plane_nodepool.count <= 10
+      )
+    ])
+    error_message = "A Hetzner spread placement group supports at most 10 servers. Split count-based control-plane nodepools with an explicit placement_group into groups of 10 or fewer."
+  }
+
+  validation {
     condition = alltrue(flatten([
       for np in var.control_plane_nodepools : [
         for vol in coalesce(np.attached_volumes, []) : (
@@ -602,44 +1237,62 @@ variable "control_plane_nodepools" {
     ]))
     error_message = "Each attached_volumes entry in control_plane_nodepools must have size between 10 and 10240 GB, filesystem in [ext4,xfs], and a mount_path under /var without '.' or '..'."
   }
+
+  validation {
+    condition = alltrue(flatten([
+      for np in var.control_plane_nodepools : concat(
+        [
+          can(regex("^$|[1-9][0-9]{0,3}(G|M)$", np.swap_size)),
+          can(regex("^$|[1-9][0-9]{0,3}(G|M)$", np.zram_size))
+        ],
+        flatten([
+          for node in values(coalesce(np.nodes, {})) : [
+            can(regex("^$|[1-9][0-9]{0,3}(G|M)$", node.swap_size)),
+            can(regex("^$|[1-9][0-9]{0,3}(G|M)$", node.zram_size))
+          ]
+        ])
+      )
+    ]))
+    error_message = "control_plane_nodepools swap_size and zram_size must be empty or match sizes like 512M, 1G, or 32G."
+  }
 }
 
 variable "agent_nodepools" {
   description = "Number of agent nodes."
   type = list(object({
-    name                       = string
-    server_type                = string
-    location                   = string
-    backups                    = optional(bool)
-    floating_ip                = optional(bool)
-    floating_ip_type           = optional(string, "ipv4")
-    floating_ip_id             = optional(number, null)
-    floating_ip_rdns           = optional(string, null)
-    labels                     = list(string)
-    hcloud_labels              = optional(map(string), {})
-    taints                     = list(string)
-    longhorn_volume_size       = optional(number)
-    longhorn_mount_path        = optional(string, "/var/longhorn")
-    append_random_suffix       = optional(bool, true)
-    swap_size                  = optional(string, "")
-    zram_size                  = optional(string, "")
-    kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
-    selinux                    = optional(bool, true)
-    placement_group_compat_idx = optional(number, 0)
-    placement_group            = optional(string, null)
-    subnet_ip_range            = optional(string, null)
-    os                         = optional(string)
-    os_snapshot_id             = optional(string, null)
-    count                      = optional(number, null)
-    disable_ipv4               = optional(bool, false)
-    disable_ipv6               = optional(bool, false)
-    primary_ipv4_id            = optional(number, null)
-    primary_ipv6_id            = optional(number, null)
-    network_id                 = optional(number, 0)
-    keep_disk                  = optional(bool)
-    join_endpoint_type         = optional(string, "private")
-    extra_write_files          = optional(list(any), [])
-    extra_runcmd               = optional(list(any), [])
+    name                  = string
+    server_type           = string
+    location              = string
+    backups               = optional(bool)
+    floating_ip           = optional(bool)
+    floating_ip_type      = optional(string, "ipv4")
+    floating_ip_id        = optional(number, null)
+    floating_ip_rdns      = optional(string, null)
+    labels                = list(string)
+    hcloud_labels         = optional(map(string), {})
+    taints                = list(string)
+    longhorn_volume_size  = optional(number)
+    longhorn_mount_path   = optional(string, "/var/longhorn")
+    append_random_suffix  = optional(bool, true)
+    swap_size             = optional(string, "")
+    zram_size             = optional(string, "")
+    kubelet_args          = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+    selinux               = optional(bool, true)
+    placement_group_index = optional(number, 0)
+    placement_group       = optional(string, null)
+    subnet_ip_range       = optional(string, null)
+    os                    = optional(string)
+    os_snapshot_id        = optional(string, null)
+    count                 = optional(number, null)
+    enable_public_ipv4    = optional(bool, true)
+    enable_public_ipv6    = optional(bool, true)
+    primary_ipv4_id       = optional(number, null)
+    primary_ipv6_id       = optional(number, null)
+    network_id            = optional(number, null)
+    keep_disk             = optional(bool)
+    join_endpoint_type    = optional(string, "private")
+    extra_write_files     = optional(list(any), [])
+    extra_runcmd          = optional(list(any), [])
     attached_volumes = optional(list(object({
       size              = number
       mount_path        = string
@@ -650,37 +1303,37 @@ variable "agent_nodepools" {
       delete_protection = optional(bool, null)
     })), [])
     nodes = optional(map(object({
-      server_type                = optional(string)
-      location                   = optional(string)
-      backups                    = optional(bool)
-      floating_ip                = optional(bool)
-      floating_ip_type           = optional(string, null)
-      floating_ip_id             = optional(number, null)
-      floating_ip_rdns           = optional(string, null)
-      labels                     = optional(list(string))
-      hcloud_labels              = optional(map(string), {})
-      taints                     = optional(list(string))
-      longhorn_volume_size       = optional(number)
-      longhorn_mount_path        = optional(string, null)
-      append_random_suffix       = optional(bool)
-      swap_size                  = optional(string, "")
-      zram_size                  = optional(string, "")
-      kubelet_args               = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
-      selinux                    = optional(bool, true)
-      placement_group_compat_idx = optional(number, 0)
-      placement_group            = optional(string, null)
-      append_index_to_node_name  = optional(bool, true)
-      os                         = optional(string)
-      os_snapshot_id             = optional(string, null)
-      disable_ipv4               = optional(bool)
-      disable_ipv6               = optional(bool)
-      primary_ipv4_id            = optional(number, null)
-      primary_ipv6_id            = optional(number, null)
-      network_id                 = optional(number)
-      keep_disk                  = optional(bool)
-      join_endpoint_type         = optional(string, null)
-      extra_write_files          = optional(list(any), [])
-      extra_runcmd               = optional(list(any), [])
+      server_type               = optional(string)
+      location                  = optional(string)
+      backups                   = optional(bool)
+      floating_ip               = optional(bool)
+      floating_ip_type          = optional(string, null)
+      floating_ip_id            = optional(number, null)
+      floating_ip_rdns          = optional(string, null)
+      labels                    = optional(list(string))
+      hcloud_labels             = optional(map(string), {})
+      taints                    = optional(list(string))
+      longhorn_volume_size      = optional(number)
+      longhorn_mount_path       = optional(string, null)
+      append_random_suffix      = optional(bool)
+      swap_size                 = optional(string, "")
+      zram_size                 = optional(string, "")
+      kubelet_args              = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+      selinux                   = optional(bool, true)
+      placement_group_index     = optional(number, null)
+      placement_group           = optional(string, null)
+      append_index_to_node_name = optional(bool, true)
+      os                        = optional(string)
+      os_snapshot_id            = optional(string, null)
+      enable_public_ipv4        = optional(bool)
+      enable_public_ipv6        = optional(bool)
+      primary_ipv4_id           = optional(number, null)
+      primary_ipv6_id           = optional(number, null)
+      network_id                = optional(number)
+      keep_disk                 = optional(bool)
+      join_endpoint_type        = optional(string, null)
+      extra_write_files         = optional(list(any), [])
+      extra_runcmd              = optional(list(any), [])
       attached_volumes = optional(list(object({
         size              = number
         mount_path        = string
@@ -733,6 +1386,14 @@ variable "agent_nodepools" {
   validation {
     condition = alltrue([
       for agent_nodepool in var.agent_nodepools :
+      can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", agent_nodepool.name))
+    ])
+    error_message = "Names in agent_nodepools must use lowercase alphanumeric characters and dashes, and must not start or end with a dash."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
       contains(["ipv4", "ipv6"], coalesce(agent_nodepool.floating_ip_type, "ipv4")) &&
       alltrue([
         for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
@@ -747,6 +1408,16 @@ variable "agent_nodepools" {
     error_message = "Set either nodes or count per agent_nodepool, not both."
   }
 
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      agent_nodepool.count == null || (
+        agent_nodepool.count >= 0 &&
+        agent_nodepool.count == floor(agent_nodepool.count)
+      )
+    ])
+    error_message = "Each agent_nodepool count must be a non-negative integer."
+  }
 
   validation {
     condition = alltrue([for agent_nodepool in var.agent_nodepools :
@@ -758,13 +1429,122 @@ variable "agent_nodepools" {
 
   validation {
     condition = alltrue([
-      for network_id in distinct([for agent_nodepool in var.agent_nodepools : agent_nodepool.network_id]) :
+      for network_id in distinct([for agent_nodepool in var.agent_nodepools : coalesce(agent_nodepool.network_id, 0)]) :
       sum([
         for agent_nodepool in var.agent_nodepools :
-        agent_nodepool.network_id == network_id ? (length(coalesce(agent_nodepool.nodes, {})) + coalesce(agent_nodepool.count, 0)) : 0
+        coalesce(agent_nodepool.network_id, 0) == network_id ? (length(coalesce(agent_nodepool.nodes, {})) + coalesce(agent_nodepool.count, 0)) : 0
       ]) <= 100
     ])
     error_message = "Each Hetzner private network supports at most 100 attached servers. Use different network_id values to spread larger clusters."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      (agent_nodepool.network_id == null || (agent_nodepool.network_id > 0 && floor(agent_nodepool.network_id) == agent_nodepool.network_id)) &&
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.network_id == null || (agent_node.network_id > 0 && floor(agent_node.network_id) == agent_node.network_id)
+      ])
+    ])
+    error_message = "agent_nodepools network_id values must be null/omitted for the primary kube-hetzner network or positive integer Hetzner Network IDs."
+  }
+
+  validation {
+    condition = 1 + length(distinct(concat(
+      var.extra_network_ids,
+      var.multinetwork_mode == "cilium_public_overlay" ? [] : flatten([
+        for agent_nodepool in var.agent_nodepools : concat(
+          coalesce(agent_nodepool.network_id, 0) == 0 ? [] : [coalesce(agent_nodepool.network_id, 0)],
+          [
+            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+            coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
+            if coalesce(agent_node.network_id, agent_nodepool.network_id, 0) != 0
+          ]
+        )
+      ])
+    ))) <= 3
+    error_message = "Control planes can attach to at most 3 Networks. Reduce extra_network_ids or use multinetwork_mode=\"cilium_public_overlay\" so control planes do not fan out to every external agent Network."
+  }
+
+  validation {
+    condition = (
+      length(distinct(concat(
+        [0],
+        flatten([
+          for agent_nodepool in var.agent_nodepools : concat(
+            [coalesce(agent_nodepool.network_id, 0)],
+            [
+              for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+              coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
+            ]
+          )
+        ])
+      ))) <= 1 ||
+      var.control_plane_endpoint != null ||
+      var.multinetwork_mode == "cilium_public_overlay"
+    )
+    error_message = "When using multiple primary private networks, set control_plane_endpoint or enable multinetwork_mode=\"cilium_public_overlay\". The module-managed Hetzner control-plane load balancer is not treated as a cross-network public join endpoint."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      contains(["private", "public"], agent_nodepool.join_endpoint_type) &&
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.join_endpoint_type == null || contains(["private", "public"], agent_node.join_endpoint_type)
+      ])
+    ])
+    error_message = "agent_nodepools join_endpoint_type must be either \"private\" or \"public\"."
+  }
+
+  validation {
+    condition = (
+      var.control_plane_endpoint != null ||
+      !var.enable_control_plane_load_balancer ||
+      !var.control_plane_load_balancer_enable_public_network ||
+      alltrue([
+        for agent_nodepool in var.agent_nodepools :
+        agent_nodepool.join_endpoint_type != "public" &&
+        alltrue([
+          for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+          agent_node.join_endpoint_type != "public"
+        ])
+      ])
+    )
+    error_message = "agent_nodepools join_endpoint_type=\"public\" with the module-managed control-plane load balancer requires control_plane_endpoint. Hetzner Cloud nodes are not assumed to hairpin through the load balancer public IP."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      (agent_nodepool.primary_ipv4_id == null || (agent_nodepool.enable_public_ipv4 && agent_nodepool.primary_ipv4_id > 0)) &&
+      (agent_nodepool.primary_ipv6_id == null || (agent_nodepool.enable_public_ipv6 && agent_nodepool.primary_ipv6_id > 0)) &&
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        (
+          agent_node.primary_ipv4_id == null ||
+          (coalesce(agent_node.enable_public_ipv4, agent_nodepool.enable_public_ipv4) && agent_node.primary_ipv4_id > 0)
+          ) && (
+          agent_node.primary_ipv6_id == null ||
+          (coalesce(agent_node.enable_public_ipv6, agent_nodepool.enable_public_ipv6) && agent_node.primary_ipv6_id > 0)
+        )
+      ])
+    ])
+    error_message = "primary_ipv4_id/primary_ipv6_id values must be positive and require the matching public IP family to be enabled."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      (
+        agent_nodepool.placement_group == null ||
+        agent_nodepool.count == null ||
+        agent_nodepool.count <= 10
+      )
+    ])
+    error_message = "A Hetzner spread placement group supports at most 10 servers. Split count-based agent nodepools with an explicit placement_group into groups of 10 or fewer."
   }
 
   validation {
@@ -794,7 +1574,7 @@ variable "agent_nodepools" {
       for np in var.agent_nodepools : (
         (
           coalesce(np.floating_ip, false) ?
-          (coalesce(np.floating_ip_type, "ipv4") == "ipv4" ? !np.disable_ipv4 : !np.disable_ipv6)
+          (coalesce(np.floating_ip_type, "ipv4") == "ipv4" ? np.enable_public_ipv4 : np.enable_public_ipv6)
           : true
         ) &&
         alltrue([
@@ -802,15 +1582,78 @@ variable "agent_nodepools" {
             coalesce(node.floating_ip, np.floating_ip, false) ?
             (
               coalesce(node.floating_ip_type, np.floating_ip_type, "ipv4") == "ipv4" ?
-              !coalesce(node.disable_ipv4, np.disable_ipv4) :
-              !coalesce(node.disable_ipv6, np.disable_ipv6)
+              coalesce(node.enable_public_ipv4, np.enable_public_ipv4) :
+              coalesce(node.enable_public_ipv6, np.enable_public_ipv6)
             )
             : true
           )
         ])
       )
     ])
-    error_message = "floating_ip_type requires the matching public IP family to be enabled on the nodepool (disable_ipv4/disable_ipv6 must not block it)."
+    error_message = "floating_ip_type requires the matching public IP family to be enabled on the nodepool."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for np in var.agent_nodepools : concat(
+        [
+          np.longhorn_volume_size == null || (np.longhorn_volume_size >= 10 && np.longhorn_volume_size <= 10240)
+        ],
+        [
+          for node in values(coalesce(np.nodes, {})) :
+          node.longhorn_volume_size == null || (node.longhorn_volume_size >= 10 && node.longhorn_volume_size <= 10240)
+        ]
+      )
+    ]))
+    error_message = "longhorn_volume_size must be null or between 10 and 10240 GB at nodepool and node level."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for np in var.agent_nodepools : concat(
+        [
+          can(regex("^$|[1-9][0-9]{0,3}(G|M)$", np.swap_size)),
+          can(regex("^$|[1-9][0-9]{0,3}(G|M)$", np.zram_size))
+        ],
+        flatten([
+          for node in values(coalesce(np.nodes, {})) : [
+            can(regex("^$|[1-9][0-9]{0,3}(G|M)$", node.swap_size)),
+            can(regex("^$|[1-9][0-9]{0,3}(G|M)$", node.zram_size))
+          ]
+        ])
+      )
+    ]))
+    error_message = "agent_nodepools swap_size and zram_size must be empty or match sizes like 512M, 1G, or 32G."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for np in var.agent_nodepools : concat(
+        [
+          for vol in coalesce(np.attached_volumes, []) : (
+            vol.size >= 10 &&
+            vol.size <= 10240 &&
+            contains(["ext4", "xfs"], vol.filesystem) &&
+            can(regex("^/var/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", vol.mount_path)) &&
+            !contains(split("/", vol.mount_path), "..") &&
+            !contains(split("/", vol.mount_path), ".")
+          )
+        ],
+        flatten([
+          for node in values(coalesce(np.nodes, {})) : [
+            for vol in coalesce(node.attached_volumes, []) : (
+              vol.size >= 10 &&
+              vol.size <= 10240 &&
+              contains(["ext4", "xfs"], vol.filesystem) &&
+              can(regex("^/var/[a-zA-Z0-9._-]+(/[a-zA-Z0-9._-]+)*$", vol.mount_path)) &&
+              !contains(split("/", vol.mount_path), "..") &&
+              !contains(split("/", vol.mount_path), ".")
+            )
+          ]
+        ])
+      )
+    ]))
+    error_message = "Each attached_volumes entry in agent_nodepools must have size between 10 and 10240 GB, filesystem in [ext4,xfs], and a mount_path under /var without '.' or '..'."
   }
 
 }
@@ -859,6 +1702,20 @@ variable "cluster_autoscaler_extra_args" {
   type        = list(string)
   default     = []
   description = "Extra arguments for the Cluster Autoscaler deployment."
+
+  validation {
+    condition = alltrue([
+      for arg in var.cluster_autoscaler_extra_args :
+      !startswith(arg, "--v=") &&
+      !startswith(arg, "--logtostderr") &&
+      !startswith(arg, "--stderrthreshold") &&
+      !startswith(arg, "--cloud-provider") &&
+      !startswith(arg, "--nodes") &&
+      !startswith(arg, "--leader-elect-resource-name") &&
+      !startswith(arg, "--status-config-map-name")
+    ])
+    error_message = "cluster_autoscaler_extra_args must not include arguments managed by the module: --v, --logtostderr, --stderrthreshold, --cloud-provider, --nodes, --leader-elect-resource-name, or --status-config-map-name."
+  }
 }
 
 variable "cluster_autoscaler_tolerations" {
@@ -893,7 +1750,7 @@ variable "cluster_autoscaler_replicas" {
 variable "cluster_autoscaler_resource_limits" {
   type        = bool
   default     = true
-  description = "Should cluster autoscaler enable default resource requests and limits. Default values are requests: 100m & 300Mi and limits: 100m & 300Mi."
+  description = "Should cluster autoscaler enable default resource requests and limits. Default values are requests: 10m & 64Mi and limits: 100m & 300Mi."
 }
 
 variable "cluster_autoscaler_resource_values" {
@@ -909,8 +1766,8 @@ variable "cluster_autoscaler_resource_values" {
   })
   default = {
     requests = {
-      cpu    = "100m"
-      memory = "300Mi"
+      cpu    = "10m"
+      memory = "64Mi"
     }
     limits = {
       cpu    = "100m"
@@ -924,19 +1781,31 @@ variable "cluster_autoscaler_metrics_firewall_source" {
   type        = list(string)
   default     = []
   description = "Optional source CIDRs allowed to scrape cluster-autoscaler metrics through NodePort 30085 (maps to pod port 8085)."
+
+  validation {
+    condition = alltrue([
+      for source in var.cluster_autoscaler_metrics_firewall_source :
+      source == var.myipv4_ref || can(cidrhost(source, 0))
+    ])
+    error_message = "cluster_autoscaler_metrics_firewall_source entries must be CIDR blocks or the myipv4_ref placeholder."
+  }
 }
 
 variable "autoscaler_nodepools" {
   description = "Cluster autoscaler nodepools."
   type = list(object({
-    name         = string
-    server_type  = string
-    location     = string
-    min_nodes    = number
-    max_nodes    = number
-    labels       = optional(map(string), {})
-    kubelet_args = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
-    os           = optional(string)
+    name               = string
+    server_type        = string
+    location           = string
+    min_nodes          = number
+    max_nodes          = number
+    labels             = optional(map(string), {})
+    server_labels      = optional(map(string), {})
+    kubelet_args       = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+    os                 = optional(string)
+    network_id         = optional(number, null)
+    subnet_ip_range    = optional(string, null)
+    join_endpoint_type = optional(string, null)
     taints = optional(list(object({
       key    = string
       value  = string
@@ -959,6 +1828,25 @@ variable "autoscaler_nodepools" {
   }
 
   validation {
+    condition = (
+      length(compact([
+        for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.os
+      ])) == 0 ||
+      length(compact([
+        for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.os
+      ])) == length(var.autoscaler_nodepools)
+    )
+    error_message = "Set os explicitly on every autoscaler_nodepool, or omit os on every autoscaler_nodepool so the module can choose one effective OS."
+  }
+
+  validation {
+    condition = length(distinct(compact([
+      for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.os
+    ]))) <= 1
+    error_message = "All autoscaler_nodepools with explicit os must use the same value."
+  }
+
+  validation {
     condition = length(
       [for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.name]
       ) == length(
@@ -967,6 +1855,14 @@ variable "autoscaler_nodepools" {
       )
     )
     error_message = "Names in autoscaler_nodepools must be unique."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", autoscaler_nodepool.name))
+    ])
+    error_message = "Names in autoscaler_nodepools must use lowercase alphanumeric characters and dashes, and must not start or end with a dash."
   }
 
   validation {
@@ -1006,30 +1902,84 @@ variable "autoscaler_nodepools" {
     ])
     error_message = "Each autoscaler_nodepool zram_size must be empty or match sizes like 512M, 1G, or 32G."
   }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      autoscaler_nodepool.network_id == null || (autoscaler_nodepool.network_id > 0 && floor(autoscaler_nodepool.network_id) == autoscaler_nodepool.network_id)
+    ])
+    error_message = "autoscaler_nodepools network_id values must be null/omitted for the primary kube-hetzner network or positive integer Hetzner Network IDs."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      autoscaler_nodepool.subnet_ip_range == null || (
+        can(cidrhost(autoscaler_nodepool.subnet_ip_range, 0)) &&
+        provider::assert::ipv4(cidrhost(autoscaler_nodepool.subnet_ip_range, 0))
+      )
+    ])
+    error_message = "autoscaler_nodepools subnet_ip_range must be null or a valid IPv4 CIDR block inside the selected Hetzner private Network."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      autoscaler_nodepool.join_endpoint_type == null || contains(["private", "public"], autoscaler_nodepool.join_endpoint_type)
+    ])
+    error_message = "autoscaler_nodepools join_endpoint_type must be null, \"private\", or \"public\"."
+  }
+
+  validation {
+    condition = (
+      var.control_plane_endpoint != null ||
+      !var.enable_control_plane_load_balancer ||
+      !var.control_plane_load_balancer_enable_public_network ||
+      alltrue([
+        for autoscaler_nodepool in var.autoscaler_nodepools :
+        autoscaler_nodepool.join_endpoint_type != "public"
+      ])
+    )
+    error_message = "autoscaler_nodepools join_endpoint_type=\"public\" with the module-managed control-plane load balancer requires control_plane_endpoint. Hetzner Cloud nodes are not assumed to hairpin through the load balancer public IP."
+  }
+
+  validation {
+    condition = (
+      length(var.autoscaler_nodepools) == 0 ||
+      var.multinetwork_mode == "cilium_public_overlay" ||
+      length(distinct(concat(
+        [0],
+        [for autoscaler_nodepool in var.autoscaler_nodepools : coalesce(autoscaler_nodepool.network_id, 0)],
+        flatten([
+          for agent_nodepool in var.agent_nodepools : concat(
+            [coalesce(agent_nodepool.network_id, 0)],
+            [
+              for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+              coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
+            ]
+          )
+        ])
+      ))) <= 1
+    )
+    error_message = "Cluster autoscaler across multiple Hetzner Networks requires multinetwork_mode=\"cilium_public_overlay\" so the module can render one autoscaler Deployment per Network."
+  }
 }
 
-variable "autoscaler_labels" {
-  description = "Labels for nodes created by the Cluster Autoscaler."
-  type        = list(string)
-  default     = []
-}
-
-variable "autoscaler_taints" {
-  description = "Taints for nodes created by the Cluster Autoscaler."
-  type        = list(string)
-  default     = []
-}
-
-variable "autoscaler_disable_ipv4" {
-  description = "Disable IPv4 on nodes created by the Cluster Autoscaler."
+variable "autoscaler_enable_public_ipv4" {
+  description = "Enable public IPv4 on nodes created by the Cluster Autoscaler."
   type        = bool
-  default     = false
+  default     = true
 }
 
-variable "autoscaler_disable_ipv6" {
-  description = "Disable IPv6 on nodes created by the Cluster Autoscaler."
+variable "autoscaler_enable_public_ipv6" {
+  description = "Enable public IPv6 on nodes created by the Cluster Autoscaler."
   type        = bool
-  default     = false
+  default     = true
+
+  validation {
+    condition     = var.autoscaler_enable_public_ipv4 || var.autoscaler_enable_public_ipv6 || var.nat_router != null || var.optional_bastion_host != null || var.control_plane_endpoint != null || var.enable_control_plane_load_balancer
+    error_message = "Disabling both public IPv4 and IPv6 on autoscaler nodes requires a configured private access/join path such as nat_router, optional_bastion_host, control_plane_endpoint, or enable_control_plane_load_balancer."
+  }
 }
 
 variable "hetzner_ccm_version" {
@@ -1038,10 +1988,15 @@ variable "hetzner_ccm_version" {
   description = "Version of Kubernetes Cloud Controller Manager for Hetzner Cloud. See https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases for the available versions."
 }
 
-variable "hetzner_ccm_use_helm" {
+variable "enable_hetzner_ccm_helm" {
   type        = bool
   default     = false
   description = "Whether to use the helm chart for the Hetzner CCM or the legacy manifest which is the default."
+
+  validation {
+    condition     = !var.enable_robot_ccm || var.enable_hetzner_ccm_helm
+    error_message = "enable_robot_ccm requires enable_hetzner_ccm_helm = true."
+  }
 }
 
 variable "hetzner_csi_version" {
@@ -1085,9 +2040,22 @@ variable "etcd_s3_backup" {
   type        = map(any)
   sensitive   = true
   default     = {}
+
+  validation {
+    condition = length(keys(var.etcd_s3_backup)) == 0 || alltrue([
+      for key in [
+        "etcd-s3-endpoint",
+        "etcd-s3-access-key",
+        "etcd-s3-secret-key",
+        "etcd-s3-bucket"
+      ] :
+      trimspace(tostring(lookup(var.etcd_s3_backup, key, ""))) != ""
+    ])
+    error_message = "etcd_s3_backup requires non-empty etcd-s3-endpoint, etcd-s3-access-key, etcd-s3-secret-key, and etcd-s3-bucket values when enabled."
+  }
 }
 
-variable "secrets_encryption" {
+variable "enable_secrets_encryption" {
   description = "Enable API server EncryptionConfiguration for Kubernetes Secrets at rest."
   type        = bool
   default     = false
@@ -1123,6 +2091,11 @@ variable "ingress_max_replica_count" {
   validation {
     condition     = var.ingress_max_replica_count >= 0
     error_message = "Number of ingress maximum replicas can't be below 0."
+  }
+
+  validation {
+    condition     = var.ingress_replica_count == 0 || var.ingress_max_replica_count >= var.ingress_replica_count
+    error_message = "ingress_max_replica_count must be greater than or equal to ingress_replica_count when ingress_replica_count is explicit."
   }
 }
 
@@ -1215,6 +2188,14 @@ variable "traefik_additional_trusted_ips" {
   type        = list(string)
   default     = []
   description = "Additional Trusted IPs to pass to Traefik. These are the ones that go into the trustedIPs section of the Traefik helm values file."
+
+  validation {
+    condition = alltrue([
+      for source in var.traefik_additional_trusted_ips :
+      can(cidrhost(source, 0))
+    ])
+    error_message = "traefik_additional_trusted_ips entries must be valid CIDR blocks."
+  }
 }
 
 variable "traefik_version" {
@@ -1279,6 +2260,14 @@ variable "haproxy_additional_proxy_protocol_ips" {
   type        = list(string)
   default     = []
   description = "Additional trusted proxy protocol IPs to pass to haproxy."
+
+  validation {
+    condition = alltrue([
+      for source in var.haproxy_additional_proxy_protocol_ips :
+      can(cidrhost(source, 0))
+    ])
+    error_message = "haproxy_additional_proxy_protocol_ips entries must be valid CIDR blocks."
+  }
 }
 
 variable "haproxy_version" {
@@ -1316,38 +2305,54 @@ variable "enable_metrics_server" {
   description = "Whether to enable or disable k3s metric server."
 }
 
-variable "initial_k3s_channel" {
+variable "k3s_channel" {
   type        = string
-  default     = "v1.33" # Please update kube.tf.example too when changing this variable
-  description = "Allows you to specify an initial k3s channel. See https://update.k3s.io/v1-release/channels for available channels."
+  default     = "stable" # Please update kube.tf.example too when changing this variable
+  description = "Allows you to specify an initial k3s channel. Use stable, latest, or testing for live channel installs; use k3s_version for exact Kubernetes minor pinning. See https://update.k3s.io/v1-release/channels for available channels."
 
   validation {
-    condition     = contains(["stable", "latest", "testing", "v1.16", "v1.17", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35"], var.initial_k3s_channel)
+    condition     = contains(["stable", "latest", "testing", "v1.16", "v1.17", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35"], var.k3s_channel)
     error_message = "The initial k3s channel must be one of stable, latest or testing, or any of the minor kube versions like v1.26."
   }
-}
-
-variable "install_k3s_version" {
-  type        = string
-  default     = ""
-  description = "Allows you to specify the k3s version (Example: v1.29.6+k3s2). Supersedes initial_k3s_channel. See https://github.com/k3s-io/k3s/releases for available versions."
-}
-
-variable "initial_rke2_channel" {
-  type        = string
-  default     = "v1.32" # Please update kube.tf.example too when changing this variable
-  description = "Allows you to specify an initial rke2 channel. See https://update.rke2.io/v1-release/channels for available channels."
 
   validation {
-    condition     = contains(["stable", "latest", "testing", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33"], var.initial_rke2_channel)
-    error_message = "The initial rke2 channel must be one of stable, latest or testing, or any of the minor kube versions like v1.31."
+    condition = (
+      var.k3s_version != "" ||
+      contains(["stable", "latest", "testing"], var.k3s_channel)
+    )
+    error_message = "When k3s_version is empty, k3s_channel must be stable, latest, or testing. Use k3s_version for exact Kubernetes minor pinning because Rancher minor release channels are not reliable live installer targets."
   }
 }
 
-variable "install_rke2_version" {
+variable "k3s_version" {
+  type        = string
+  default     = ""
+  description = "Allows you to specify the k3s version (Example: v1.29.6+k3s2). Supersedes k3s_channel. See https://github.com/k3s-io/k3s/releases for available versions."
+}
+
+variable "rke2_channel" {
+  type        = string
+  default     = "v1.32" # Please update kube.tf.example too when changing this variable
+  description = "Allows you to specify an initial rke2 channel. Use stable, latest, or testing when rke2_version is empty; use rke2_version for exact Kubernetes minor pinning. See https://update.rke2.io/v1-release/channels for available channels."
+
+  validation {
+    condition     = contains(["stable", "latest", "testing", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35"], var.rke2_channel)
+    error_message = "The initial rke2 channel must be one of stable, latest or testing, or any of the minor kube versions like v1.31."
+  }
+
+  validation {
+    condition = (
+      var.rke2_version != "" ||
+      contains(["stable", "latest", "testing"], var.rke2_channel)
+    )
+    error_message = "When rke2_version is empty, rke2_channel must be stable, latest, or testing. Use rke2_version for exact Kubernetes minor pinning because Rancher minor release channels are not reliable live installer targets."
+  }
+}
+
+variable "rke2_version" {
   type        = string
   default     = "v1.32.5+rke2r1"
-  description = "Allows you to specify the rke2 version (Example: v1.32.5+rke2r1). Supersedes initial_rke2_channel. See https://github.com/rancher/rke2/releases for available versions."
+  description = "Allows you to specify the rke2 version (Example: v1.32.5+rke2r1). Supersedes rke2_channel. See https://github.com/rancher/rke2/releases for available versions."
 }
 
 variable "system_upgrade_enable_eviction" {
@@ -1362,7 +2367,7 @@ variable "system_upgrade_use_drain" {
   description = "Wether using drain (true, the default), which will deletes and transfers all pods to other nodes before a node is being upgraded, or cordon (false), which just prevents schedulung new pods on the node during upgrade and keeps all pods running"
 }
 
-variable "automatically_upgrade_k3s" {
+variable "automatically_upgrade_kubernetes" {
   type        = bool
   default     = true
   description = "Whether to automatically upgrade k3s based on the selected channel."
@@ -1413,6 +2418,13 @@ variable "system_upgrade_schedule_window" {
     )
     error_message = "system_upgrade_schedule_window.timeZone must be a valid IANA timezone name (for example, UTC or Europe/Budapest)."
   }
+
+  validation {
+    condition = var.system_upgrade_schedule_window == null ? true : (
+      try(provider::semvers::compare(trimprefix(var.system_upgrade_controller_version, "v"), "0.15.0"), -1) >= 0
+    )
+    error_message = "system_upgrade_schedule_window requires system_upgrade_controller_version v0.15.0 or newer."
+  }
 }
 
 variable "automatically_upgrade_os" {
@@ -1425,18 +2437,55 @@ variable "extra_firewall_rules" {
   type        = list(any)
   default     = []
   description = "Additional firewall rules to apply to the cluster."
+
+  validation {
+    condition = alltrue([
+      for rule in var.extra_firewall_rules :
+      contains(["in", "out"], lookup(rule, "direction", "")) &&
+      contains(["tcp", "udp", "icmp", "esp", "gre"], lookup(rule, "protocol", "")) &&
+      (
+        !contains(["tcp", "udp"], lookup(rule, "protocol", "")) ||
+        can(regex("^([0-9]+|[0-9]+-[0-9]+)$", tostring(lookup(rule, "port", ""))))
+      ) &&
+      alltrue([
+        for source in lookup(rule, "source_ips", []) :
+        source == var.myipv4_ref || can(cidrhost(source, 0))
+      ]) &&
+      alltrue([
+        for destination in lookup(rule, "destination_ips", []) :
+        destination == var.myipv4_ref || can(cidrhost(destination, 0))
+      ])
+    ])
+    error_message = "extra_firewall_rules entries must use direction in/out, protocol tcp/udp/icmp/esp/gre, valid tcp/udp ports, and CIDR/myipv4 source/destination IPs."
+  }
 }
 
 variable "firewall_kube_api_source" {
   type        = list(string)
   default     = ["0.0.0.0/0", "::/0"]
   description = "Source networks that have Kube API access to the servers. WARNING: the 'myipv4' placeholder (auto-detected via icanhazip.com) can return an incorrect IP behind VPNs, proxies, CDNs, or CI/CD runners, silently locking you out. We recommend deploying with open access first, then tightening to your known CIDRs after the cluster is up."
+
+  validation {
+    condition = var.firewall_kube_api_source == null || alltrue([
+      for source in var.firewall_kube_api_source :
+      source == var.myipv4_ref || can(cidrhost(source, 0))
+    ])
+    error_message = "firewall_kube_api_source must be null or a list of CIDR blocks/myipv4_ref placeholders."
+  }
 }
 
 variable "firewall_ssh_source" {
   type        = list(string)
   default     = ["0.0.0.0/0", "::/0"]
   description = "Source networks that have SSH access to the servers. WARNING: the 'myipv4' placeholder (auto-detected via icanhazip.com) can return an incorrect IP behind VPNs, proxies, CDNs, or CI/CD runners, causing provisioning to hang indefinitely. We recommend deploying with open access first, then tightening to your known CIDRs after the cluster is up."
+
+  validation {
+    condition = var.firewall_ssh_source == null || alltrue([
+      for source in var.firewall_ssh_source :
+      source == var.myipv4_ref || can(cidrhost(source, 0))
+    ])
+    error_message = "firewall_ssh_source must be null or a list of CIDR blocks/myipv4_ref placeholders."
+  }
 }
 
 variable "extra_firewall_ids" {
@@ -1449,6 +2498,11 @@ variable "myipv4_ref" {
   type        = string
   default     = "myipv4"
   description = "Placeholder string that can be used in firewall source/destination IP lists and will be replaced by the apply runner's public IPv4 /32."
+
+  validation {
+    condition     = trimspace(var.myipv4_ref) != ""
+    error_message = "myipv4_ref must be a non-empty placeholder string."
+  }
 }
 
 variable "use_cluster_name_in_node_name" {
@@ -1479,22 +2533,49 @@ variable "base_domain" {
   }
 }
 
-variable "placement_group_disable" {
+variable "enable_placement_groups" {
   type        = bool
-  default     = false
-  description = "Whether to disable placement groups."
+  default     = true
+  description = "Whether to enable Hetzner spread placement groups."
+
+  validation {
+    condition = !var.enable_placement_groups || alltrue([
+      for group_key in distinct(local.validation_control_plane_placement_group_keys) :
+      length([
+        for existing_group_key in local.validation_control_plane_placement_group_keys :
+        existing_group_key if existing_group_key == group_key
+      ]) <= 10
+    ])
+    error_message = "Each control-plane Hetzner spread placement group can contain at most 10 servers. Split nodepools across placement_group or placement_group_index values, or disable placement groups."
+  }
+
+  validation {
+    condition = !var.enable_placement_groups || alltrue([
+      for group_key in distinct(local.validation_agent_placement_group_keys) :
+      length([
+        for existing_group_key in local.validation_agent_placement_group_keys :
+        existing_group_key if existing_group_key == group_key
+      ]) <= 10
+    ])
+    error_message = "Each agent Hetzner spread placement group can contain at most 10 servers. Split nodepools across placement_group or placement_group_index values, or disable placement groups."
+  }
 }
 
-variable "disable_kube_proxy" {
+variable "enable_kube_proxy" {
   type        = bool
-  default     = false
-  description = "Disable kube-proxy in K3s (default false)."
+  default     = true
+  description = "Enable kube-proxy. Set false only with Cilium kube-proxy replacement."
+
+  validation {
+    condition     = var.enable_kube_proxy || var.cni_plugin == "cilium"
+    error_message = "Disabling kube-proxy requires cni_plugin = \"cilium\" in this module."
+  }
 }
 
-variable "disable_network_policy" {
+variable "enable_network_policy" {
   type        = bool
-  default     = false
-  description = "Disable k3s default network policy controller (default false, automatically true for calico and cilium)."
+  default     = true
+  description = "Enable the built-in K3s network policy controller for Flannel. Calico and Cilium force the built-in controller off."
 }
 
 variable "cni_plugin" {
@@ -1514,8 +2595,8 @@ variable "cilium_egress_gateway_enabled" {
   description = "Enables egress gateway to redirect and SNAT the traffic that leaves the cluster."
 
   validation {
-    condition     = !var.cilium_egress_gateway_enabled || (var.cni_plugin == "cilium" && var.disable_kube_proxy)
-    error_message = "cilium_egress_gateway_enabled requires cni_plugin = \"cilium\" and disable_kube_proxy = true because Cilium Egress Gateway requires kube-proxy replacement."
+    condition     = !var.cilium_egress_gateway_enabled || (var.cni_plugin == "cilium" && !var.enable_kube_proxy)
+    error_message = "cilium_egress_gateway_enabled requires cni_plugin = \"cilium\" and enable_kube_proxy = false because Cilium Egress Gateway requires kube-proxy replacement."
   }
 }
 
@@ -1523,24 +2604,60 @@ variable "cilium_egress_gateway_ha_enabled" {
   type        = bool
   default     = false
   description = "Deploys a lightweight controller that keeps CiliumEgressGatewayPolicy node selectors pointed at a currently Ready egress node."
+
+  validation {
+    condition     = !var.cilium_egress_gateway_ha_enabled || var.cilium_egress_gateway_enabled
+    error_message = "cilium_egress_gateway_ha_enabled requires cilium_egress_gateway_enabled = true."
+  }
 }
 
 variable "cilium_hubble_enabled" {
   type        = bool
   default     = false
   description = "Enables Hubble Observability to collect and visualize network traffic."
+
+  validation {
+    condition     = !var.cilium_hubble_enabled || var.cni_plugin == "cilium"
+    error_message = "cilium_hubble_enabled requires cni_plugin = \"cilium\"."
+  }
 }
 
 variable "cilium_hubble_metrics_enabled" {
   type        = list(string)
   default     = []
   description = "Configures the list of Hubble metrics to collect"
+
+  validation {
+    condition     = length(var.cilium_hubble_metrics_enabled) == 0 || (var.cni_plugin == "cilium" && var.cilium_hubble_enabled)
+    error_message = "cilium_hubble_metrics_enabled requires cni_plugin = \"cilium\" and cilium_hubble_enabled = true."
+  }
 }
 
 variable "cilium_ipv4_native_routing_cidr" {
   type        = string
   default     = null
   description = "Used when Cilium is configured in native routing mode. The CNI assumes that the underlying network stack will forward packets to this destination without the need to apply SNAT. Default: value of \"cluster_ipv4_cidr\""
+
+  validation {
+    condition = (
+      var.cilium_ipv4_native_routing_cidr == null ||
+      trimspace(var.cilium_ipv4_native_routing_cidr) == "" ||
+      (
+        can(cidrhost(var.cilium_ipv4_native_routing_cidr, 0)) &&
+        provider::assert::ipv4(cidrhost(var.cilium_ipv4_native_routing_cidr, 0))
+      )
+    )
+    error_message = "cilium_ipv4_native_routing_cidr must be null, empty, or a valid IPv4 CIDR."
+  }
+
+  validation {
+    condition = (
+      var.cilium_ipv4_native_routing_cidr == null ||
+      trimspace(var.cilium_ipv4_native_routing_cidr) == "" ||
+      (var.cni_plugin == "cilium" && var.cilium_routing_mode == "native")
+    )
+    error_message = "cilium_ipv4_native_routing_cidr is only used with cni_plugin = \"cilium\" and cilium_routing_mode = \"native\"."
+  }
 }
 
 variable "cilium_routing_mode" {
@@ -1554,14 +2671,14 @@ variable "cilium_routing_mode" {
   }
 }
 
-variable "cilium_loadbalancer_acceleration_mode" {
+variable "cilium_load_balancer_acceleration_mode" {
   type        = string
   default     = "best-effort"
-  description = "Set Cilium loadbalancer.acceleration-mode. Supported values are \"disabled\", \"native\" and \"best-effort\"."
+  description = "Set Cilium loadBalancer.acceleration. Supported values are \"disabled\", \"native\" and \"best-effort\"."
 
   validation {
-    condition     = contains(["disabled", "native", "best-effort"], var.cilium_loadbalancer_acceleration_mode)
-    error_message = "The cilium_loadbalancer_acceleration_mode must be one of \"disabled\", \"native\" or \"best-effort\"."
+    condition     = contains(["disabled", "native", "best-effort"], var.cilium_load_balancer_acceleration_mode)
+    error_message = "The cilium_load_balancer_acceleration_mode must be one of \"disabled\", \"native\" or \"best-effort\"."
   }
 }
 
@@ -1663,10 +2780,10 @@ variable "longhorn_merge_values" {
   }
 }
 
-variable "disable_hetzner_csi" {
+variable "enable_hetzner_csi" {
   type        = bool
-  default     = false
-  description = "Disable hetzner csi driver."
+  default     = true
+  description = "Enable the Hetzner CSI driver."
 }
 
 variable "enable_csi_driver_smb" {
@@ -1743,6 +2860,11 @@ variable "enable_rancher" {
   type        = bool
   default     = false
   description = "Enable rancher."
+
+  validation {
+    condition     = !var.enable_rancher || trimspace(var.rancher_hostname) != "" || trimspace(var.load_balancer_hostname) != ""
+    error_message = "enable_rancher requires rancher_hostname or load_balancer_hostname to be set."
+  }
 }
 
 variable "rancher_version" {
@@ -1779,13 +2901,13 @@ variable "rancher_hostname" {
   }
 }
 
-variable "lb_hostname" {
+variable "load_balancer_hostname" {
   type        = string
   default     = ""
   description = "The Hetzner Load Balancer hostname, for either Traefik, HAProxy or Ingress-Nginx."
 
   validation {
-    condition     = can(regex("^(?:(?:(?:[A-Za-z0-9])|(?:[A-Za-z0-9](?:[A-Za-z0-9\\-]+)?[A-Za-z0-9]))+(\\.))+([A-Za-z]{2,})([\\/?])?([\\/?][A-Za-z0-9\\-%._~:\\/?#\\[\\]@!\\$&\\'\\(\\)\\*\\+,;=]+)?$", var.lb_hostname)) || var.lb_hostname == ""
+    condition     = can(regex("^(?:(?:(?:[A-Za-z0-9])|(?:[A-Za-z0-9](?:[A-Za-z0-9\\-]+)?[A-Za-z0-9]))+(\\.))+([A-Za-z]{2,})([\\/?])?([\\/?][A-Za-z0-9\\-%._~:\\/?#\\[\\]@!\\$&\\'\\(\\)\\*\\+,;=]+)?$", var.load_balancer_hostname)) || var.load_balancer_hostname == ""
     error_message = "It must be a valid domain name (FQDN)."
   }
 }
@@ -1843,40 +2965,50 @@ variable "kured_options" {
   default = {}
 }
 
-variable "k8s_config_updates_use_kured_sentinel" {
+variable "kubernetes_config_updates_use_kured_sentinel" {
   type        = bool
   default     = false
   description = "When true, k3s/rke2 config updates trigger Kured via reboot sentinel instead of immediate service restarts."
 }
 
-variable "block_icmp_ping_in" {
-  type        = bool
-  default     = true
-  description = "Block entering ICMP ping."
-}
-
-variable "use_control_plane_lb" {
+variable "allow_inbound_icmp" {
   type        = bool
   default     = false
-  description = "Creates a dedicated load balancer for the Kubernetes API (kubeapi_port). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic."
+  description = "Allow inbound ICMP ping."
 }
 
-variable "combine_load_balancers" {
+variable "enable_control_plane_load_balancer" {
   type        = bool
   default     = false
-  description = "Reuse the control plane load balancer for ingress services as well. Requires use_control_plane_lb=true."
+  description = "Creates a dedicated load balancer for the Kubernetes API (kubernetes_api_port). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic."
 }
 
-variable "control_plane_lb_type" {
+variable "reuse_control_plane_load_balancer" {
+  type        = bool
+  default     = false
+  description = "Reuse the control plane load balancer for ingress services as well. Requires enable_control_plane_load_balancer=true."
+
+  validation {
+    condition     = !var.reuse_control_plane_load_balancer || var.enable_control_plane_load_balancer
+    error_message = "reuse_control_plane_load_balancer requires enable_control_plane_load_balancer = true."
+  }
+}
+
+variable "control_plane_load_balancer_type" {
   type        = string
   default     = "lb11"
   description = "The type of load balancer to use for the control plane load balancer. Defaults to lb11, which is the cheapest one."
+
+  validation {
+    condition     = can(regex("^lb[1-9][0-9]*$", var.control_plane_load_balancer_type))
+    error_message = "control_plane_load_balancer_type must be a Hetzner Load Balancer type such as lb11, lb21, or lb31."
+  }
 }
 
-variable "control_plane_lb_enable_public_interface" {
+variable "control_plane_load_balancer_enable_public_network" {
   type        = bool
   default     = true
-  description = "Enable or disable public interface for the control plane load balancer. Defaults to true. When disabled with nat_router enabled, the NAT router automatically forwards kubeapi_port to the private control plane LB."
+  description = "Enable the public interface for the control plane load balancer. Defaults to true. When disabled with nat_router enabled, the NAT router automatically forwards kubernetes_api_port to the private control plane load balancer."
 }
 
 variable "dns_servers" {
@@ -1904,12 +3036,25 @@ variable "address_for_connectivity_test" {
   description = "The address to test for external connectivity before proceeding with the installation. Defaults to Google's public DNS."
   type        = string
   default     = "8.8.8.8"
+
+  validation {
+    condition     = trimspace(var.address_for_connectivity_test) != "" && can(regex("^[A-Za-z0-9_.:-]+$", var.address_for_connectivity_test))
+    error_message = "address_for_connectivity_test must be a non-empty IP address or DNS hostname."
+  }
 }
 
-variable "additional_k3s_environment" {
+variable "additional_kubernetes_install_environment" {
   type        = map(any)
   default     = {}
   description = "Additional environment variables for the k3s binary. See for example https://docs.k3s.io/advanced#configuring-an-http-proxy ."
+
+  validation {
+    condition = alltrue([
+      for key, value in var.additional_kubernetes_install_environment :
+      can(regex("^[A-Za-z_][A-Za-z0-9_]*$", key)) && value != null
+    ])
+    error_message = "additional_kubernetes_install_environment keys must be valid environment variable names and values must not be null."
+  }
 }
 
 variable "preinstall_exec" {
@@ -1968,20 +3113,25 @@ variable "export_values" {
   description = "Export for deployment used values.yaml-files as local files."
 }
 
-variable "enable_wireguard" {
+variable "enable_cni_wireguard_encryption" {
   type        = bool
   default     = false
-  description = "Use wireguard-native as the backend for CNI."
+  description = "Enable WireGuard encryption in supported CNI integrations. For Flannel this selects wireguard-native unless flannel_backend is set explicitly."
 }
 
 variable "flannel_backend" {
   type        = string
   default     = null
-  description = "Override the flannel backend used by k3s. When set, this takes precedence over enable_wireguard. Valid values: vxlan, host-gw, wireguard-native. See https://docs.k3s.io/networking/basic-network-options for details. Use wireguard-native for Robot nodes with vSwitch to avoid MTU issues."
+  description = "Override the flannel backend used by k3s. When set, this takes precedence over enable_cni_wireguard_encryption. Valid values: vxlan, host-gw, wireguard-native. See https://docs.k3s.io/networking/basic-network-options for details. Use wireguard-native for Robot nodes with vSwitch to avoid MTU issues."
 
   validation {
     condition     = var.flannel_backend == null || contains(["vxlan", "host-gw", "wireguard-native"], var.flannel_backend)
     error_message = "The flannel_backend must be one of: vxlan, host-gw, wireguard-native."
+  }
+
+  validation {
+    condition     = var.flannel_backend == null || (var.kubernetes_distribution == "k3s" && var.cni_plugin == "flannel")
+    error_message = "flannel_backend applies only when kubernetes_distribution = \"k3s\" and cni_plugin = \"flannel\"."
   }
 }
 
@@ -1997,52 +3147,99 @@ variable "agent_nodes_custom_config" {
   description = "Additional configuration for agent nodes and autoscaler nodes that will be added to k3s's config.yaml. E.g to allow kube-proxy monitoring."
 }
 
-variable "k3s_registries" {
+variable "registries_config" {
   description = "K3S registries.yml contents. It used to access private docker registries."
   default     = " "
   type        = string
+
+  validation {
+    condition     = trimspace(var.registries_config) == "" || can(yamldecode(var.registries_config))
+    error_message = "registries_config must be empty or valid YAML."
+  }
 }
 
-variable "k3s_kubelet_config" {
+variable "kubelet_config" {
   description = "K3S kubelet-config.yaml contents. Used to configure the kubelet."
   default     = ""
   type        = string
+
+  validation {
+    condition     = trimspace(var.kubelet_config) == "" || can(yamldecode(var.kubelet_config))
+    error_message = "kubelet_config must be empty or valid YAML."
+  }
 }
 
-variable "k3s_audit_policy_config" {
+variable "audit_policy_config" {
   description = "K3S audit-policy.yaml contents. Used to configure Kubernetes audit logging."
   default     = ""
   type        = string
+
+  validation {
+    condition     = trimspace(var.audit_policy_config) == "" || can(yamldecode(var.audit_policy_config))
+    error_message = "audit_policy_config must be empty or valid YAML."
+  }
 }
 
-variable "k3s_audit_log_path" {
+variable "audit_log_path" {
   description = "Path where audit logs will be stored on control plane nodes"
   default     = "/var/log/k3s-audit/audit.log"
   type        = string
+
+  validation {
+    condition     = can(regex("^/[^\\x00]*[^/]$", var.audit_log_path))
+    error_message = "audit_log_path must be an absolute file path and must not end with a slash."
+  }
 }
 
-variable "k3s_audit_log_maxage" {
+variable "audit_log_max_age" {
   description = "Maximum number of days to retain audit log files"
   default     = 30
   type        = number
+
+  validation {
+    condition     = var.audit_log_max_age >= 0 && floor(var.audit_log_max_age) == var.audit_log_max_age
+    error_message = "audit_log_max_age must be a non-negative integer."
+  }
 }
 
-variable "k3s_audit_log_maxbackup" {
+variable "audit_log_max_backups" {
   description = "Maximum number of audit log files to retain"
   default     = 10
   type        = number
+
+  validation {
+    condition     = var.audit_log_max_backups >= 0 && floor(var.audit_log_max_backups) == var.audit_log_max_backups
+    error_message = "audit_log_max_backups must be a non-negative integer."
+  }
 }
 
-variable "k3s_audit_log_maxsize" {
+variable "audit_log_max_size" {
   description = "Maximum size in megabytes of the audit log file before rotation"
   default     = 100
   type        = number
+
+  validation {
+    condition     = var.audit_log_max_size >= 1 && floor(var.audit_log_max_size) == var.audit_log_max_size
+    error_message = "audit_log_max_size must be a positive integer."
+  }
 }
 
 variable "additional_tls_sans" {
   description = "Additional TLS SANs to allow connection to control-plane through it."
   default     = []
   type        = list(string)
+
+  validation {
+    condition = alltrue([
+      for san in var.additional_tls_sans :
+      trimspace(san) != "" &&
+      (
+        can(provider::assert::ip(san)) ||
+        can(regex("^(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)\\.)+[A-Za-z]{2,}$", san))
+      )
+    ])
+    error_message = "additional_tls_sans entries must be non-empty IP addresses or DNS names."
+  }
 }
 
 variable "calico_version" {
@@ -2051,43 +3248,43 @@ variable "calico_version" {
   description = "Version of Calico. See https://github.com/projectcalico/calico/releases for the available versions."
 }
 
-variable "k3s_exec_server_args" {
+variable "control_plane_exec_args" {
   type        = string
   default     = ""
-  description = "The control plane is started with `k3s server {k3s_exec_server_args}`. Use this to add kube-apiserver-arg for example."
+  description = "The control plane is started with `k3s server {control_plane_exec_args}`. Use this to add kube-apiserver-arg for example."
 }
 
-variable "k3s_exec_agent_args" {
+variable "agent_exec_args" {
   type        = string
   default     = ""
-  description = "Agents nodes are started with `k3s agent {k3s_exec_agent_args}`. Use this to add kubelet-arg for example."
+  description = "Agents nodes are started with `k3s agent {agent_exec_args}`. Use this to add kubelet-arg for example."
 }
 
-variable "k3s_prefer_bundled_bin" {
+variable "prefer_bundled_bin" {
   type        = bool
   default     = false
   description = "Whether to use the bundled k3s mount binary instead of the one from the distro's util-linux package."
 }
 
-variable "k3s_global_kubelet_args" {
+variable "global_kubelet_args" {
   type        = list(string)
   default     = []
   description = "Global kubelet args for all nodes."
 }
 
-variable "k3s_control_plane_kubelet_args" {
+variable "control_plane_kubelet_args" {
   type        = list(string)
   default     = []
   description = "Kubelet args for control plane nodes."
 }
 
-variable "k3s_agent_kubelet_args" {
+variable "agent_kubelet_args" {
   type        = list(string)
   default     = []
   description = "Kubelet args for agent nodes."
 }
 
-variable "k3s_autoscaler_kubelet_args" {
+variable "autoscaler_kubelet_args" {
   type        = list(string)
   default     = []
   description = "Kubelet args for autoscaler nodes."
@@ -2111,10 +3308,10 @@ variable "enable_local_storage" {
   description = "Whether to enable or disable k3s local-storage. Warning: when enabled, there will be two default storage classes: \"local-path\" and \"hcloud-volumes\"!"
 }
 
-variable "disable_selinux" {
+variable "enable_selinux" {
   type        = bool
-  default     = false
-  description = "Disable SELinux on all nodes."
+  default     = true
+  description = "Enable SELinux on nodes that also have nodepool-level selinux enabled."
 }
 
 variable "enable_delete_protection" {
@@ -2131,20 +3328,20 @@ variable "enable_delete_protection" {
   description = "Enable or disable delete protection for resources in Hetzner Cloud."
 }
 
-variable "keep_disk_agents" {
+variable "keep_disk_agent_nodes" {
   type        = bool
   default     = false
   description = "Whether to keep OS disks of nodes the same size when upgrading an agent node"
 }
 
-variable "keep_disk_cp" {
+variable "keep_disk_control_plane_nodes" {
   type        = bool
   default     = false
   description = "Whether to keep OS disks of nodes the same size when upgrading a control-plane node"
 }
 
 
-variable "sys_upgrade_controller_version" {
+variable "system_upgrade_controller_version" {
   type        = string
   default     = "v0.18.0"
   description = "Version of the System Upgrade Controller for automated upgrades of k3s. v0.15.0+ supports the 'window' parameter for scheduling upgrades. See https://github.com/rancher/system-upgrade-controller/releases for available versions."
@@ -2169,11 +3366,11 @@ variable "hetzner_ccm_merge_values" {
 
 variable "control_plane_endpoint" {
   type        = string
-  description = "Optional external control plane endpoint URL (e.g. https://myapi.domain.com:6443). Used as the k3s 'server' value for agents and secondary control planes. If kubeapi_port is overridden, use the same port in this URL."
+  description = "Optional external control plane endpoint URL (e.g. https://myapi.domain.com:6443). Used as the k3s 'server' value for agents and secondary control planes. If kubernetes_api_port is overridden, use the same port in this URL."
   default     = null
   validation {
     condition     = var.control_plane_endpoint == null || can(regex("^https?://(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?|(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|\\[[0-9a-fA-F:]+\\])(?::[0-9]{1,5})?(?:/.*)?$", var.control_plane_endpoint))
-    error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443, or your configured kubeapi_port)."
+    error_message = "The control_plane_endpoint must be null or a valid URL (e.g., https://my-api.example.com:6443, or your configured kubernetes_api_port)."
   }
 }
 

@@ -8,7 +8,7 @@ data "http" "hetzner_ccm_release" {
 }
 
 data "http" "hetzner_csi_release" {
-  count = var.hetzner_csi_version == null && !var.disable_hetzner_csi ? 1 : 0
+  count = var.hetzner_csi_version == null && var.enable_hetzner_csi ? 1 : 0
   url   = "https://api.github.com/repos/hetznercloud/csi-driver/releases/latest"
 
   request_headers = {
@@ -58,28 +58,28 @@ data "hcloud_servers" "existing_agent_nodes" {
 }
 
 data "hcloud_image" "microos_x86_snapshot" {
-  count             = var.enable_x86 && local.os_arch_requirements.microos.x86 && var.microos_x86_snapshot_id == "" ? 1 : 0
+  count             = contains(var.enabled_architectures, "x86") && local.os_arch_requirements.microos.x86 && var.microos_x86_snapshot_id == "" ? 1 : 0
   with_selector     = "microos-snapshot=yes"
   with_architecture = "x86"
   most_recent       = true
 }
 
 data "hcloud_image" "microos_arm_snapshot" {
-  count             = var.enable_arm && local.os_arch_requirements.microos.arm && var.microos_arm_snapshot_id == "" ? 1 : 0
+  count             = contains(var.enabled_architectures, "arm") && local.os_arch_requirements.microos.arm && var.microos_arm_snapshot_id == "" ? 1 : 0
   with_selector     = "microos-snapshot=yes"
   with_architecture = "arm"
   most_recent       = true
 }
 
 data "hcloud_image" "leapmicro_x86_snapshot" {
-  count             = var.enable_x86 && local.os_arch_requirements.leapmicro.x86 && var.leapmicro_x86_snapshot_id == "" ? 1 : 0
+  count             = contains(var.enabled_architectures, "x86") && local.os_arch_requirements.leapmicro.x86 && var.leapmicro_x86_snapshot_id == "" ? 1 : 0
   with_selector     = "leapmicro-snapshot=yes,kube-hetzner/os=leapmicro,kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
   with_architecture = "x86"
   most_recent       = true
 }
 
 data "hcloud_image" "leapmicro_arm_snapshot" {
-  count             = var.enable_arm && local.os_arch_requirements.leapmicro.arm && var.leapmicro_arm_snapshot_id == "" ? 1 : 0
+  count             = contains(var.enabled_architectures, "arm") && local.os_arch_requirements.leapmicro.arm && var.leapmicro_arm_snapshot_id == "" ? 1 : 0
   with_selector     = "leapmicro-snapshot=yes,kube-hetzner/os=leapmicro,kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
   with_architecture = "arm"
   most_recent       = true

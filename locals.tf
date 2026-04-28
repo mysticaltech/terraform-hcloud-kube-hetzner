@@ -19,11 +19,11 @@ locals {
   hcloud_ssh_key_id = coalesce(var.hcloud_ssh_key_id, local.existing_hcloud_ssh_key_id, try(tostring(hcloud_ssh_key.k3s[0].id), null))
 
   # if given as a variable, we want to use the given token. This is needed to restore the cluster
-  k3s_token = var.k3s_token == null ? random_password.k3s_token.result : var.k3s_token
+  cluster_token = var.cluster_token == null ? random_password.k3s_token.result : var.cluster_token
 
-  kubernetes_distribution        = var.kubernetes_distribution_type
+  kubernetes_distribution        = var.kubernetes_distribution
   secrets_encryption_config_file = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/encryption-config.yaml" : "/etc/rancher/k3s/encryption-config.yaml"
-  secrets_encryption_config = var.secrets_encryption ? yamlencode({
+  secrets_encryption_config = var.enable_secrets_encryption ? yamlencode({
     apiVersion = "apiserver.config.k8s.io/v1"
     kind       = "EncryptionConfiguration"
     resources = [{
@@ -44,31 +44,41 @@ locals {
     }]
   }) : ""
 
-  k3s_encryption_config_path  = "/etc/rancher/k3s/encryption-config.yaml"
-  k3s_encryption_provider_key = base64sha256(local.k3s_token)
-  k3s_encryption_config       = <<-EOT
-apiVersion: apiserver.config.k8s.io/v1
-kind: EncryptionConfiguration
-resources:
-  - resources:
-      - secrets
-    providers:
-      - aescbc:
-          keys:
-            - name: kube-hetzner
-              secret: ${local.k3s_encryption_provider_key}
-      - identity: {}
-EOT
-  k3s_encryption_write_files = var.k3s_encryption_at_rest && local.kubernetes_distribution == "k3s" ? [
-    {
-      path        = local.k3s_encryption_config_path
-      permissions = "0600"
-      content     = local.k3s_encryption_config
-    }
-  ] : []
-
   # k3s endpoint used for agent registration, respects control_plane_endpoint override
-  k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:${var.kubeapi_port}")
+  multinetwork_overlay_enabled        = var.multinetwork_mode == "cilium_public_overlay"
+  multinetwork_transport_ipv4_enabled = contains(["ipv4", "dualstack"], var.multinetwork_transport_ip_family)
+  multinetwork_transport_ipv6_enabled = contains(["ipv6", "dualstack"], var.multinetwork_transport_ip_family)
+  multinetwork_cilium_peer_source_cidrs = compact(concat(
+    local.multinetwork_transport_ipv4_enabled ? var.multinetwork_cilium_peer_ipv4_cidrs : [],
+    local.multinetwork_transport_ipv6_enabled ? var.multinetwork_cilium_peer_ipv6_cidrs : []
+  ))
+  cilium_routing_mode_effective = local.multinetwork_overlay_enabled ? "tunnel" : var.cilium_routing_mode
+  cilium_wireguard_effective    = local.multinetwork_overlay_enabled || var.enable_cni_wireguard_encryption
+  cilium_mtu_effective          = local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450)
+
+  control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
+  control_plane_private_host  = var.enable_control_plane_load_balancer ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+  control_plane_public_host = coalesce(
+    local.control_plane_endpoint_host,
+    var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.multinetwork_transport_ipv4_enabled ? hcloud_load_balancer.control_plane.*.ipv4[0] : null,
+    var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.multinetwork_transport_ipv6_enabled ? hcloud_load_balancer.control_plane.*.ipv6[0] : null,
+    local.multinetwork_transport_ipv4_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null,
+    local.multinetwork_transport_ipv6_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null,
+  )
+  control_plane_public_host_formatted = local.control_plane_public_host != null && provider::assert::ipv6(local.control_plane_public_host) ? "[${local.control_plane_public_host}]" : local.control_plane_public_host
+  control_plane_private_endpoint      = "https://${local.control_plane_private_host}:${var.kubernetes_api_port}"
+  control_plane_public_endpoint       = var.control_plane_endpoint != null ? var.control_plane_endpoint : "https://${local.control_plane_public_host_formatted}:${var.kubernetes_api_port}"
+
+  # k3s endpoint used for agent registration.
+  k3s_endpoint = local.multinetwork_overlay_enabled ? local.control_plane_public_endpoint : local.control_plane_private_endpoint
+
+  rke2_private_join_endpoint = "https://${local.control_plane_private_host}:9345"
+  rke2_public_join_endpoint = (
+    var.control_plane_endpoint != null
+    ? "https://${local.control_plane_public_host_formatted}:9345"
+    : "https://${local.control_plane_public_host_formatted}:9345"
+  )
+  rke2_join_endpoint = local.multinetwork_overlay_enabled ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
 
   ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : jsondecode(data.http.hetzner_ccm_release[0].response_body).tag_name
   csi_version    = length(data.http.hetzner_csi_release) == 0 ? var.hetzner_csi_version : jsondecode(data.http.hetzner_csi_release[0].response_body).tag_name
@@ -87,7 +97,7 @@ EOT
   network_size = 32 - split("/", var.network_ipv4_cidr)[1]
 
   # Bit size of each subnet
-  subnet_size = local.network_size - log(var.subnet_amount, 2)
+  subnet_size = local.network_size - log(var.subnet_count, 2)
 
   # Separate out IPv4 and IPv6 DNS hosts.
   dns_servers_ipv4 = [for ip in var.dns_servers : ip if provider::assert::ipv4(ip)]
@@ -103,7 +113,7 @@ EOT
   my_public_ipv4      = try(trimspace(data.http.my_ipv4[0].response_body), null)
   my_public_ipv4_cidr = can(cidrhost("${local.my_public_ipv4}/32", 0)) ? "${local.my_public_ipv4}/32" : null
 
-  use_robot_ccm = var.robot_ccm_enabled && var.robot_user != "" && var.robot_password != ""
+  use_robot_ccm = var.enable_robot_ccm && var.robot_user != "" && var.robot_password != ""
   # Key of the kube_system_secret-items is the name of the Secret. Values of those items are the key-value pairs of Secret.
   kube_system_secrets = {
     "hcloud" = merge(
@@ -119,15 +129,15 @@ EOT
     "hcloud-csi" = { "token" = var.hcloud_token }
   }
 
-  additional_k3s_environment = join("\n",
+  additional_kubernetes_install_environment = join("\n",
     [
-      for var_name, var_value in var.additional_k3s_environment :
+      for var_name, var_value in var.additional_kubernetes_install_environment :
       "${var_name}=\"${var_value}\""
     ]
   )
-  install_additional_k3s_environment = <<-EOT
+  install_additional_kubernetes_environment = <<-EOT
   cat >> /etc/environment <<EOF
-  ${local.additional_k3s_environment}
+  ${local.additional_kubernetes_install_environment}
   EOF
   set -a; source /etc/environment; set +a;
   EOT
@@ -226,7 +236,7 @@ EOT
       "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/k3s/encryption-config.yaml && chmod 0600 /etc/rancher/k3s/encryption-config.yaml",
       # if the server has already been initialized just stop here
       "[ -e /etc/rancher/k3s/k3s.yaml ] && exit 0",
-      local.install_additional_k3s_environment,
+      local.install_additional_kubernetes_environment,
       local.install_system_alias,
       local.install_kubectl_bash_completion,
     ],
@@ -275,7 +285,7 @@ EOT
       "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml && chmod 0600 /etc/rancher/rke2/encryption-config.yaml",
       # if the server has already been initialized just stop here
       "[ -e /etc/rancher/rke2/rke2.yaml ] && exit 0",
-      local.install_additional_k3s_environment,
+      local.install_additional_kubernetes_environment,
       local.install_system_alias,
       local.install_kubectl_bash_completion,
     ],
@@ -310,7 +320,7 @@ EOT
     ["timeout 180s /bin/sh -c 'while ! ping -c 1 ${var.address_for_connectivity_test} >/dev/null 2>&1; do echo \"Ready for rke2 installation, waiting for a successful connection to the internet...\"; sleep 5; done; echo Connected'"]
   )
 
-  common_pre_install_k8s_commands = var.kubernetes_distribution_type == "rke2" ? local.common_pre_install_rke2_commands : local.common_pre_install_k3s_commands
+  common_pre_install_k8s_commands = var.kubernetes_distribution == "rke2" ? local.common_pre_install_rke2_commands : local.common_pre_install_k3s_commands
 
   common_post_install_k3s_commands = concat(var.postinstall_exec, ["restorecon -v /usr/local/bin/k3s"])
   common_post_install_rke2_commands = concat(var.postinstall_exec, [<<-EOT
@@ -323,7 +333,7 @@ else
 fi
 EOT
   ])
-  common_post_install_k8s_commands = var.kubernetes_distribution_type == "rke2" ? local.common_post_install_rke2_commands : local.common_post_install_k3s_commands
+  common_post_install_k8s_commands = var.kubernetes_distribution == "rke2" ? local.common_post_install_rke2_commands : local.common_post_install_k3s_commands
 
   kustomization_backup_yaml = yamlencode({
     apiVersion = "kustomize.config.k8s.io/v1beta1"
@@ -331,12 +341,12 @@ EOT
     resources = concat(
       [
         "https://github.com/kubereboot/kured/releases/download/${local.kured_version}/kured-${local.kured_version}-${local.kured_yaml_suffix}.yaml",
-        "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/system-upgrade-controller.yaml",
-        "https://github.com/rancher/system-upgrade-controller/releases/download/${var.sys_upgrade_controller_version}/crd.yaml"
+        "https://github.com/rancher/system-upgrade-controller/releases/download/${var.system_upgrade_controller_version}/system-upgrade-controller.yaml",
+        "https://github.com/rancher/system-upgrade-controller/releases/download/${var.system_upgrade_controller_version}/crd.yaml"
       ],
-      var.hetzner_ccm_use_helm ? ["hcloud-ccm-helm.yaml"] : ["https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/download/${local.ccm_version}/ccm-networks.yaml"],
-      var.enable_load_balancer_monitoring && var.hetzner_ccm_use_helm ? ["load_balancer_monitoring.yaml"] : [],
-      var.disable_hetzner_csi ? [] : ["hcloud-csi.yaml"],
+      var.enable_hetzner_ccm_helm ? ["hcloud-ccm-helm.yaml"] : ["https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/download/${local.ccm_version}/ccm-networks.yaml"],
+      var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? ["load_balancer_monitoring.yaml"] : [],
+      var.enable_hetzner_csi ? ["hcloud-csi.yaml"] : [],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
       local.kubernetes_distribution == "k3s" ? lookup(local.cni_install_resources, var.cni_plugin, []) : [],
       var.cni_plugin == "cilium" && var.cilium_egress_gateway_enabled && var.cilium_egress_gateway_ha_enabled ? ["cilium_egress_gateway_ha.yaml"] : [],
@@ -362,9 +372,19 @@ EOT
         path = "kured.yaml"
       }
       ],
-      var.hetzner_ccm_use_helm ? [] : [{ path = "ccm.yaml" }]
+      var.enable_hetzner_ccm_helm ? [] : [{ path = "ccm.yaml" }]
     )
   })
+
+  legacy_ccm_patch_yaml = templatefile(
+    "${path.module}/templates/ccm.yaml.tpl",
+    {
+      cluster_cidr_ipv4        = local.hetzner_ccm_route_cluster_cidr
+      default_lb_location      = var.load_balancer_location
+      using_klipper_lb         = local.using_klipper_lb
+      instances_address_family = local.hetzner_ccm_instances_address_family
+    }
+  )
 
   apply_k3s_selinux = [<<-EOT
 echo "Checking k3s SELinux policy status..."
@@ -414,38 +434,38 @@ EOT
   ]
   swap_node_label = ["node.kubernetes.io/server-swap=enabled"]
 
-  k3s_install_command  = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.install_k3s_version == ""}INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}%{else}INSTALL_K3S_VERSION=${var.install_k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
-  rke2_install_command = "curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION=${var.install_rke2_version} INSTALL_RKE2_EXEC='%s' sh -"
+  k3s_install_command  = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true %{if var.k3s_version == ""}INSTALL_K3S_CHANNEL=${var.k3s_channel}%{else}INSTALL_K3S_VERSION=${var.k3s_version}%{endif} INSTALL_K3S_EXEC='%s' sh -"
+  rke2_install_command = "curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION=${var.rke2_version} INSTALL_RKE2_EXEC='%s' sh -"
 
   install_k3s_server = concat(
     local.common_pre_install_k3s_commands,
-    [format(local.k3s_install_command, "server ${var.k3s_exec_server_args}")],
-    var.disable_selinux ? [] : local.apply_k3s_selinux,
+    [format(local.k3s_install_command, "server ${var.control_plane_exec_args}")],
+    var.enable_selinux ? local.apply_k3s_selinux : [],
     local.common_post_install_k8s_commands
   )
   install_rke2_server = concat(
     local.common_pre_install_k8s_commands,
-    [format(local.rke2_install_command, "server ${var.k3s_exec_server_args}")],
-    var.disable_selinux ? [] : local.apply_rke2_selinux,
+    [format(local.rke2_install_command, "server ${var.control_plane_exec_args}")],
+    var.enable_selinux ? local.apply_rke2_selinux : [],
     local.common_post_install_k8s_commands
   )
 
   install_k3s_agent = concat(
     local.common_pre_install_k3s_commands,
-    [format(local.k3s_install_command, "agent ${var.k3s_exec_agent_args}")],
-    var.disable_selinux ? [] : local.apply_k3s_selinux,
+    [format(local.k3s_install_command, "agent ${var.agent_exec_args}")],
+    var.enable_selinux ? local.apply_k3s_selinux : [],
     local.common_post_install_k3s_commands
   )
   install_rke2_agent = concat(
     local.common_pre_install_k8s_commands,
-    [format(local.rke2_install_command, "agent ${var.k3s_exec_agent_args}")],
-    var.disable_selinux ? [] : local.apply_rke2_selinux,
+    [format(local.rke2_install_command, "agent ${var.agent_exec_args}")],
+    var.enable_selinux ? local.apply_rke2_selinux : [],
     local.common_post_install_k8s_commands
   )
 
-  install_k8s_server = var.kubernetes_distribution_type == "rke2" ? local.install_rke2_server : local.install_k3s_server
-  install_k8s_agent  = var.kubernetes_distribution_type == "rke2" ? local.install_rke2_agent : local.install_k3s_agent
-  kubectl_cli        = var.kubernetes_distribution_type == "rke2" ? "/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml" : "kubectl"
+  install_k8s_server = var.kubernetes_distribution == "rke2" ? local.install_rke2_server : local.install_k3s_server
+  install_k8s_agent  = var.kubernetes_distribution == "rke2" ? local.install_rke2_agent : local.install_k3s_agent
+  kubectl_cli        = var.kubernetes_distribution == "rke2" ? "/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml" : "kubectl"
 
   # Used for mapping existing node names back into nodepool names. Matching below
   # handles optional random suffixes via longest-prefix semantics.
@@ -600,13 +620,13 @@ EOT
         selinux : nodepool_obj.selinux
         os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name])
         os_snapshot_id : nodepool_obj.os_snapshot_id
-        placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
+        placement_group_index : nodepool_obj.placement_group == null ? nodepool_obj.placement_group_index + floor(node_index / 10) : nodepool_obj.placement_group_index,
         placement_group : nodepool_obj.placement_group,
-        disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
-        disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+        disable_ipv4 : !nodepool_obj.enable_public_ipv4 || local.use_nat_router,
+        disable_ipv6 : !nodepool_obj.enable_public_ipv6 || local.use_nat_router,
         primary_ipv4_id : nodepool_obj.primary_ipv4_id,
         primary_ipv6_id : nodepool_obj.primary_ipv6_id,
-        network_id : nodepool_obj.network_id,
+        network_id : 0,
         keep_disk : nodepool_obj.keep_disk,
         join_endpoint_type : nodepool_obj.join_endpoint_type,
         extra_write_files : nodepool_obj.extra_write_files,
@@ -637,14 +657,14 @@ EOT
           selinux : nodepool_obj.selinux,
           os : coalesce(nodepool_obj.os, local.control_plane_nodepool_default_os[nodepool_obj.name]),
           os_snapshot_id : nodepool_obj.os_snapshot_id,
-          placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
+          placement_group_index : nodepool_obj.placement_group_index,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
-          disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
-          disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+          disable_ipv4 : !nodepool_obj.enable_public_ipv4 || local.use_nat_router,
+          disable_ipv6 : !nodepool_obj.enable_public_ipv6 || local.use_nat_router,
           primary_ipv4_id : nodepool_obj.primary_ipv4_id,
           primary_ipv6_id : nodepool_obj.primary_ipv6_id,
-          network_id : nodepool_obj.network_id,
+          network_id : 0,
           keep_disk : nodepool_obj.keep_disk,
           join_endpoint_type : nodepool_obj.join_endpoint_type,
           extra_write_files : nodepool_obj.extra_write_files,
@@ -656,6 +676,8 @@ EOT
           labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
           hcloud_labels : merge(nodepool_obj.hcloud_labels, coalesce(node_obj.hcloud_labels, {})),
           taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
+          disable_ipv4 : !coalesce(node_obj.enable_public_ipv4, nodepool_obj.enable_public_ipv4) || local.use_nat_router,
+          disable_ipv6 : !coalesce(node_obj.enable_public_ipv6, nodepool_obj.enable_public_ipv6) || local.use_nat_router,
           extra_write_files : concat(nodepool_obj.extra_write_files, coalesce(node_obj.extra_write_files, [])),
           extra_runcmd : concat(nodepool_obj.extra_runcmd, coalesce(node_obj.extra_runcmd, [])),
           attached_volumes : concat(nodepool_obj.attached_volumes, coalesce(node_obj.attached_volumes, [])),
@@ -695,13 +717,13 @@ EOT
         selinux : nodepool_obj.selinux
         os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name])
         os_snapshot_id : nodepool_obj.os_snapshot_id
-        placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
+        placement_group_index : nodepool_obj.placement_group == null ? nodepool_obj.placement_group_index + floor(node_index / 10) : nodepool_obj.placement_group_index,
         placement_group : nodepool_obj.placement_group,
-        disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
-        disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+        disable_ipv4 : !nodepool_obj.enable_public_ipv4 || local.use_nat_router,
+        disable_ipv6 : !nodepool_obj.enable_public_ipv6 || local.use_nat_router,
         primary_ipv4_id : nodepool_obj.primary_ipv4_id,
         primary_ipv6_id : nodepool_obj.primary_ipv6_id,
-        network_id : nodepool_obj.network_id,
+        network_id : coalesce(nodepool_obj.network_id, 0),
         keep_disk : nodepool_obj.keep_disk,
         join_endpoint_type : nodepool_obj.join_endpoint_type,
         extra_write_files : nodepool_obj.extra_write_files,
@@ -737,14 +759,14 @@ EOT
           selinux : nodepool_obj.selinux,
           os : coalesce(nodepool_obj.os, local.agent_nodepool_default_os[nodepool_obj.name]),
           os_snapshot_id : nodepool_obj.os_snapshot_id,
-          placement_group_compat_idx : nodepool_obj.placement_group_compat_idx,
+          placement_group_index : nodepool_obj.placement_group_index,
           placement_group : nodepool_obj.placement_group,
           index : floor(tonumber(node_key)),
-          disable_ipv4 : nodepool_obj.disable_ipv4 || local.use_nat_router,
-          disable_ipv6 : nodepool_obj.disable_ipv6 || local.use_nat_router,
+          disable_ipv4 : !nodepool_obj.enable_public_ipv4 || local.use_nat_router,
+          disable_ipv6 : !nodepool_obj.enable_public_ipv6 || local.use_nat_router,
           primary_ipv4_id : nodepool_obj.primary_ipv4_id,
           primary_ipv6_id : nodepool_obj.primary_ipv6_id,
-          network_id : nodepool_obj.network_id,
+          network_id : coalesce(nodepool_obj.network_id, 0),
           keep_disk : nodepool_obj.keep_disk,
           join_endpoint_type : nodepool_obj.join_endpoint_type,
           extra_write_files : nodepool_obj.extra_write_files,
@@ -756,6 +778,9 @@ EOT
           labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
           hcloud_labels : merge(nodepool_obj.hcloud_labels, coalesce(node_obj.hcloud_labels, {})),
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
+          disable_ipv4 : !coalesce(node_obj.enable_public_ipv4, nodepool_obj.enable_public_ipv4) || local.use_nat_router,
+          disable_ipv6 : !coalesce(node_obj.enable_public_ipv6, nodepool_obj.enable_public_ipv6) || local.use_nat_router,
+          network_id : coalesce(node_obj.network_id, nodepool_obj.network_id, 0),
           extra_write_files : concat(nodepool_obj.extra_write_files, coalesce(node_obj.extra_write_files, [])),
           extra_runcmd : concat(nodepool_obj.extra_runcmd, coalesce(node_obj.extra_runcmd, [])),
           attached_volumes : concat(nodepool_obj.attached_volumes, coalesce(node_obj.attached_volumes, [])),
@@ -831,7 +856,7 @@ EOT
     }
   }
 
-  use_existing_network = length(var.existing_network_id) > 0
+  use_existing_network = var.existing_network != null
 
   use_nat_router = var.nat_router != null
 
@@ -856,6 +881,7 @@ EOT
     for network_id in concat(
       [for _, node in local.control_plane_nodes : node.network_id],
       [for _, node in local.agent_nodes : node.network_id],
+      [for nodepool in var.autoscaler_nodepools : coalesce(nodepool.network_id, 0)],
     ) :
     tostring(network_id)
     if network_id != 0
@@ -902,7 +928,7 @@ EOT
   control_plane_effective_extra_network_ids_by_node = {
     for node_key, node in local.control_plane_nodes :
     node_key => distinct([
-      for network_id in concat(var.extra_network_ids, local.external_agent_network_ids) :
+      for network_id in concat(var.extra_network_ids, local.multinetwork_overlay_enabled ? [] : local.external_agent_network_ids) :
       network_id
       if network_id != 0 && network_id != node.network_id
     ])
@@ -928,9 +954,75 @@ EOT
     node_key => 1 + length(local.agent_effective_extra_network_ids_by_node[node_key])
   }
 
+  control_plane_effective_join_endpoint_type_by_node = {
+    for node_key, node in local.control_plane_nodes :
+    node_key => local.multinetwork_overlay_enabled ? "public" : node.join_endpoint_type
+  }
+
+  agent_effective_join_endpoint_type_by_node = {
+    for node_key, node in local.agent_nodes :
+    node_key => local.multinetwork_overlay_enabled ? "public" : node.join_endpoint_type
+  }
+
+  autoscaler_effective_join_endpoint_type_by_index = {
+    for index, nodepool in var.autoscaler_nodepools :
+    index => local.multinetwork_overlay_enabled ? "public" : coalesce(nodepool.join_endpoint_type, "private")
+  }
+
+  k3s_agent_join_endpoint_by_node = {
+    for node_key, _ in local.agent_nodes :
+    node_key => local.agent_effective_join_endpoint_type_by_node[node_key] == "public" ? local.control_plane_public_endpoint : local.control_plane_private_endpoint
+  }
+
+  rke2_agent_join_endpoint_by_node = {
+    for node_key, _ in local.agent_nodes :
+    node_key => local.agent_effective_join_endpoint_type_by_node[node_key] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
+  }
+
+  k3s_private_join_host_by_control_plane = {
+    for node_key, _ in local.control_plane_nodes :
+    node_key => (
+      var.enable_control_plane_load_balancer ? local.control_plane_private_host : (
+        length(local.control_plane_nodes) <= 1 ? null : (
+          module.control_planes[node_key].private_ipv4_address == module.control_planes[keys(module.control_planes)[0]].private_ipv4_address ?
+          module.control_planes[keys(module.control_planes)[1]].private_ipv4_address :
+          module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+        )
+      )
+    )
+  }
+
+  k3s_control_plane_join_endpoint_by_node = {
+    for node_key, _ in local.control_plane_nodes :
+    node_key => (
+      local.control_plane_effective_join_endpoint_type_by_node[node_key] == "public"
+      ? local.control_plane_public_endpoint
+      : (
+        var.control_plane_endpoint != null
+        ? var.control_plane_endpoint
+        : (local.k3s_private_join_host_by_control_plane[node_key] == null ? null : "https://${local.k3s_private_join_host_by_control_plane[node_key]}:${var.kubernetes_api_port}")
+      )
+    )
+  }
+
+  rke2_control_plane_join_endpoint_by_node = {
+    for node_key, _ in local.control_plane_nodes :
+    node_key => local.control_plane_effective_join_endpoint_type_by_node[node_key] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
+  }
+
+  k3s_autoscaler_join_endpoint_by_index = {
+    for index, _ in var.autoscaler_nodepools :
+    index => local.autoscaler_effective_join_endpoint_type_by_index[index] == "public" ? local.control_plane_public_endpoint : local.control_plane_private_endpoint
+  }
+
+  rke2_autoscaler_join_endpoint_by_index = {
+    for index, _ in var.autoscaler_nodepools :
+    index => local.autoscaler_effective_join_endpoint_type_by_index[index] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
+  }
+
   ssh_bastion = coalesce(
     local.use_nat_router ? {
-      bastion_host        = var.use_private_bastion ? local.nat_router_ip[0] : hcloud_server.nat_router[0].ipv4_address
+      bastion_host        = var.use_private_nat_router_bastion ? local.nat_router_ip[0] : hcloud_server.nat_router[0].ipv4_address
       bastion_port        = var.ssh_port
       bastion_user        = "nat-router"
       bastion_private_key = var.ssh_private_key
@@ -946,7 +1038,7 @@ EOT
 
   # Create subnets from the base network CIDR.
   # Control planes allocate from the end of the range and agents from the start (0, 1, 2...)
-  network_ipv4_subnets = [for index in range(var.subnet_amount) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_amount, 2), index)]
+  network_ipv4_subnets = [for index in range(var.subnet_count) : cidrsubnet(var.network_ipv4_cidr, log(var.subnet_count, 2), index)]
 
   cluster_ipv4_cidr_effective = var.cluster_ipv4_cidr != null && trimspace(var.cluster_ipv4_cidr) != "" ? var.cluster_ipv4_cidr : null
   service_ipv4_cidr_effective = var.service_ipv4_cidr != null && trimspace(var.service_ipv4_cidr) != "" ? var.service_ipv4_cidr : null
@@ -974,7 +1066,74 @@ EOT
     local.cluster_dns_ipv4,
     local.cluster_dns_ipv6,
   ])
-  cluster_dns = join(",", local.cluster_dns_values)
+  cluster_dns                          = join(",", local.cluster_dns_values)
+  ipv4_only_coredns_aaaa_filter_script = <<-EOT
+KUBECTL="__KUBECTL__"
+for COREDNS_CONFIGMAP in coredns rke2-coredns-rke2-coredns; do
+  COREFILE="$($KUBECTL -n kube-system get configmap "$COREDNS_CONFIGMAP" -o jsonpath='{.data.Corefile}' 2>/dev/null || true)"
+  if [ -n "$COREFILE" ] && ! printf '%s\n' "$COREFILE" | grep -q 'kube-hetzner-disable-ipv6-dns'; then
+    printf '%s\n' "$COREFILE" | awk '
+      BEGIN { inserted = 0 }
+      /^\.:53[[:space:]]*\{/ && inserted == 0 {
+        print
+        print "    # kube-hetzner-disable-ipv6-dns"
+        print "    template IN AAAA . {"
+        print "        rcode NOERROR"
+        print "    }"
+        inserted = 1
+        next
+      }
+      { print }
+    ' > /tmp/kube-hetzner-Corefile
+    $KUBECTL -n kube-system create configmap "$COREDNS_CONFIGMAP" --from-file=Corefile=/tmp/kube-hetzner-Corefile --dry-run=client -o yaml | $KUBECTL apply -f -
+    $KUBECTL -n kube-system rollout restart "deployment/$COREDNS_CONFIGMAP" >/dev/null 2>&1 || true
+  fi
+done
+EOT
+
+  post_install_readiness_wait_script = <<-EOT
+KUBECTL="__KUBECTL__"
+
+wait_namespace_deployments() {
+  ns="$1"
+  timeout_seconds="$2"
+
+  $KUBECTL get ns "$ns" >/dev/null 2>&1 || return 0
+
+  deployments="$($KUBECTL -n "$ns" get deployment -o name 2>/dev/null || true)"
+  if [ -z "$deployments" ]; then
+    return 0
+  fi
+
+  printf '%s\n' "$deployments" | xargs $KUBECTL -n "$ns" wait --for=condition=Available --timeout="$${timeout_seconds}s"
+}
+
+wait_namespace_jobs() {
+  ns="$1"
+  timeout_seconds="$2"
+
+  $KUBECTL get ns "$ns" >/dev/null 2>&1 || return 0
+
+  jobs="$($KUBECTL -n "$ns" get job -o name 2>/dev/null || true)"
+  if [ -z "$jobs" ]; then
+    return 0
+  fi
+
+  printf '%s\n' "$jobs" | xargs $KUBECTL -n "$ns" wait --for=condition=Complete --timeout="$${timeout_seconds}s"
+}
+
+for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""}; do
+  [ -n "$ns" ] && wait_namespace_jobs "$ns" 900
+done
+
+for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do
+  [ -n "$ns" ] && wait_namespace_deployments "$ns" 600
+done
+
+for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""}; do
+  [ -n "$ns" ] && wait_namespace_jobs "$ns" 300
+done
+EOT
 
   hetzner_ccm_route_cluster_cidr       = coalesce(local.cluster_ipv4_cidr_effective, "")
   hetzner_ccm_instances_address_family = local.cluster_has_ipv6 ? (local.cluster_has_ipv4 ? "dualstack" : "ipv6") : "ipv4"
@@ -993,8 +1152,8 @@ EOT
 
   has_external_load_balancer_base = local.using_klipper_lb || var.ingress_controller == "none"
   combine_load_balancers_effective = (
-    var.combine_load_balancers &&
-    var.use_control_plane_lb &&
+    var.reuse_control_plane_load_balancer &&
+    var.enable_control_plane_load_balancer &&
     !local.has_external_load_balancer_base
   )
   has_external_load_balancer = local.has_external_load_balancer_base || local.combine_load_balancers_effective
@@ -1031,8 +1190,7 @@ EOT
   ingress_replica_count     = (var.ingress_replica_count > 0) ? var.ingress_replica_count : (local.agent_count > 2) ? 3 : (local.agent_count == 2) ? 2 : 1
   ingress_max_replica_count = (var.ingress_max_replica_count > local.ingress_replica_count) ? var.ingress_max_replica_count : local.ingress_replica_count
 
-  # disable k3s extras
-  # TODO: Extend to work with rke2
+  # Disable distribution-bundled addons that kube-hetzner replaces or manages.
   disable_extras      = concat(var.enable_local_storage ? [] : ["local-storage"], local.using_klipper_lb ? [] : ["servicelb"], ["traefik"], var.enable_metrics_server ? [] : ["metrics-server"])
   disable_rke2_extras = ["rke2-ingress-nginx"]
 
@@ -1053,10 +1211,10 @@ EOT
   # Default node labels
   default_agent_labels = concat(
     var.exclude_agents_from_external_load_balancers ? ["node.kubernetes.io/exclude-from-external-load-balancers=true"] : [],
-    var.automatically_upgrade_k3s ? [local.upgrade_label] : []
+    var.automatically_upgrade_kubernetes ? [local.upgrade_label] : []
   )
-  default_control_plane_labels = concat(local.allow_loadbalancer_target_on_control_plane ? [] : ["node.kubernetes.io/exclude-from-external-load-balancers=true"], var.automatically_upgrade_k3s ? [local.upgrade_label] : [])
-  default_autoscaler_labels    = concat([], var.automatically_upgrade_k3s ? [local.upgrade_label] : [])
+  default_control_plane_labels = concat(local.allow_loadbalancer_target_on_control_plane ? [] : ["node.kubernetes.io/exclude-from-external-load-balancers=true"], var.automatically_upgrade_kubernetes ? [local.upgrade_label] : [])
+  default_autoscaler_labels    = concat([], var.automatically_upgrade_kubernetes ? [local.upgrade_label] : [])
 
   # Default k3s node taints
   default_control_plane_taints = concat([], local.allow_scheduling_on_control_plane ? [] : ["node-role.kubernetes.io/control-plane:NoSchedule"])
@@ -1078,19 +1236,36 @@ EOT
         description = "Allow Incoming Requests to Kube API Server"
         direction   = "in"
         protocol    = "tcp"
-        port        = tostring(var.kubeapi_port)
+        port        = tostring(var.kubernetes_api_port)
         source_ips  = var.firewall_kube_api_source
       }
     ],
     length(var.cluster_autoscaler_metrics_firewall_source) == 0 || length(var.autoscaler_nodepools) == 0 ? [] : [
+      for metrics_node_port in local.cluster_autoscaler_metrics_node_ports :
       {
         description = "Allow Incoming Requests to Cluster Autoscaler Metrics NodePort"
         direction   = "in"
         protocol    = "tcp"
-        port        = "30085"
+        port        = tostring(metrics_node_port)
         source_ips  = var.cluster_autoscaler_metrics_firewall_source
       }
     ],
+    local.multinetwork_overlay_enabled ? [
+      {
+        description = "Allow Cilium WireGuard public overlay peer traffic"
+        direction   = "in"
+        protocol    = "udp"
+        port        = "51871"
+        source_ips  = local.multinetwork_cilium_peer_source_cidrs
+      },
+      {
+        description = "Allow Cilium Geneve public overlay peer traffic"
+        direction   = "in"
+        protocol    = "udp"
+        port        = "6081"
+        source_ips  = local.multinetwork_cilium_peer_source_cidrs
+      }
+    ] : [],
     !var.restrict_outbound_traffic ? [] : [
       # Allow basic out traffic
       # ICMP to ping outside services
@@ -1161,7 +1336,7 @@ EOT
         source_ips  = ["0.0.0.0/0", "::/0"]
       }
     ],
-    var.block_icmp_ping_in ? [] : [
+    var.allow_inbound_icmp ? [
       {
         description = "Allow Incoming ICMP Ping Requests"
         direction   = "in"
@@ -1169,7 +1344,7 @@ EOT
         port        = ""
         source_ips  = ["0.0.0.0/0", "::/0"]
       }
-    ]
+    ] : []
   )
 
   # create a new firewall list based on base_firewall_rules but with direction-protocol-port as key
@@ -1214,12 +1389,12 @@ EOT
     "cilium" = ["cilium.yaml"]
   }
 
-  prefer_bundled_bin_config = var.k3s_prefer_bundled_bin ? { "prefer-bundled-bin" = true } : {}
+  prefer_bundled_bin_config = var.prefer_bundled_bin ? { "prefer-bundled-bin" = true } : {}
 
   cni_k3s_settings = {
     "flannel" = {
-      disable-network-policy = var.disable_network_policy
-      flannel-backend        = var.flannel_backend != null ? var.flannel_backend : (var.enable_wireguard ? "wireguard-native" : "vxlan")
+      disable-network-policy = !var.enable_network_policy
+      flannel-backend        = var.flannel_backend != null ? var.flannel_backend : (var.enable_cni_wireguard_encryption ? "wireguard-native" : "vxlan")
     }
     "calico" = {
       disable-network-policy = true
@@ -1231,31 +1406,15 @@ EOT
     }
   }
 
-  # TODO: Needs review, straight copy & pasted from cni_k3s_settings
-  #  Result: It seems that none of the settings are supported in rke2
-  # cni_rke2_settings = {
-  #   "flannel" = {
-  #     disable-network-policy = var.disable_network_policy
-  #     flannel-backend        = var.enable_wireguard ? "wireguard-native" : "vxlan"
-  #   }
-  #   "calico" = {
-  #     disable-network-policy = true
-  #     flannel-backend        = "none"
-  #   }
-  #   "cilium" = {
-  #     disable-network-policy = true
-  #     flannel-backend        = "none"
-  #   }
-  # }
-
   etcd_s3_snapshots = length(keys(var.etcd_s3_backup)) > 0 ? merge(
     {
       "etcd-s3" = true
     },
   var.etcd_s3_backup) : {}
 
+  registries_config_file      = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/registries.yaml" : "/etc/rancher/k3s/registries.yaml"
   kubelet_config_file         = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/kubelet-config.yaml" : "/etc/rancher/k3s/kubelet-config.yaml"
-  kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.k3s_kubelet_config != "" ? ["config=${local.kubelet_config_file}"] : [])
+  kubelet_arg                 = concat(["cloud-provider=external", "volume-plugin-dir=/var/lib/kubelet/volumeplugins"], var.kubelet_config != "" ? ["config=${local.kubelet_config_file}"] : [])
   kube_controller_manager_arg = "flex-volume-plugin-dir=/var/lib/kubelet/volumeplugins"
   flannel_iface               = "eth1"
   authentication_config_file  = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/authentication_config.yaml" : "/etc/rancher/k3s/authentication_config.yaml"
@@ -1265,12 +1424,12 @@ EOT
 
   kube_apiserver_arg = concat(
     var.authentication_config != "" ? ["authentication-config=${local.authentication_config_file}"] : [],
-    var.k3s_audit_policy_config != "" ? [
+    var.audit_policy_config != "" ? [
       "audit-policy-file=${local.audit_policy_file}",
-      "audit-log-path=${var.k3s_audit_log_path}",
-      "audit-log-maxage=${var.k3s_audit_log_maxage}",
-      "audit-log-maxbackup=${var.k3s_audit_log_maxbackup}",
-      "audit-log-maxsize=${var.k3s_audit_log_maxsize}"
+      "audit-log-path=${var.audit_log_path}",
+      "audit-log-maxage=${var.audit_log_max_age}",
+      "audit-log-maxbackup=${var.audit_log_max_backups}",
+      "audit-log-maxsize=${var.audit_log_max_size}"
     ] : []
   )
 
@@ -1292,20 +1451,20 @@ ipv6:
   enabled: ${local.cluster_has_ipv6}
 
 # Replace kube-proxy with Cilium only when kube-proxy is disabled in k3s/rke2.
-kubeProxyReplacement: ${var.disable_kube_proxy}
+kubeProxyReplacement: ${!var.enable_kube_proxy}
 
-%{if var.disable_kube_proxy}
+%{if !var.enable_kube_proxy}
 # Enable health check server (healthz) for the kube-proxy replacement
 kubeProxyReplacementHealthzBindAddr: "0.0.0.0:10256"
 %{endif~}
 
 # Access to Kube API Server (mandatory if kube-proxy is disabled)
 k8sServiceHost: "127.0.0.1"
-k8sServicePort: "${local.kubernetes_distribution == "rke2" ? tostring(var.kubeapi_port) : "6444"}"
+k8sServicePort: "${local.kubernetes_distribution == "rke2" ? tostring(var.kubernetes_api_port) : "6444"}"
 
-# Set Tunnel Mode or Native Routing Mode (supported by Hetzner CCM Route Controller)
-routingMode: "${var.cilium_routing_mode}"
-%{if var.cilium_routing_mode == "native"~}
+# Set Tunnel Mode or Native Routing Mode. Multinetwork public overlay forces tunnel mode.
+routingMode: "${local.cilium_routing_mode_effective}"
+%{if local.cilium_routing_mode_effective == "native"~}
 %{if local.cluster_has_ipv4~}
 # Set the native routable CIDR
 ipv4NativeRoutingCIDR: "${local.cilium_ipv4_native_routing_cidr}"
@@ -1317,8 +1476,18 @@ ipv6NativeRoutingCIDR: "${local.cluster_ipv6_cidr_effective}"
 # Bypass iptables Connection Tracking for Pod traffic (only works in Native Routing Mode)
 installNoConntrackIptablesRules: true
 %{endif~}
-%{if var.disable_kube_proxy && var.enable_wireguard && var.cilium_routing_mode == "tunnel"}
+%{if local.cilium_routing_mode_effective == "tunnel" && local.cilium_wireguard_effective}
 tunnelProtocol: "geneve"
+%{endif~}
+%{if local.multinetwork_overlay_enabled}
+nodePort:
+  addresses:
+%{if local.multinetwork_transport_ipv4_enabled~}
+    - "0.0.0.0/0"
+%{endif~}
+%{if local.multinetwork_transport_ipv6_enabled~}
+    - "::/0"
+%{endif~}
 %{endif~}
 
 # Perform a gradual roll out on config update.
@@ -1330,12 +1499,12 @@ endpointRoutes:
 
 loadBalancer:
   # Enable LoadBalancer & NodePort XDP Acceleration (direct routing (routingMode=native) is recommended to achieve optimal performance)
-  acceleration: "${var.cilium_loadbalancer_acceleration_mode}"
+  acceleration: "${var.cilium_load_balancer_acceleration_mode}"
 
 bpf:
   # Enable eBPF-based Masquerading ("The eBPF-based implementation is the most efficient implementation")
   masquerade: true
-%{if var.enable_wireguard}
+%{if local.cilium_wireguard_effective}
 encryption:
   enabled: true
   # Enable node encryption for node-to-node traffic
@@ -1361,7 +1530,7 @@ hubble:
 %{endif~}
 
 
-MTU: %{if local.use_robot_ccm} 1350 %{else} 1450 %{endif}
+MTU: ${local.cilium_mtu_effective}
   EOT
 
   cilium_values = module.values_merger_cilium.values
@@ -1390,7 +1559,7 @@ spec:
             - name: CALICO_IPV4POOL_CIDR
               value: "${var.cluster_ipv4_cidr}"
             - name: FELIX_WIREGUARDENABLED
-              value: "${var.enable_wireguard}"
+              value: "${var.enable_cni_wireguard_encryption}"
 
   EOT
 
@@ -1404,6 +1573,24 @@ spec:
   )
   rke2_manifest_cni_plugin = var.cni_plugin == "cilium" ? "cilium" : "rke2-noop"
 
+  rke2_cni_config_manifest = (
+    local.kubernetes_distribution == "rke2" && var.cni_plugin == "flannel"
+    ? <<-EOT
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-canal
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    flannel:
+      iface: "${local.flannel_iface}"
+EOT
+    : <<-EOT
+# kube-hetzner: no bundled RKE2 CNI HelmChartConfig is required for ${var.cni_plugin}.
+EOT
+  )
+
   longhorn_values_default = <<EOT
 defaultSettings:
 %{if length(var.autoscaler_nodepools) != 0~}
@@ -1413,7 +1600,7 @@ defaultSettings:
 persistence:
   defaultFsType: ${var.longhorn_fstype}
   defaultClassReplicaCount: ${var.longhorn_replica_count}
-  %{if var.disable_hetzner_csi~}defaultClass: true%{else~}defaultClass: false%{endif~}
+  %{if !var.enable_hetzner_csi~}defaultClass: true%{else~}defaultClass: false%{endif~}
   EOT
 
   longhorn_values = module.values_merger_longhorn.values
@@ -1459,10 +1646,10 @@ controller:
 %{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
 %{endif~}
-      "load-balancer.hetzner.cloud/use-private-ip": "true"
+      "load-balancer.hetzner.cloud/use-private-ip": "${!local.multinetwork_overlay_enabled}"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
-      "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
-      "load-balancer.hetzner.cloud/ipv6-disabled": "${var.load_balancer_disable_ipv6}"
+      "load-balancer.hetzner.cloud/disable-public-network": "${!var.load_balancer_enable_public_network}"
+      "load-balancer.hetzner.cloud/ipv6-disabled": "${!var.load_balancer_enable_ipv6}"
       "load-balancer.hetzner.cloud/location": "${var.load_balancer_location}"
       "load-balancer.hetzner.cloud/type": "${var.load_balancer_type}"
       "load-balancer.hetzner.cloud/uses-proxyprotocol": "${!local.using_klipper_lb}"
@@ -1470,8 +1657,8 @@ controller:
       "load-balancer.hetzner.cloud/health-check-interval": "${var.load_balancer_health_check_interval}"
       "load-balancer.hetzner.cloud/health-check-timeout": "${var.load_balancer_health_check_timeout}"
       "load-balancer.hetzner.cloud/health-check-retries": "${var.load_balancer_health_check_retries}"
-%{if var.lb_hostname != ""~}
-      "load-balancer.hetzner.cloud/hostname": "${var.lb_hostname}"
+%{if var.load_balancer_hostname != ""~}
+      "load-balancer.hetzner.cloud/hostname": "${var.load_balancer_hostname}"
 %{endif~}
 %{endif~}
   EOT
@@ -1480,8 +1667,8 @@ controller:
 
   hetzner_ccm_values_default = <<EOT
 networking:
-  enabled: ${local.cluster_has_ipv4}
-%{if local.cluster_has_ipv4~}
+  enabled: ${local.cluster_has_ipv4 && !local.multinetwork_overlay_enabled}
+%{if local.cluster_has_ipv4 && !local.multinetwork_overlay_enabled~}
   clusterCIDR: "${local.hetzner_ccm_route_cluster_cidr}"
 %{endif~}
 %{if local.use_robot_ccm~}
@@ -1501,12 +1688,12 @@ env:
   HCLOUD_LOAD_BALANCERS_LOCATION:
     value: "${var.load_balancer_location}"
   HCLOUD_LOAD_BALANCERS_USE_PRIVATE_IP:
-    value: "true"
+    value: "${!local.multinetwork_overlay_enabled}"
   HCLOUD_LOAD_BALANCERS_ENABLED:
     value: "${!local.using_klipper_lb}"
   HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS:
     value: "true"
-%{if local.use_robot_ccm~}
+%{if local.use_robot_ccm || local.multinetwork_overlay_enabled~}
   HCLOUD_NETWORK_ROUTES_ENABLED:
     value: "false"
 %{endif~}
@@ -1566,10 +1753,10 @@ controller:
 %{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
 %{endif~}
-      "load-balancer.hetzner.cloud/use-private-ip": "true"
+      "load-balancer.hetzner.cloud/use-private-ip": "${!local.multinetwork_overlay_enabled}"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
-      "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
-      "load-balancer.hetzner.cloud/ipv6-disabled": "${var.load_balancer_disable_ipv6}"
+      "load-balancer.hetzner.cloud/disable-public-network": "${!var.load_balancer_enable_public_network}"
+      "load-balancer.hetzner.cloud/ipv6-disabled": "${!var.load_balancer_enable_ipv6}"
       "load-balancer.hetzner.cloud/location": "${var.load_balancer_location}"
       "load-balancer.hetzner.cloud/type": "${var.load_balancer_type}"
       "load-balancer.hetzner.cloud/uses-proxyprotocol": "${!local.using_klipper_lb}"
@@ -1577,8 +1764,8 @@ controller:
       "load-balancer.hetzner.cloud/health-check-interval": "${var.load_balancer_health_check_interval}"
       "load-balancer.hetzner.cloud/health-check-timeout": "${var.load_balancer_health_check_timeout}"
       "load-balancer.hetzner.cloud/health-check-retries": "${var.load_balancer_health_check_retries}"
-%{if var.lb_hostname != ""~}
-      "load-balancer.hetzner.cloud/hostname": "${var.lb_hostname}"
+%{if var.load_balancer_hostname != ""~}
+      "load-balancer.hetzner.cloud/hostname": "${var.load_balancer_hostname}"
 %{endif~}
 %{endif~}
   EOT
@@ -1600,10 +1787,10 @@ service:
 %{else~}
     "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
 %{endif~}
-    "load-balancer.hetzner.cloud/use-private-ip": "true"
+    "load-balancer.hetzner.cloud/use-private-ip": "${!local.multinetwork_overlay_enabled}"
     "load-balancer.hetzner.cloud/disable-private-ingress": "true"
-    "load-balancer.hetzner.cloud/disable-public-network": "${var.load_balancer_disable_public_network}"
-    "load-balancer.hetzner.cloud/ipv6-disabled": "${var.load_balancer_disable_ipv6}"
+    "load-balancer.hetzner.cloud/disable-public-network": "${!var.load_balancer_enable_public_network}"
+    "load-balancer.hetzner.cloud/ipv6-disabled": "${!var.load_balancer_enable_ipv6}"
     "load-balancer.hetzner.cloud/location": "${var.load_balancer_location}"
     "load-balancer.hetzner.cloud/type": "${var.load_balancer_type}"
     "load-balancer.hetzner.cloud/uses-proxyprotocol": "${!local.using_klipper_lb}"
@@ -1611,8 +1798,8 @@ service:
     "load-balancer.hetzner.cloud/health-check-interval": "${var.load_balancer_health_check_interval}"
     "load-balancer.hetzner.cloud/health-check-timeout": "${var.load_balancer_health_check_timeout}"
     "load-balancer.hetzner.cloud/health-check-retries": "${var.load_balancer_health_check_retries}"
-%{if var.lb_hostname != ""~}
-    "load-balancer.hetzner.cloud/hostname": "${var.lb_hostname}"
+%{if var.load_balancer_hostname != ""~}
+    "load-balancer.hetzner.cloud/hostname": "${var.load_balancer_hostname}"
 %{endif~}
 %{endif~}
 ports:
@@ -1725,7 +1912,7 @@ EOT
 traefik_values = module.values_merger_traefik.values
 
 rancher_values_default = <<EOT
-hostname: "${var.rancher_hostname != "" ? var.rancher_hostname : var.lb_hostname}"
+hostname: "${var.rancher_hostname != "" ? var.rancher_hostname : var.load_balancer_hostname}"
 replicas: ${length(local.control_plane_nodes)}
 bootstrapPassword: "${length(var.rancher_bootstrap_password) == 0 ? resource.random_password.rancher_bootstrap[0].result : var.rancher_bootstrap_password}"
 global:
@@ -1884,7 +2071,7 @@ mkdir -p /etc/rancher/k3s
 
 restart_or_signal_update() {
   local SERVICE_NAME="$1"
-  if ${var.k8s_config_updates_use_kured_sentinel}; then
+  if ${var.kubernetes_config_updates_use_kured_sentinel}; then
     SENTINEL="${local.kured_reboot_sentinel}"
     mkdir -p "$(dirname "$SENTINEL")"
     touch "$SENTINEL"
@@ -1926,7 +2113,7 @@ BACKUP_FILE="/tmp/audit-policy_$DATE.yaml"
 HAS_BACKUP=false
 mkdir -p "$(dirname "$AUDIT_POLICY_FILE")"
 
-if [ -z "${var.k3s_audit_policy_config}" ] || [ "${var.k3s_audit_policy_config}" = " " ]; then
+if [ -z "${var.audit_policy_config}" ] || [ "${var.audit_policy_config}" = " " ]; then
   echo "No audit policy config provided via Terraform, skipping audit policy setup"
   # Note: We intentionally DO NOT remove existing audit policies here.
   # This preserves any manually-configured audit policies for backward compatibility.
@@ -1961,9 +2148,9 @@ else
 fi
 
 # Ensure audit log directory exists with proper permissions
-mkdir -p $(dirname ${var.k3s_audit_log_path})
-chmod 750 $(dirname ${var.k3s_audit_log_path})
-chown root:root $(dirname ${var.k3s_audit_log_path})
+mkdir -p $(dirname ${var.audit_log_path})
+chmod 750 $(dirname ${var.audit_log_path})
+chown root:root $(dirname ${var.audit_log_path})
 EOF
 
 bootstrap_control_plane_api_config_script = <<EOF
@@ -1973,9 +2160,9 @@ fi
 
 if [ -s /tmp/audit-policy.yaml ]; then
   install -D -m 0600 /tmp/audit-policy.yaml "${local.audit_policy_file}"
-  mkdir -p "$(dirname "${var.k3s_audit_log_path}")"
-  chmod 750 "$(dirname "${var.k3s_audit_log_path}")"
-  chown root:root "$(dirname "${var.k3s_audit_log_path}")"
+  mkdir -p "$(dirname "${var.audit_log_path}")"
+  chmod 750 "$(dirname "${var.audit_log_path}")"
+  chown root:root "$(dirname "${var.audit_log_path}")"
 fi
 EOF
 
@@ -2031,7 +2218,7 @@ mkdir -p /etc/rancher/rke2
 
 restart_or_signal_update() {
   local SERVICE_NAME="$1"
-  if ${var.k8s_config_updates_use_kured_sentinel}; then
+  if ${var.kubernetes_config_updates_use_kured_sentinel}; then
     SENTINEL="${local.kured_reboot_sentinel}"
     mkdir -p "$(dirname "$SENTINEL")"
     touch "$SENTINEL"
@@ -2094,6 +2281,15 @@ k8s_config_update_script                = local.kubernetes_distribution == "k3s"
 k8s_authentication_config_update_script = local.kubernetes_distribution == "k3s" ? local.k3s_authentication_config_update_script : local.rke2_authentication_config_update_script
 
 cloudinit_write_files_common = <<EOT
+# Keep NetworkManager away from CNI-owned interfaces. RKE2 explicitly
+# recommends this for Canal/Calico/Flannel interfaces, and it is harmless for
+# k3s clusters using the same interface families.
+- path: /etc/NetworkManager/conf.d/kube-hetzner-cni.conf
+  content: |
+    [keyfile]
+    unmanaged-devices=interface-name:flannel*;interface-name:cali*;interface-name:tunl*;interface-name:vxlan.calico;interface-name:vxlan-v6.calico;interface-name:wireguard.cali;interface-name:wg-v6.cali;interface-name:cilium*;interface-name:lxc*;interface-name:veth*
+  permissions: "0644"
+
 # Script to rename the private interface to eth1 and unify NetworkManager connection naming
 - path: /etc/cloud/rename_interface.sh
   content: |
@@ -2264,11 +2460,6 @@ cloudinit_write_files_common = <<EOT
     gpgkey=https://rpm.rancher.io/public.key
   path: /etc/zypp/repos.d/rancher-k3s-common.repo
 
-# Create Rancher rke2 repo config
-# TODO: Finish this if its needed like the above one? When is this used? Don't we just use the URL installation method?
-# - content: |
-
-
 # Create the kube_hetzner_selinux.te file, that allows in SELinux to not interfere with various needed services
 - path: /root/kube_hetzner_selinux.te
   encoding: base64
@@ -2279,19 +2470,16 @@ cloudinit_write_files_common = <<EOT
   encoding: base64
   content: ${base64encode(file("${path.module}/templates/k8s-custom-policies.te"))}
 
-# Create the k3s registries file if needed
-# TODO: Review that this can stay and behaves the same in rke2 as with k3s
-%{if var.k3s_registries != ""}
-# Create k3s registries file
-- content: ${base64encode(var.k3s_registries)}
+# Create the distribution-specific registries file before Kubernetes starts.
+%{if var.registries_config != ""}
+- content: ${base64encode(var.registries_config)}
   encoding: base64
-  path: /etc/rancher/k3s/registries.yaml
+  path: ${local.registries_config_file}
 %{endif}
 
-# Create the k3s kubelet config file if needed
-%{if var.k3s_kubelet_config != ""}
-# Create k3s kubelet config file
-- content: ${base64encode(var.k3s_kubelet_config)}
+# Create the distribution-specific kubelet config file if needed.
+%{if var.kubelet_config != ""}
+- content: ${base64encode(var.kubelet_config)}
   encoding: base64
   path: ${local.kubelet_config_file}
 %{endif}
@@ -2323,15 +2511,13 @@ cloudinit_runcmd_common = <<EOT
 # Disable rebootmgr service as we use kured instead
 - [systemctl, disable, '--now', 'rebootmgr.service']
 
-%{if !var.automatically_upgrade_os~}
-# Disable automatic transactional updates for cloud-init managed nodes too.
-# This is the path autoscaler-created nodes use, so relying only on the
-# host-module remote-exec toggle leaves autoscaled Leap Micro nodes drifting.
+# Disable transactional updates during first boot. The host module re-enables
+# the timer after provisioning when automatically_upgrade_os is true; keeping it
+# active during cloud-init can race Kubernetes bootstrap on Leap Micro.
 - |
   systemctl disable --now transactional-update.timer || true
   systemctl stop transactional-update.service || true
   rm -f /var/run/reboot-required /var/run/reboot-required.pkgs
-%{endif~}
 
 # Bounds the amount of logs that can survive on the system
 - |
@@ -2384,13 +2570,13 @@ cloudinit_runcmd_common = <<EOT
 - [truncate, '-s', '0', '/var/log/audit/audit.log']
 
 # Create audit log directory for k3s
-- [mkdir, '-p', '${dirname(var.k3s_audit_log_path)}']
-- [chmod, '750', '${dirname(var.k3s_audit_log_path)}']
-- [chown, 'root:root', '${dirname(var.k3s_audit_log_path)}']
+- [mkdir, '-p', '${dirname(var.audit_log_path)}']
+- [chmod, '750', '${dirname(var.audit_log_path)}']
+- [chown, 'root:root', '${dirname(var.audit_log_path)}']
 
-# Add logic to truly disable SELinux if disable_selinux = true.
+# Add logic to truly disable SELinux if enable_selinux = false.
 # We'll do it by appending to cloudinit_runcmd_common.
-%{if var.disable_selinux}
+%{if !var.enable_selinux}
 - [sed, '-i', '-E', 's/^SELINUX=[a-z]+/SELINUX=disabled/', '/etc/selinux/config']
 - [setenforce, '0']
 %{endif}
@@ -2405,54 +2591,4 @@ EOT
 
 }
 
-# Cross-variable validations that can't be done in variable validation blocks
-check "nat_router_requires_control_plane_lb" {
-  assert {
-    condition     = var.nat_router == null || var.use_control_plane_lb
-    error_message = "When nat_router is enabled, use_control_plane_lb must be set to true."
-  }
-}
-
-check "combine_load_balancers_requires_control_plane_lb" {
-  assert {
-    condition     = !var.combine_load_balancers || var.use_control_plane_lb
-    error_message = "combine_load_balancers requires use_control_plane_lb=true."
-  }
-}
-
-check "ccm_lb_has_eligible_targets" {
-  assert {
-    condition     = !(var.exclude_agents_from_external_load_balancers && !local.allow_loadbalancer_target_on_control_plane)
-    error_message = "Warning: exclude_agents_from_external_load_balancers=true with allow_scheduling_on_control_plane=false leaves NO eligible targets for CCM-managed LoadBalancer services. Either set allow_scheduling_on_control_plane=true or disable exclude_agents_from_external_load_balancers."
-  }
-}
-
-check "autoscaler_nodepools_os_consistent" {
-  assert {
-    condition     = length(distinct(local.autoscaler_nodepools_os)) <= 1
-    error_message = "All autoscaler_nodepools must use the same effective OS. Set 'os' explicitly per autoscaler_nodepool (or omit it everywhere) so the module can select a single image set."
-  }
-}
-
-check "system_upgrade_window_requires_supported_controller_version" {
-  assert {
-    condition = var.system_upgrade_schedule_window == null ? true : (
-      try(provider::semvers::compare(trimprefix(var.sys_upgrade_controller_version, "v"), "0.15.0"), -1) >= 0
-    )
-    error_message = "system_upgrade_schedule_window requires sys_upgrade_controller_version v0.15.0 or newer."
-  }
-}
-
-check "disabled_x86_arch_must_not_be_used" {
-  assert {
-    condition     = var.enable_x86 || !anytrue([for pair in local.node_os_arch_pairs : pair.arch == "x86"])
-    error_message = "enable_x86 is false, but x86 node definitions were found in control_plane_nodepools, agent_nodepools, or autoscaler_nodepools."
-  }
-}
-
-check "disabled_arm_arch_must_not_be_used" {
-  assert {
-    condition     = var.enable_arm || !anytrue([for pair in local.node_os_arch_pairs : pair.arch == "arm"])
-    error_message = "enable_arm is false, but ARM node definitions were found in control_plane_nodepools, agent_nodepools, or autoscaler_nodepools."
-  }
-}
+# Cross-variable validations should live in variable validation blocks where possible.

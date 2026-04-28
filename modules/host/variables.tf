@@ -130,32 +130,32 @@ variable "automatically_upgrade_os" {
   default = true
 }
 
-variable "k3s_registries" {
+variable "registries_config" {
   default = ""
   type    = string
 }
 
-variable "k3s_registries_update_script" {
+variable "registries_update_script" {
   default = ""
   type    = string
 }
 
-variable "k3s_kubelet_config" {
+variable "kubelet_config" {
   default = ""
   type    = string
 }
 
-variable "k3s_kubelet_config_update_script" {
+variable "kubelet_config_update_script" {
   default = ""
   type    = string
 }
 
-variable "k3s_audit_policy_config" {
+variable "audit_policy_config" {
   description = "K3S audit-policy.yaml contents"
   type        = string
 }
 
-variable "k3s_audit_policy_update_script" {
+variable "audit_policy_update_script" {
   description = "Script to update audit policy configuration"
   type        = string
 }

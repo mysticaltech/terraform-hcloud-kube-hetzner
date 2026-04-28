@@ -10,7 +10,7 @@ locals {
   extra_robot_nodes_gateway_ipv4 = cidrhost(local.network_ipv4_subnets[var.vswitch_subnet_index], 1)
   extra_robot_nodes_prefix       = split("/", local.network_ipv4_subnets[var.vswitch_subnet_index])[1]
 
-  extra_robot_nodes_install_command = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true ${var.install_k3s_version == "" ? "INSTALL_K3S_CHANNEL=${var.initial_k3s_channel}" : "INSTALL_K3S_VERSION=${var.install_k3s_version}"} INSTALL_K3S_EXEC='agent ${var.k3s_exec_agent_args}' sh -"
+  extra_robot_nodes_install_command = "curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_SELINUX_RPM=true ${var.k3s_version == "" ? "INSTALL_K3S_CHANNEL=${var.k3s_channel}" : "INSTALL_K3S_VERSION=${var.k3s_version}"} INSTALL_K3S_EXEC='agent ${var.agent_exec_args}' sh -"
 }
 
 resource "terraform_data" "extra_robot_nodes" {
@@ -26,9 +26,9 @@ resource "terraform_data" "extra_robot_nodes" {
     labels        = join(",", each.value.labels)
     taints        = join(",", each.value.taints)
     flannel_iface = each.value.flannel_iface_effective
-    token_sha1    = sha1(local.k3s_token)
+    token_sha1    = sha1(local.cluster_token)
     endpoint      = local.k3s_endpoint
-    agent_args    = var.k3s_exec_agent_args
+    agent_args    = var.agent_exec_args
   }
 
   connection {
@@ -42,11 +42,11 @@ resource "terraform_data" "extra_robot_nodes" {
   provisioner "file" {
     content = yamlencode(merge(
       {
-        token              = local.k3s_token
+        token              = local.cluster_token
         server             = local.k3s_endpoint
         node-ip            = each.value.private_ipv4
         prefer-bundled-bin = true
-        kubelet-arg        = concat(local.kubelet_arg, var.k3s_global_kubelet_args, var.k3s_agent_kubelet_args)
+        kubelet-arg        = concat(local.kubelet_arg, var.global_kubelet_args, var.agent_kubelet_args)
         node-label         = each.value.labels
         node-taint         = each.value.taints
       },

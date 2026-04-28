@@ -89,7 +89,7 @@ Layout:
 
 **Key:** `/etc` is inside the snapshot. `/var` and `/root` are separate subvolumes at `@/var` and `@/root`.
 
-### Ubuntu / Debian (ext4)
+### Unsupported/custom ext4 images
 
 ```bash
 mount /dev/sda1 /mnt

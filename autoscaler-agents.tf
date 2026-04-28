@@ -13,57 +13,101 @@ locals {
   )
 
   nodeConfigName = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
-  cluster_config = {
-    imagesForArch : local.imageList
-    nodeConfigs : {
-      for index, nodePool in var.autoscaler_nodepools :
-      ("${local.nodeConfigName}${nodePool.name}") => {
-        cloudInit = data.cloudinit_config.autoscaler_config[index].rendered
-        labels    = nodePool.labels
-        taints    = nodePool.taints
+  autoscaler_network_keys = length(var.autoscaler_nodepools) == 0 ? [] : sort(distinct([
+    for nodePool in var.autoscaler_nodepools : tostring(coalesce(nodePool.network_id, 0))
+  ]))
+  autoscaler_nodepools_by_network = {
+    for network_key in local.autoscaler_network_keys :
+    network_key => [
+      for nodePool in var.autoscaler_nodepools : nodePool
+      if tostring(coalesce(nodePool.network_id, 0)) == network_key
+    ]
+  }
+  autoscaler_network_id_by_key = {
+    for network_key in local.autoscaler_network_keys :
+    network_key => network_key == "0" ? data.hcloud_network.k3s.id : tonumber(network_key)
+  }
+  autoscaler_name_by_network = {
+    for network_key in local.autoscaler_network_keys :
+    network_key => length(local.autoscaler_network_keys) == 1 && network_key == "0" ? "cluster-autoscaler" : "cluster-autoscaler-net-${network_key}"
+  }
+  cluster_autoscaler_metrics_node_port_by_network = {
+    for index, network_key in local.autoscaler_network_keys :
+    network_key => 30085 + index
+  }
+  cluster_autoscaler_metrics_node_ports = values(local.cluster_autoscaler_metrics_node_port_by_network)
+
+  cluster_config_by_network = {
+    for network_key in local.autoscaler_network_keys :
+    network_key => {
+      imagesForArch = local.imageList
+      nodeConfigs = {
+        for index, nodePool in var.autoscaler_nodepools :
+        ("${local.nodeConfigName}${nodePool.name}") => merge(
+          {
+            cloudInit    = data.cloudinit_config.autoscaler_config[index].rendered
+            labels       = nodePool.labels
+            serverLabels = nodePool.server_labels
+            taints       = nodePool.taints
+          },
+          nodePool.subnet_ip_range == null ? {} : { subnetIPRange = nodePool.subnet_ip_range }
+        )
+        if tostring(coalesce(nodePool.network_id, 0)) == network_key
       }
     }
   }
-  rke2_cluster_config = {
-    imagesForArch : local.imageList
-    nodeConfigs : {
-      for index, nodePool in var.autoscaler_nodepools :
-      ("${local.nodeConfigName}${nodePool.name}") => {
-        cloudInit = data.cloudinit_config.autoscaler_config_rke2[index].rendered
-        labels    = nodePool.labels
-        taints    = nodePool.taints
+  rke2_cluster_config_by_network = {
+    for network_key in local.autoscaler_network_keys :
+    network_key => {
+      imagesForArch = local.imageList
+      nodeConfigs = {
+        for index, nodePool in var.autoscaler_nodepools :
+        ("${local.nodeConfigName}${nodePool.name}") => merge(
+          {
+            cloudInit    = data.cloudinit_config.autoscaler_config_rke2[index].rendered
+            labels       = nodePool.labels
+            serverLabels = nodePool.server_labels
+            taints       = nodePool.taints
+          },
+          nodePool.subnet_ip_range == null ? {} : { subnetIPRange = nodePool.subnet_ip_range }
+        )
+        if tostring(coalesce(nodePool.network_id, 0)) == network_key
       }
     }
   }
-  desired_cluster_config = local.kubernetes_distribution == "rke2" ? local.rke2_cluster_config : local.cluster_config
+  desired_cluster_config_by_network = local.kubernetes_distribution == "rke2" ? local.rke2_cluster_config_by_network : local.cluster_config_by_network
 
-  isUsingLegacyConfig = length(var.autoscaler_labels) > 0 || length(var.autoscaler_taints) > 0
-
-  autoscaler_yaml = length(var.autoscaler_nodepools) == 0 ? "" : templatefile(
-    "${path.module}/templates/autoscaler.yaml.tpl",
-    {
-      cloudinit_config                           = local.isUsingLegacyConfig ? base64encode(data.cloudinit_config.autoscaler_legacy_config[0].rendered) : ""
-      ca_image                                   = var.cluster_autoscaler_image
-      ca_version                                 = var.cluster_autoscaler_version
-      ca_replicas                                = var.cluster_autoscaler_replicas
-      ca_resource_limits                         = var.cluster_autoscaler_resource_limits
-      ca_resources                               = var.cluster_autoscaler_resource_values
-      cluster_autoscaler_extra_args              = var.cluster_autoscaler_extra_args
-      cluster_autoscaler_tolerations             = var.cluster_autoscaler_tolerations
-      cluster_autoscaler_log_level               = var.cluster_autoscaler_log_level
-      cluster_autoscaler_log_to_stderr           = var.cluster_autoscaler_log_to_stderr
-      cluster_autoscaler_stderr_threshold        = var.cluster_autoscaler_stderr_threshold
-      cluster_autoscaler_server_creation_timeout = tostring(var.cluster_autoscaler_server_creation_timeout)
-      ssh_key                                    = local.hcloud_ssh_key_id
-      ipv4_subnet_id                             = data.hcloud_network.k3s.id
-      snapshot_id                                = local.first_nodepool_snapshot_id
-      cluster_config                             = base64encode(jsonencode(local.desired_cluster_config))
-      firewall_id                                = hcloud_firewall.k3s.id
-      cluster_name                               = local.cluster_prefix
-      node_pools                                 = var.autoscaler_nodepools
-      enable_ipv4                                = !(var.autoscaler_disable_ipv4 || local.use_nat_router)
-      enable_ipv6                                = !(var.autoscaler_disable_ipv6 || local.use_nat_router)
-  })
+  autoscaler_yaml = length(var.autoscaler_nodepools) == 0 ? "" : join("\n", [
+    for network_key in local.autoscaler_network_keys : templatefile(
+      "${path.module}/templates/autoscaler.yaml.tpl",
+      {
+        autoscaler_name                            = local.autoscaler_name_by_network[network_key]
+        leader_election_resource_name              = local.autoscaler_name_by_network[network_key]
+        metrics_node_port                          = local.cluster_autoscaler_metrics_node_port_by_network[network_key]
+        cloudinit_config                           = ""
+        ca_image                                   = var.cluster_autoscaler_image
+        ca_version                                 = var.cluster_autoscaler_version
+        ca_replicas                                = var.cluster_autoscaler_replicas
+        ca_resource_limits                         = var.cluster_autoscaler_resource_limits
+        ca_resources                               = var.cluster_autoscaler_resource_values
+        cluster_autoscaler_extra_args              = var.cluster_autoscaler_extra_args
+        cluster_autoscaler_tolerations             = var.cluster_autoscaler_tolerations
+        cluster_autoscaler_log_level               = var.cluster_autoscaler_log_level
+        cluster_autoscaler_log_to_stderr           = var.cluster_autoscaler_log_to_stderr
+        cluster_autoscaler_stderr_threshold        = var.cluster_autoscaler_stderr_threshold
+        cluster_autoscaler_server_creation_timeout = tostring(var.cluster_autoscaler_server_creation_timeout)
+        ssh_key                                    = local.hcloud_ssh_key_id
+        ipv4_subnet_id                             = local.autoscaler_network_id_by_key[network_key]
+        snapshot_id                                = local.first_nodepool_snapshot_id
+        cluster_config                             = base64encode(jsonencode(local.desired_cluster_config_by_network[network_key]))
+        firewall_id                                = hcloud_firewall.k3s.id
+        cluster_name                               = local.cluster_prefix
+        node_pools                                 = local.autoscaler_nodepools_by_network[network_key]
+        enable_ipv4                                = var.autoscaler_enable_public_ipv4 && !local.use_nat_router
+        enable_ipv6                                = var.autoscaler_enable_public_ipv6 && !local.use_nat_router
+      }
+    )
+  ])
   # A concatenated list of all autoscaled nodes
   autoscaled_nodes = length(var.autoscaler_nodepools) == 0 ? {} : {
     for v in concat([
@@ -101,15 +145,18 @@ resource "terraform_data" "configure_autoscaler" {
 
   # Create/Apply the definition
   provisioner "remote-exec" {
-    inline = ["${local.kubectl_cli} apply -f /tmp/autoscaler.yaml"]
+    inline = concat(
+      ["${local.kubectl_cli} apply -f /tmp/autoscaler.yaml"],
+      [
+        for autoscaler_name in values(local.autoscaler_name_by_network) :
+        "${local.kubectl_cli} -n kube-system wait --for=condition=available --timeout=300s deployment/${autoscaler_name}"
+      ]
+    )
   }
 
   depends_on = [
-    hcloud_load_balancer.cluster,
-    terraform_data.control_planes,
-    terraform_data.control_planes_rke2,
-    random_password.rancher_bootstrap,
-    hcloud_volume.longhorn_volume
+    terraform_data.kustomization,
+    terraform_data.rke2_kustomization
   ]
 }
 moved {
@@ -139,18 +186,18 @@ data "cloudinit_config" "autoscaler_config" {
         os                = local.autoscaler_nodepools_os[count.index]
         k3s_config = yamlencode(merge(
           {
-            server = local.k3s_endpoint
-            token  = local.k3s_token
-            # Kubelet arg precedence (last wins): local.kubelet_arg < k3s_global_kubelet_args < k3s_autoscaler_kubelet_args < nodepool.kubelet_args
-            kubelet-arg   = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? ["fail-swap-on=false"] : [], var.k3s_global_kubelet_args, var.k3s_autoscaler_kubelet_args, var.autoscaler_nodepools[count.index].kubelet_args)
+            server = local.k3s_autoscaler_join_endpoint_by_index[count.index]
+            token  = local.cluster_token
+            # Kubelet arg precedence (last wins): local.kubelet_arg < global_kubelet_args < autoscaler_kubelet_args < nodepool.kubelet_args
+            kubelet-arg   = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? ["fail-swap-on=false"] : [], var.global_kubelet_args, var.autoscaler_kubelet_args, var.autoscaler_nodepools[count.index].kubelet_args)
             flannel-iface = local.flannel_iface
             node-label    = concat(local.default_agent_labels, [for k, v in var.autoscaler_nodepools[count.index].labels : "${k}=${v}"], var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? local.swap_node_label : [])
             node-taint    = compact(concat(local.default_agent_taints, [for taint in var.autoscaler_nodepools[count.index].taints : "${taint.key}=${tostring(taint.value)}:${taint.effect}"]))
-            selinux       = !var.disable_selinux
+            selinux       = var.enable_selinux
           },
           var.agent_nodes_custom_config,
           local.prefer_bundled_bin_config,
-          var.disable_selinux
+          !var.enable_selinux
           ? { selinux = false }
           : {}
         ))
@@ -158,12 +205,15 @@ data "cloudinit_config" "autoscaler_config" {
           local.install_k8s_agent,
           local.kubernetes_distribution == "rke2" ? ["systemctl start rke2-agent", "systemctl enable rke2-agent"] : ["systemctl start k3s-agent"]
         ))
-        cloudinit_write_files_common = local.cloudinit_write_files_common
-        cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
-        private_ipv4_default_route   = var.autoscaler_disable_ipv4 || local.use_nat_router
-        public_ipv4_default_route    = !(var.autoscaler_disable_ipv4 || local.use_nat_router)
-        public_ipv6_default_route    = !(var.autoscaler_disable_ipv6 || local.use_nat_router)
-        network_gw_ipv4              = local.network_gw_ipv4
+        cloudinit_write_files_common        = local.cloudinit_write_files_common
+        cloudinit_runcmd_common             = local.cloudinit_runcmd_common,
+        private_ipv4_default_route          = !var.autoscaler_enable_public_ipv4 || local.use_nat_router
+        public_ipv4_default_route           = var.autoscaler_enable_public_ipv4 && !local.use_nat_router
+        public_ipv6_default_route           = var.autoscaler_enable_public_ipv6 && !local.use_nat_router
+        network_gw_ipv4                     = local.network_gw_ipv4_by_network_id[coalesce(var.autoscaler_nodepools[count.index].network_id, 0) == 0 ? data.hcloud_network.k3s.id : var.autoscaler_nodepools[count.index].network_id]
+        multinetwork_public_overlay_enabled = local.multinetwork_overlay_enabled
+        multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
+        multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled
       }
     )
   }
@@ -191,78 +241,30 @@ data "cloudinit_config" "autoscaler_config_rke2" {
         os                = local.autoscaler_nodepools_os[count.index]
         k3s_config = yamlencode(merge(
           {
-            server = local.rke2_join_endpoint
-            token  = local.k3s_token
-            # Kubelet arg precedence (last wins): local.kubelet_arg < k3s_global_kubelet_args < k3s_autoscaler_kubelet_args < nodepool.kubelet_args
-            kubelet-arg = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? ["fail-swap-on=false"] : [], var.k3s_global_kubelet_args, var.k3s_autoscaler_kubelet_args, var.autoscaler_nodepools[count.index].kubelet_args)
+            server = local.rke2_autoscaler_join_endpoint_by_index[count.index]
+            token  = local.cluster_token
+            # Kubelet arg precedence (last wins): local.kubelet_arg < global_kubelet_args < autoscaler_kubelet_args < nodepool.kubelet_args
+            kubelet-arg = concat(local.kubelet_arg, var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? ["fail-swap-on=false"] : [], var.global_kubelet_args, var.autoscaler_kubelet_args, var.autoscaler_nodepools[count.index].kubelet_args)
             node-label  = concat(local.default_agent_labels, [for k, v in var.autoscaler_nodepools[count.index].labels : "${k}=${v}"], var.autoscaler_nodepools[count.index].swap_size != "" || var.autoscaler_nodepools[count.index].zram_size != "" ? local.swap_node_label : [])
             node-taint  = compact(concat(local.default_agent_taints, [for taint in var.autoscaler_nodepools[count.index].taints : "${taint.key}=${tostring(taint.value)}:${taint.effect}"]))
-            selinux     = !var.disable_selinux
+            selinux     = var.enable_selinux
           },
           var.agent_nodes_custom_config,
           local.prefer_bundled_bin_config,
-          var.disable_selinux
+          !var.enable_selinux
           ? { selinux = false }
           : {}
         ))
-        install_k8s_agent_script     = join("\n", concat(local.install_k8s_agent, ["systemctl start rke2-agent", "systemctl enable rke2-agent"]))
-        cloudinit_write_files_common = local.cloudinit_write_files_common
-        cloudinit_runcmd_common      = local.cloudinit_runcmd_common
-        private_ipv4_default_route   = var.autoscaler_disable_ipv4 || local.use_nat_router
-        public_ipv4_default_route    = !(var.autoscaler_disable_ipv4 || local.use_nat_router)
-        public_ipv6_default_route    = !(var.autoscaler_disable_ipv6 || local.use_nat_router)
-        network_gw_ipv4              = local.network_gw_ipv4
-      }
-    )
-  }
-}
-
-data "cloudinit_config" "autoscaler_legacy_config" {
-  count = length(var.autoscaler_nodepools) > 0 && local.isUsingLegacyConfig ? 1 : 0
-
-  gzip          = true
-  base64_encode = true
-
-  # Main cloud-config configuration file.
-  part {
-    filename     = "init.cfg"
-    content_type = "text/cloud-config"
-    content = templatefile(
-      "${path.module}/templates/autoscaler-cloudinit.yaml.tpl",
-      {
-        hostname          = "autoscaler"
-        dns_servers       = var.dns_servers
-        has_dns_servers   = local.has_dns_servers
-        sshAuthorizedKeys = local.ssh_authorized_keys
-        swap_size         = ""
-        zram_size         = ""
-        os                = local.first_nodepool_os
-        k3s_config = yamlencode(merge(
-          {
-            server        = local.kubernetes_distribution == "rke2" ? local.rke2_join_endpoint : local.k3s_endpoint
-            token         = local.k3s_token
-            kubelet-arg   = local.kubelet_arg
-            flannel-iface = local.flannel_iface
-            node-label    = concat(local.default_agent_labels, var.autoscaler_labels)
-            node-taint    = compact(concat(local.default_agent_taints, var.autoscaler_taints))
-            selinux       = !var.disable_selinux
-          },
-          var.agent_nodes_custom_config,
-          local.prefer_bundled_bin_config,
-          var.disable_selinux
-          ? { selinux = false }
-          : {}
-        ))
-        install_k8s_agent_script = join("\n", concat(
-          local.install_k8s_agent,
-          local.kubernetes_distribution == "rke2" ? ["systemctl start rke2-agent", "systemctl enable rke2-agent"] : ["systemctl start k3s-agent"]
-        ))
-        cloudinit_write_files_common = local.cloudinit_write_files_common
-        cloudinit_runcmd_common      = local.cloudinit_runcmd_common,
-        private_ipv4_default_route   = var.autoscaler_disable_ipv4 || local.use_nat_router
-        public_ipv4_default_route    = !(var.autoscaler_disable_ipv4 || local.use_nat_router)
-        public_ipv6_default_route    = !(var.autoscaler_disable_ipv6 || local.use_nat_router)
-        network_gw_ipv4              = local.network_gw_ipv4,
+        install_k8s_agent_script            = join("\n", concat(local.install_k8s_agent, ["systemctl start rke2-agent", "systemctl enable rke2-agent"]))
+        cloudinit_write_files_common        = local.cloudinit_write_files_common
+        cloudinit_runcmd_common             = local.cloudinit_runcmd_common
+        private_ipv4_default_route          = !var.autoscaler_enable_public_ipv4 || local.use_nat_router
+        public_ipv4_default_route           = var.autoscaler_enable_public_ipv4 && !local.use_nat_router
+        public_ipv6_default_route           = var.autoscaler_enable_public_ipv6 && !local.use_nat_router
+        network_gw_ipv4                     = local.network_gw_ipv4_by_network_id[coalesce(var.autoscaler_nodepools[count.index].network_id, 0) == 0 ? data.hcloud_network.k3s.id : var.autoscaler_nodepools[count.index].network_id]
+        multinetwork_public_overlay_enabled = local.multinetwork_overlay_enabled
+        multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
+        multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled
       }
     )
   }
@@ -276,7 +278,7 @@ data "hcloud_servers" "autoscaled_nodes" {
 resource "terraform_data" "autoscaled_nodes_registries" {
   for_each = local.autoscaled_nodes
   triggers_replace = {
-    registries = var.k3s_registries
+    registries = var.registries_config
   }
 
   connection {
@@ -294,7 +296,7 @@ resource "terraform_data" "autoscaled_nodes_registries" {
   }
 
   provisioner "file" {
-    content     = var.k3s_registries
+    content     = var.registries_config
     destination = "/tmp/registries.yaml"
   }
 
@@ -308,9 +310,9 @@ moved {
 }
 
 resource "terraform_data" "autoscaled_nodes_kubelet_config" {
-  for_each = var.k3s_kubelet_config != "" ? local.autoscaled_nodes : {}
+  for_each = var.kubelet_config != "" ? local.autoscaled_nodes : {}
   triggers_replace = {
-    kubelet_config = var.k3s_kubelet_config
+    kubelet_config = var.kubelet_config
   }
 
   connection {
@@ -327,7 +329,7 @@ resource "terraform_data" "autoscaled_nodes_kubelet_config" {
   }
 
   provisioner "file" {
-    content     = var.k3s_kubelet_config
+    content     = var.kubelet_config
     destination = "/tmp/kubelet-config.yaml"
   }
 

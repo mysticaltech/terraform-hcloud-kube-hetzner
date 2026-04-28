@@ -31,9 +31,9 @@ resource "ssh_sensitive_resource" "kubeconfig" {
 }
 
 locals {
-  kubeconfig_server_address = var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : (var.use_control_plane_lb ?
+  kubeconfig_server_address = var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : (var.enable_control_plane_load_balancer ?
     (
-      var.control_plane_lb_enable_public_interface ?
+      var.control_plane_load_balancer_enable_public_network ?
       hcloud_load_balancer.control_plane.*.ipv4[0]
       : (
         var.nat_router != null ?
@@ -45,11 +45,11 @@ locals {
     (can(local.first_control_plane_ip) ? local.first_control_plane_ip : "unknown")
   )
   kubeconfig_server_host = provider::assert::ipv6(local.kubeconfig_server_address) ? "[${local.kubeconfig_server_address}]" : local.kubeconfig_server_address
-  kubeconfig_server      = "https://${local.kubeconfig_server_host}:${var.kubeapi_port}"
+  kubeconfig_server      = "https://${local.kubeconfig_server_host}:${var.kubernetes_api_port}"
   kubeconfig_external = replace(
     replace(
       ssh_sensitive_resource.kubeconfig.result,
-      "https://127.0.0.1:${var.kubeapi_port}",
+      "https://127.0.0.1:${var.kubernetes_api_port}",
       local.kubeconfig_server
     ),
     "default",

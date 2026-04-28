@@ -16,7 +16,7 @@ locals {
   nat_router_name          = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${local.nat_router_name_basename}"
   nat_router_connection_host = {
     for index in range(var.nat_router != null ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0) :
-    index => var.use_private_bastion ? local.nat_router_ip[index] : hcloud_server.nat_router[index].ipv4_address
+    index => var.use_private_nat_router_bastion ? local.nat_router_ip[index] : hcloud_server.nat_router[index].ipv4_address
   }
 
   nat_router_fail2ban_script = <<-EOT
@@ -120,9 +120,9 @@ data "cloudinit_config" "nat_router_config" {
         private_network_ipv4_range = data.hcloud_network.k3s.ip_range
         ssh_port                   = var.ssh_port
         ssh_max_auth_tries         = var.ssh_max_auth_tries
-        enable_cp_lb_port_forward  = var.use_control_plane_lb && !var.control_plane_lb_enable_public_interface
+        enable_cp_lb_port_forward  = var.enable_control_plane_load_balancer && !var.control_plane_load_balancer_enable_public_network
         cp_lb_private_ip           = try(hcloud_load_balancer_network.control_plane[0].ip, "")
-        kubeapi_port               = var.kubeapi_port
+        kubernetes_api_port        = var.kubernetes_api_port
       }
     )
   }
@@ -349,8 +349,8 @@ resource "terraform_data" "nat_router_config" {
 
       PRIVATE_RANGE='${data.hcloud_network.k3s.ip_range}'
       CP_LB_PRIVATE_IP='${try(hcloud_load_balancer_network.control_plane[0].ip, "")}'
-      KUBEAPI_PORT='${var.kubeapi_port}'
-      ENABLE_CP_LB_PORT_FORWARD='${var.use_control_plane_lb && !var.control_plane_lb_enable_public_interface}'
+      KUBEAPI_PORT='${var.kubernetes_api_port}'
+      ENABLE_CP_LB_PORT_FORWARD='${var.enable_control_plane_load_balancer && !var.control_plane_load_balancer_enable_public_network}'
 
       while iptables -t nat -C POSTROUTING -s "$PRIVATE_RANGE" ! -d "$PRIVATE_RANGE" -o eth0 -j MASQUERADE 2>/dev/null; do
         iptables -t nat -D POSTROUTING -s "$PRIVATE_RANGE" ! -d "$PRIVATE_RANGE" -o eth0 -j MASQUERADE || true

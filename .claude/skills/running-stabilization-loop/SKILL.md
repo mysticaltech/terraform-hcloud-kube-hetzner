@@ -1,6 +1,6 @@
 ---
 name: running-stabilization-loop
-description: Use after major refactors or risky infrastructure changes to run iterative stabilization loops in kube-test: clean state, run the v3 matrix (k3s/rke2, autoscaler, leapmicro/microos, multi-arch), proactively debug failures over SSH/journalctl, apply fixes, retest until green, then validate upgrade paths from the latest tag to current staging.
+description: "Use after major refactors or risky infrastructure changes to run iterative stabilization loops in kube-test: clean state, run the v3 matrix (k3s/rke2, autoscaler, leapmicro/microos, multi-arch), proactively debug failures over SSH/journalctl, apply fixes, retest until green, then validate upgrade paths from the latest tag to current staging."
 ---
 
 # Running Stabilization Loop
@@ -33,7 +33,7 @@ Hard requirements:
 - Use /Volumes/MysticalTech/Code/kube-test/run_v3_matrix.sh and summary-*.md as source of truth.
 - If RKE2/K3s apply hangs, SSH during apply and inspect journalctl/cloud-init immediately.
 - If destroy hangs, run cleanup and delete stuck autoscaled servers via hcloud.
-- Keep changes minimal and production-safe; run terraform fmt/validate before each rerun.
+- Keep changes minimal and production-safe; run Terraform and OpenTofu validation before each rerun.
 
 Deliverables:
 - Final scenario matrix results with log paths.
@@ -94,7 +94,12 @@ cd /Volumes/MysticalTech/Code/kube-hetzner
 git checkout staging
 git pull --ff-only origin staging
 terraform fmt -recursive
+terraform init -backend=false
 terraform validate
+tmpdir="$(mktemp -d)"
+rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
+(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+rm -rf "$tmpdir"
 
 cd /Volumes/MysticalTech/Code/kube-test
 terraform init -upgrade
@@ -251,7 +256,12 @@ Known high-frequency failures to check first:
 ```bash
 cd /Volumes/MysticalTech/Code/kube-hetzner
 terraform fmt -recursive
+terraform init -backend=false
 terraform validate
+tmpdir="$(mktemp -d)"
+rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
+(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+rm -rf "$tmpdir"
 ```
 
 3. Rerun only failed scenarios:

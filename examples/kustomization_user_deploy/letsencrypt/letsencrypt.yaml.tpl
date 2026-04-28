@@ -5,8 +5,9 @@ metadata:
   namespace: cert-manager
 spec:
   acme:
-    email: <youremail@domain.com> <--- change this to your email
-    server: https://acme-v02.api.letsencrypt.org/directory | https://acme-staging-v02.api.letsencrypt.org/directory <-- pick one
+    email: you@example.com
+    # Use the staging directory while testing, then switch to the production URL.
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-account-key
     solvers:

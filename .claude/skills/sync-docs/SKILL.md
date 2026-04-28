@@ -55,17 +55,17 @@ Use Gemini for large file analysis:
 
 ```bash
 # List all variables from variables.tf
-gemini --model gemini-3-pro-preview -p "@variables.tf List ALL variable names defined in this file, one per line"
+gemini --model gemini-3.1-pro-preview -p "@variables.tf List ALL variable names defined in this file, one per line"
 
 # Get variable details
-gemini --model gemini-3-pro-preview -p "@variables.tf For variable '<name>', provide: type, default, description"
+gemini --model gemini-3.1-pro-preview -p "@variables.tf For variable '<name>', provide: type, default, description"
 ```
 
 ## Step 2: Find Undocumented Variables
 
 ```bash
 # Compare variables.tf with llms.md
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@variables.tf @docs/llms.md List ALL variables from variables.tf that are NOT documented in llms.md. Output one per line."
 ```
 
@@ -109,7 +109,7 @@ For each undocumented variable:
 
 | Section | Variables |
 |---------|-----------|
-| Cluster Basics | cluster_name, hetzner_token, ssh_* |
+| Cluster Basics | cluster_name, hcloud_token, ssh_* |
 | Network | network_*, subnet_* |
 | Control Plane | control_plane_* |
 | Agents | agent_*, autoscaler_* |
@@ -128,7 +128,7 @@ Ensure new variables appear in the example with:
 
 ```bash
 # Check what's in example vs variables.tf
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@variables.tf @kube.tf.example List variables from variables.tf missing from kube.tf.example"
 ```
 
@@ -145,7 +145,7 @@ Features section should match actual capabilities.
 
 ```bash
 # Final verification
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@variables.tf @docs/llms.md @kube.tf.example Verify these files are consistent. List any discrepancies."
 ```
 
@@ -184,15 +184,15 @@ gemini --model gemini-3-pro-preview -p \
 terraform-docs markdown . > docs/terraform.md
 
 # Search for variable across all docs
-grep -r "variable_name" docs/ kube.tf.example README.md
+rg -n "variable_name" docs/ kube.tf.example README.md
 
 # Find undocumented variables (quick check)
-diff <(grep -oP 'variable "\K[^"]+' variables.tf | sort) \
-     <(grep -oP '`\K[a-z_]+(?=`)' docs/llms.md | sort -u) | grep "^<"
+diff <(rg -o 'variable "([^"]+)"' -r '$1' variables.tf | sort) \
+     <(rg -o '`[a-z_]+`' docs/llms.md | tr -d '`' | sort -u) | rg "^<"
 ```
 
 ## After Sync
 
-1. Run `terraform fmt`
+1. Run `terraform fmt -recursive`
 2. Commit with message: `docs: sync documentation with variables.tf`
 3. If breaking changes, update CHANGELOG.md

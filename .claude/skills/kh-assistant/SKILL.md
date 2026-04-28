@@ -5,7 +5,7 @@ description: Use when users need help with kube-hetzner configuration, debugging
 
 # KH Assistant
 
-Expert assistant for **terraform-hcloud-kube-hetzner** — deploying production-ready k3s clusters on Hetzner Cloud.
+Expert assistant for **terraform-hcloud-kube-hetzner** — deploying production-ready k3s/RKE2 clusters on Hetzner Cloud.
 
 ## Startup Checklist
 
@@ -41,6 +41,8 @@ WebSearch "hetzner cloud server types pricing 2026"
 | `locals.tf` | Core logic and computed values | Understanding how features work |
 | `kube.tf.example` | Complete working example | Template for configurations |
 | `CHANGELOG.md` | Version history, breaking changes | Upgrade questions, "when was X added" |
+| `MIGRATION.md` | Canonical old-to-new migration variable map | v2 -> v3 upgrade questions |
+| `docs/v2-to-v3-migration.md` | v2 -> v3 operator playbook | Existing-cluster major upgrades |
 | `README.md` | Project overview, quick start | New user orientation |
 
 ### Specialized Documentation
@@ -78,7 +80,7 @@ grep 'variable "<name>"' variables.tf
 | Rule | Explanation |
 |------|-------------|
 | **At least 1 control plane** | `control_plane_nodepools` must have at least one entry with `count >= 1` |
-| **MicroOS ONLY** | Never suggest Ubuntu, Debian, or any other OS |
+| **Supported OS only** | New nodes default to Leap Micro; MicroOS is legacy/upgrade support. Never suggest Ubuntu, Debian, or other generic OS images. |
 | **Network region coverage** | `network_region` must contain ALL node locations |
 | **Odd control plane counts for HA** | Use 1, 3, or 5 — never 2 or 4 (quorum requirement) |
 | **Autoscaler is separate** | `autoscaler_nodepools` is independent from `agent_nodepools` |
@@ -90,7 +92,7 @@ grep 'variable "<name>"' variables.tf
 |---------|---------|
 | Empty control_plane_nodepools | At least one with count >= 1 |
 | 2 control planes for "HA" | Use 3 (odd number for quorum) |
-| Suggesting Ubuntu | MicroOS only |
+| Suggesting Ubuntu/Debian | Use Leap Micro by default; MicroOS only for legacy/explicit nodepools |
 | Location not in network_region | network_region must cover all locations |
 | Confusing autoscaler with agents | Autoscaler pools are completely separate |
 | Using old version | Always check latest release first |
@@ -109,7 +111,7 @@ grep 'variable "<name>"' variables.tf
 | `SSH connection refused or timeout` | Key format, firewall, or node not ready | Check ssh_public_key format, verify firewall_ssh_source |
 | `Node stuck in NotReady` | Network region mismatch or token issues | Ensure network_region contains all node locations |
 | `Error creating network subnet` | Subnet CIDR conflicts | Check network_ipv4_cidr doesn't overlap with existing |
-| `cloud-init failed` | MicroOS snapshot missing or wrong region | Recreate snapshot with packer in correct region |
+| `cloud-init failed` | Leap Micro/MicroOS snapshot missing, wrong region, wrong architecture, or wrong distro label | Recreate snapshots with packer in the correct region/architecture and k3s/RKE2 SELinux variant |
 
 ### Debugging Workflow
 
@@ -180,12 +182,12 @@ grep 'variable "<name>"' variables.tf
 
 4. Generate complete config with:
    - Module source and version (latest!)
-   - Required: hetzner_token, ssh keys
+   - Required: hcloud_token, SSH keys
    - Requested features
    - Helpful comments
 
 5. Validate syntax:
-   terraform fmt
+   terraform fmt -recursive
    terraform validate
 ```
 
@@ -228,18 +230,36 @@ grep 'variable "<name>"' variables.tf
 
 ```
 1. Get current and target versions
-2. Read CHANGELOG.md for breaking changes between versions
-3. Check for:
+2. If this is v2.x -> v3.x, use the /migrate-v2-to-v3 skill workflow
+3. Read CHANGELOG.md, MIGRATION.md, and docs/v2-to-v3-migration.md
+4. Check for:
    - Removed/renamed variables
    - Changed defaults
    - Required migrations
-4. Generate upgrade steps:
+   - Inverted boolean semantics
+   - State migration requirements
+   - Network/subnet/LB/server replacement risk
+5. Generate upgrade steps:
    - Update version in kube.tf
    - terraform init -upgrade
+   - terraform validate
    - terraform plan (check for destructions!)
    - terraform apply
-5. Warn if terraform plan shows resource recreation
+6. Warn if terraform plan shows resource recreation
 ```
+
+### Workflow: v2 -> v3 Migrations
+
+Use `.claude/skills/migrate-v2-to-v3/SKILL.md` for the exact workflow.
+
+Core rules:
+- Back up state before editing.
+- Rewrite v2-only inputs using `MIGRATION.md`.
+- Invert positive/negative booleans carefully.
+- Remove `network_id = 0`; omitted/null means the primary Network in v3.
+- Remove control-plane `network_id`; control planes stay on the primary Network.
+- Run `terraform fmt -recursive`, `terraform init -upgrade`, `terraform validate`, and `terraform plan -out=v3-upgrade.tfplan`.
+- Do not apply when the plan has unexplained replacements or destroys.
 
 ---
 
@@ -252,7 +272,7 @@ module "kube-hetzner" {
   source  = "kube-hetzner/kube-hetzner/hcloud"
   version = "<LATEST>"  # Always fetch latest!
 
-  hetzner_token = var.hetzner_token
+  hcloud_token = var.hcloud_token
 
   ssh_public_key  = file("~/.ssh/id_ed25519.pub")
   ssh_private_key = file("~/.ssh/id_ed25519")
@@ -264,11 +284,22 @@ module "kube-hetzner" {
       name        = "control-plane"
       server_type = "cpx21"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 1
     }
   ]
 
-  agent_nodepools = []
+  agent_nodepools = [
+    {
+      name        = "worker"
+      server_type = "cpx21"
+      location    = "fsn1"
+      labels      = []
+      taints      = []
+      count       = 0
+    }
+  ]
 
   # Single node: disable auto OS upgrades
   automatically_upgrade_os = false
@@ -282,7 +313,7 @@ module "kube-hetzner" {
   source  = "kube-hetzner/kube-hetzner/hcloud"
   version = "<LATEST>"
 
-  hetzner_token = var.hetzner_token
+  hcloud_token = var.hcloud_token
 
   ssh_public_key  = file("~/.ssh/id_ed25519.pub")
   ssh_private_key = file("~/.ssh/id_ed25519")
@@ -294,6 +325,8 @@ module "kube-hetzner" {
       name        = "control-plane"
       server_type = "cpx31"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3  # Odd number for quorum!
     }
   ]
@@ -303,6 +336,8 @@ module "kube-hetzner" {
       name        = "worker"
       server_type = "cpx41"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3
     }
   ]
@@ -322,25 +357,31 @@ module "kube-hetzner" {
   source  = "kube-hetzner/kube-hetzner/hcloud"
   version = "<LATEST>"
 
-  hetzner_token = var.hetzner_token
+  hcloud_token = var.hcloud_token
 
   ssh_public_key  = file("~/.ssh/id_ed25519.pub")
   ssh_private_key = file("~/.ssh/id_ed25519")
 
   network_region = "eu-central"
 
-  # Enable NAT router for private egress
-  create_nat_router = true
+  enable_control_plane_load_balancer = true
+
+  nat_router = {
+    server_type = "cax21"
+    location    = "nbg1"
+  }
 
   control_plane_nodepools = [
     {
       name        = "control-plane"
       server_type = "cpx31"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3
       # Disable public IPs
-      disable_ipv4 = true
-      disable_ipv6 = true
+      enable_public_ipv4 = false
+      enable_public_ipv6 = false
     }
   ]
 
@@ -349,14 +390,16 @@ module "kube-hetzner" {
       name        = "worker"
       server_type = "cpx41"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3
-      disable_ipv4 = true
-      disable_ipv6 = true
+      enable_public_ipv4 = false
+      enable_public_ipv6 = false
     }
   ]
 
   # Optional: keep control plane LB private too
-  control_plane_lb_enable_public_interface = false
+  control_plane_load_balancer_enable_public_network = false
 }
 ```
 
@@ -367,7 +410,7 @@ module "kube-hetzner" {
   source  = "kube-hetzner/kube-hetzner/hcloud"
   version = "<LATEST>"
 
-  hetzner_token = var.hetzner_token
+  hcloud_token = var.hcloud_token
 
   ssh_public_key  = file("~/.ssh/id_ed25519.pub")
   ssh_private_key = file("~/.ssh/id_ed25519")
@@ -378,7 +421,7 @@ module "kube-hetzner" {
   cni_plugin = "cilium"
 
   # Full kube-proxy replacement
-  disable_kube_proxy = true
+  enable_kube_proxy = false
 
   # Enable Hubble for observability
   cilium_hubble_enabled = true
@@ -388,6 +431,8 @@ module "kube-hetzner" {
       name        = "control-plane"
       server_type = "cpx31"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3
     }
   ]
@@ -397,6 +442,8 @@ module "kube-hetzner" {
       name        = "worker"
       server_type = "cpx41"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3
     }
   ]
@@ -410,7 +457,7 @@ module "kube-hetzner" {
   source  = "kube-hetzner/kube-hetzner/hcloud"
   version = "<LATEST>"
 
-  hetzner_token = var.hetzner_token
+  hcloud_token = var.hcloud_token
 
   ssh_public_key  = file("~/.ssh/id_ed25519.pub")
   ssh_private_key = file("~/.ssh/id_ed25519")
@@ -423,6 +470,8 @@ module "kube-hetzner" {
       name        = "control-plane"
       server_type = "cax21"  # ARM
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3
     }
   ]
@@ -432,6 +481,8 @@ module "kube-hetzner" {
       name        = "worker-arm"
       server_type = "cax31"  # ARM
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 3
     }
   ]
@@ -445,7 +496,7 @@ module "kube-hetzner" {
   source  = "kube-hetzner/kube-hetzner/hcloud"
   version = "<LATEST>"
 
-  hetzner_token = var.hetzner_token
+  hcloud_token = var.hcloud_token
 
   ssh_public_key  = file("~/.ssh/id_ed25519.pub")
   ssh_private_key = file("~/.ssh/id_ed25519")
@@ -459,18 +510,24 @@ module "kube-hetzner" {
       name        = "cp-fsn"
       server_type = "cpx31"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 1
     },
     {
       name        = "cp-nbg"
       server_type = "cpx31"
       location    = "nbg1"
+      labels      = []
+      taints      = []
       count       = 1
     },
     {
       name        = "cp-hel"
       server_type = "cpx31"
       location    = "hel1"
+      labels      = []
+      taints      = []
       count       = 1
     }
   ]
@@ -481,18 +538,24 @@ module "kube-hetzner" {
       name        = "worker-fsn"
       server_type = "cpx41"
       location    = "fsn1"
+      labels      = []
+      taints      = []
       count       = 2
     },
     {
       name        = "worker-nbg"
       server_type = "cpx41"
       location    = "nbg1"
+      labels      = []
+      taints      = []
       count       = 2
     },
     {
       name        = "worker-hel"
       server_type = "cpx41"
       location    = "hel1"
+      labels      = []
+      taints      = []
       count       = 2
     }
   ]
@@ -509,13 +572,13 @@ module "kube-hetzner" {
 
 ```bash
 # Find specific variable
-grep -A10 'variable "<name>"' variables.tf
+rg -n 'variable "<name>"' variables.tf
 
 # Search by keyword
-grep -B2 -A10 'description.*<keyword>' variables.tf
+rg -n -C 3 'description.*<keyword>' variables.tf
 
 # Use Gemini for comprehensive search
-gemini --model gemini-3-pro-preview -p "@docs/llms.md Explain the <variable_name> variable"
+gemini --model gemini-3.1-pro-preview -p "@docs/llms.md Explain the <variable_name> variable"
 ```
 
 ### GitHub Commands
@@ -537,7 +600,7 @@ gh api repos/kube-hetzner/terraform-hcloud-kube-hetzner/discussions --jq '.[].ti
 ### Validation
 
 ```bash
-terraform fmt
+terraform fmt -recursive
 terraform validate
 terraform plan  # Check for unexpected changes!
 ```

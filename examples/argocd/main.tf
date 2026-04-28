@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.10.0"
+  required_version = ">= 1.10.1"
 
   required_providers {
     hcloud = {
@@ -12,7 +12,7 @@ terraform {
     }
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 2.15.0"
+      version = ">= 3.0.0"
     }
   }
 }
@@ -23,6 +23,8 @@ provider "hcloud" {
 
 module "kube-hetzner" {
   source = "kube-hetzner/kube-hetzner/hcloud"
+  # Pin to v3 once released.
+  # version = "3.0.0"
 
   providers = {
     hcloud = hcloud
@@ -69,7 +71,7 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = local.kubeconfig_data.host
     client_certificate     = local.kubeconfig_data.client_certificate
     client_key             = local.kubeconfig_data.client_key

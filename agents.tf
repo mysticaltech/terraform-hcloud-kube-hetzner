@@ -1,8 +1,8 @@
 resource "hcloud_primary_ip" "agents_ipv4" {
-  for_each = var.primary_ip_pool.enable_ipv4 ? {
+  for_each = {
     for key, value in local.agent_nodes : key => value
-    if !value.disable_ipv4 && value.primary_ipv4_id == null
-  } : {}
+    if var.primary_ip_pool.enable_ipv4 && !value.disable_ipv4 && value.primary_ipv4_id == null
+  }
 
   type          = "ipv4"
   name          = "${var.cluster_name}-agent-${each.key}-ipv4"
@@ -16,10 +16,10 @@ resource "hcloud_primary_ip" "agents_ipv4" {
 }
 
 resource "hcloud_primary_ip" "agents_ipv6" {
-  for_each = var.primary_ip_pool.enable_ipv6 ? {
+  for_each = {
     for key, value in local.agent_nodes : key => value
-    if !value.disable_ipv6 && value.primary_ipv6_id == null
-  } : {}
+    if var.primary_ip_pool.enable_ipv6 && !value.disable_ipv6 && value.primary_ipv6_id == null
+  }
 
   type          = "ipv6"
   name          = "${var.cluster_name}-agent-${each.key}-ipv6"
@@ -41,48 +41,48 @@ module "agents" {
 
   for_each = local.agent_nodes
 
-  name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
-  append_random_suffix             = each.value.append_random_suffix
-  connection_host                  = ""
-  os_snapshot_id                   = try(trimspace(each.value.os_snapshot_id), "") != "" ? trimspace(each.value.os_snapshot_id) : local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
-  os                               = each.value.os
-  base_domain                      = var.base_domain
-  ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
-  ssh_port                         = var.ssh_port
-  ssh_public_key                   = local.ssh_public_key
-  ssh_private_key                  = var.ssh_private_key
-  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
-  firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
-  extra_firewall_ids               = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
-  placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_compat_idx].id : hcloud_placement_group.agent_named[each.value.placement_group].id)
-  location                         = each.value.location
-  server_type                      = each.value.server_type
-  backups                          = each.value.backups
-  ipv4_subnet_id                   = local.use_per_nodepool_subnets ? hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id : hcloud_network_subnet.agent[0].id
-  dns_servers                      = var.dns_servers
-  k3s_registries                   = var.k3s_registries
-  k3s_registries_update_script     = local.k8s_registries_update_script
-  cloudinit_write_files_common     = local.cloudinit_write_files_common
-  k3s_kubelet_config               = var.k3s_kubelet_config
-  k3s_kubelet_config_update_script = local.k8s_kubelet_config_update_script
-  k3s_audit_policy_config          = ""
-  k3s_audit_policy_update_script   = ""
-  cloudinit_runcmd_common          = local.cloudinit_runcmd_common
-  cloudinit_write_files_extra      = each.value.extra_write_files
-  cloudinit_runcmd_extra           = each.value.extra_runcmd
-  swap_size                        = each.value.swap_size
-  zram_size                        = each.value.zram_size
-  keep_disk_size                   = coalesce(each.value.keep_disk, var.keep_disk_agents)
-  disable_ipv4                     = each.value.disable_ipv4
-  disable_ipv6                     = each.value.disable_ipv6
-  primary_ipv4_id                  = each.value.primary_ipv4_id != null ? each.value.primary_ipv4_id : try(hcloud_primary_ip.agents_ipv4[each.key].id, null)
-  primary_ipv6_id                  = each.value.primary_ipv6_id != null ? each.value.primary_ipv6_id : try(hcloud_primary_ip.agents_ipv6[each.key].id, null)
-  ssh_bastion                      = local.ssh_bastion
-  node_connection_overrides        = var.node_connection_overrides
-  network_id                       = local.agent_primary_network_id_by_node[each.key]
-  primary_network_key              = each.value.network_id
-  extra_network_ids                = local.agent_effective_extra_network_ids_by_node[each.key]
-  private_ipv4                     = null
+  name                         = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
+  append_random_suffix         = each.value.append_random_suffix
+  connection_host              = ""
+  os_snapshot_id               = try(trimspace(each.value.os_snapshot_id), "") != "" ? trimspace(each.value.os_snapshot_id) : local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
+  os                           = each.value.os
+  base_domain                  = var.base_domain
+  ssh_keys                     = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
+  ssh_port                     = var.ssh_port
+  ssh_public_key               = local.ssh_public_key
+  ssh_private_key              = var.ssh_private_key
+  ssh_additional_public_keys   = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
+  firewall_ids                 = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
+  extra_firewall_ids           = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
+  placement_group_id           = var.enable_placement_groups ? (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_index].id : hcloud_placement_group.agent_named[each.value.placement_group].id) : null
+  location                     = each.value.location
+  server_type                  = each.value.server_type
+  backups                      = each.value.backups
+  ipv4_subnet_id               = local.use_per_nodepool_subnets ? hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id : hcloud_network_subnet.agent[0].id
+  dns_servers                  = var.dns_servers
+  registries_config            = var.registries_config
+  registries_update_script     = local.k8s_registries_update_script
+  cloudinit_write_files_common = local.cloudinit_write_files_common
+  kubelet_config               = var.kubelet_config
+  kubelet_config_update_script = local.k8s_kubelet_config_update_script
+  audit_policy_config          = ""
+  audit_policy_update_script   = ""
+  cloudinit_runcmd_common      = local.cloudinit_runcmd_common
+  cloudinit_write_files_extra  = each.value.extra_write_files
+  cloudinit_runcmd_extra       = each.value.extra_runcmd
+  swap_size                    = each.value.swap_size
+  zram_size                    = each.value.zram_size
+  keep_disk_size               = coalesce(each.value.keep_disk, var.keep_disk_agent_nodes)
+  disable_ipv4                 = each.value.disable_ipv4
+  disable_ipv6                 = each.value.disable_ipv6
+  primary_ipv4_id              = each.value.primary_ipv4_id != null ? each.value.primary_ipv4_id : try(hcloud_primary_ip.agents_ipv4[each.key].id, null)
+  primary_ipv6_id              = each.value.primary_ipv6_id != null ? each.value.primary_ipv6_id : try(hcloud_primary_ip.agents_ipv6[each.key].id, null)
+  ssh_bastion                  = local.ssh_bastion
+  node_connection_overrides    = var.node_connection_overrides
+  network_id                   = local.agent_primary_network_id_by_node[each.key]
+  primary_network_key          = each.value.network_id
+  extra_network_ids            = local.agent_effective_extra_network_ids_by_node[each.key]
+  private_ipv4                 = null
 
   labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 
@@ -127,29 +127,31 @@ locals {
   k3s-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
-      server    = local.k3s_endpoint
-      token     = local.k3s_token
-      # Kubelet arg precedence (last wins): local.kubelet_arg < k3s_global_kubelet_args < k3s_agent_kubelet_args < v.kubelet_args
+      server    = local.k3s_agent_join_endpoint_by_node[k]
+      token     = local.cluster_token
+      # Kubelet arg precedence (last wins): local.kubelet_arg < global_kubelet_args < agent_kubelet_args < v.kubelet_args
       kubelet-arg = concat(
         local.kubelet_arg,
         v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
-        var.k3s_global_kubelet_args,
-        var.k3s_agent_kubelet_args,
+        var.global_kubelet_args,
+        var.agent_kubelet_args,
         v.kubelet_args
       )
       flannel-iface = local.flannel_iface
-      node-ip       = module.agents[k].private_ipv4_address
+      node-ip       = local.multinetwork_overlay_enabled ? join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null])) : module.agents[k].private_ipv4_address
       node-label    = v.labels
       node-taint    = v.taints
     },
-    lookup(local.agent_external_ip_by_node, k, null) != null ? {
+    local.multinetwork_overlay_enabled ? {
+      node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null]))
+      } : lookup(local.agent_external_ip_by_node, k, null) != null ? {
       node-external-ip    = local.agent_external_ip_by_node[k]
       flannel-external-ip = true
     } : {},
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
-    # Force selinux=false if disable_selinux = true.
-    var.disable_selinux
+    # Force selinux=false if enable_selinux = false.
+    !var.enable_selinux
     ? { selinux = false }
     : (v.selinux == true ? { selinux = true } : {})
   ) }
@@ -157,27 +159,29 @@ locals {
   rke2-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
-      server    = local.rke2_join_endpoint
-      token     = local.k3s_token
-      # Kubelet arg precedence (last wins): local.kubelet_arg < k3s_global_kubelet_args < k3s_agent_kubelet_args < v.kubelet_args
+      server    = local.rke2_agent_join_endpoint_by_node[k]
+      token     = local.cluster_token
+      # Kubelet arg precedence (last wins): local.kubelet_arg < global_kubelet_args < agent_kubelet_args < v.kubelet_args
       kubelet-arg = concat(
         local.kubelet_arg,
         v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
-        var.k3s_global_kubelet_args,
-        var.k3s_agent_kubelet_args,
+        var.global_kubelet_args,
+        var.agent_kubelet_args,
         v.kubelet_args
       )
-      node-ip    = module.agents[k].private_ipv4_address
+      node-ip    = local.multinetwork_overlay_enabled ? join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null])) : module.agents[k].private_ipv4_address
       node-label = v.labels
       node-taint = v.taints
     },
-    lookup(local.agent_external_ip_by_node, k, null) != null ? {
+    local.multinetwork_overlay_enabled ? {
+      node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null]))
+      } : lookup(local.agent_external_ip_by_node, k, null) != null ? {
       node-external-ip = local.agent_external_ip_by_node[k]
     } : {},
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
-    # Force selinux=false if disable_selinux = true.
-    var.disable_selinux
+    # Force selinux=false if enable_selinux = false.
+    !var.enable_selinux
     ? { selinux = false }
     : (v.selinux == true ? { selinux = true } : {})
   ) }
