@@ -5,7 +5,7 @@
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.10.1 |
 | <a name="requirement_assert"></a> [assert](#requirement\_assert) | >= 0.16.0 |
-| <a name="requirement_hcloud"></a> [hcloud](#requirement\_hcloud) | >= 1.59.0 |
+| <a name="requirement_hcloud"></a> [hcloud](#requirement\_hcloud) | >= 1.62.0 |
 | <a name="requirement_http"></a> [http](#requirement\_http) | >= 3.5.0 |
 | <a name="requirement_local"></a> [local](#requirement\_local) | >= 2.5.2 |
 | <a name="requirement_semvers"></a> [semvers](#requirement\_semvers) | >= 0.7.1 |
@@ -16,7 +16,7 @@
 | Name | Version |
 |------|---------|
 | <a name="provider_cloudinit"></a> [cloudinit](#provider\_cloudinit) | n/a |
-| <a name="provider_hcloud"></a> [hcloud](#provider\_hcloud) | >= 1.59.0 |
+| <a name="provider_hcloud"></a> [hcloud](#provider\_hcloud) | >= 1.62.0 |
 | <a name="provider_http"></a> [http](#provider\_http) | >= 3.5.0 |
 | <a name="provider_local"></a> [local](#provider\_local) | >= 2.5.2 |
 | <a name="provider_random"></a> [random](#provider\_random) | n/a |
@@ -141,13 +141,15 @@
 | [hcloud_servers.autoscaled_nodes](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/servers) | data source |
 | [hcloud_servers.existing_agent_nodes](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/servers) | data source |
 | [hcloud_servers.existing_control_plane_nodes](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/servers) | data source |
-| [hcloud_ssh_keys.k3s_existing](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/ssh_keys) | data source |
 | [hcloud_ssh_keys.keys_by_selector](https://registry.terraform.io/providers/hetznercloud/hcloud/latest/docs/data-sources/ssh_keys) | data source |
 | [http_http.calico_release](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 | [http_http.hetzner_ccm_release](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 | [http_http.hetzner_csi_release](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
+| [http_http.kured_manifest](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 | [http_http.kured_release](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 | [http_http.my_ipv4](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
+| [http_http.system_upgrade_controller_crd](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
+| [http_http.system_upgrade_controller_manifest](https://registry.terraform.io/providers/hashicorp/http/latest/docs/data-sources/http) | data source |
 
 ### Inputs
 
@@ -228,11 +230,10 @@
 | <a name="input_enable_control_plane_load_balancer"></a> [enable\_control\_plane\_load\_balancer](#input\_enable\_control\_plane\_load\_balancer) | Creates a dedicated load balancer for the Kubernetes API (kubernetes\_api\_port). When enabled, kubectl and other API clients connect through this LB instead of directly to the first control plane node. Recommended for production clusters with multiple control plane nodes for high availability. Note: This is separate from the ingress load balancer for HTTP/HTTPS traffic. | `bool` | `false` | no |
 | <a name="input_enable_csi_driver_smb"></a> [enable\_csi\_driver\_smb](#input\_enable\_csi\_driver\_smb) | Whether or not to enable csi-driver-smb. | `bool` | `false` | no |
 | <a name="input_enable_delete_protection"></a> [enable\_delete\_protection](#input\_enable\_delete\_protection) | Enable or disable delete protection for resources in Hetzner Cloud. | <pre>object({<br/>    floating_ip   = optional(bool, false)<br/>    load_balancer = optional(bool, false)<br/>    volume        = optional(bool, false)<br/>  })</pre> | <pre>{<br/>  "floating_ip": false,<br/>  "load_balancer": false,<br/>  "volume": false<br/>}</pre> | no |
-| <a name="input_enable_hetzner_ccm_helm"></a> [enable\_hetzner\_ccm\_helm](#input\_enable\_hetzner\_ccm\_helm) | Whether to use the helm chart for the Hetzner CCM or the legacy manifest which is the default. | `bool` | `false` | no |
 | <a name="input_enable_hetzner_csi"></a> [enable\_hetzner\_csi](#input\_enable\_hetzner\_csi) | Enable the Hetzner CSI driver. | `bool` | `true` | no |
 | <a name="input_enable_klipper_metal_lb"></a> [enable\_klipper\_metal\_lb](#input\_enable\_klipper\_metal\_lb) | Use klipper load balancer. | `bool` | `false` | no |
 | <a name="input_enable_kube_proxy"></a> [enable\_kube\_proxy](#input\_enable\_kube\_proxy) | Enable kube-proxy. Set false only with Cilium kube-proxy replacement. | `bool` | `true` | no |
-| <a name="input_enable_load_balancer_monitoring"></a> [enable\_load\_balancer\_monitoring](#input\_enable\_load\_balancer\_monitoring) | Enable ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics. Requires enable\_hetzner\_ccm\_helm=true and Prometheus Operator CRDs. | `bool` | `false` | no |
+| <a name="input_enable_load_balancer_monitoring"></a> [enable\_load\_balancer\_monitoring](#input\_enable\_load\_balancer\_monitoring) | Enable ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics. Requires Prometheus Operator CRDs. | `bool` | `false` | no |
 | <a name="input_enable_local_storage"></a> [enable\_local\_storage](#input\_enable\_local\_storage) | Whether to enable or disable k3s local-storage. Warning: when enabled, there will be two default storage classes: "local-path" and "hcloud-volumes"! | `bool` | `false` | no |
 | <a name="input_enable_longhorn"></a> [enable\_longhorn](#input\_enable\_longhorn) | Whether or not to enable Longhorn. | `bool` | `false` | no |
 | <a name="input_enable_metrics_server"></a> [enable\_metrics\_server](#input\_enable\_metrics\_server) | Whether to enable or disable k3s metric server. | `bool` | `true` | no |
@@ -318,7 +319,7 @@
 | <a name="input_nat_router_subnet_index"></a> [nat\_router\_subnet\_index](#input\_nat\_router\_subnet\_index) | Subnet index for NAT router. Default 200 is safe for most deployments. Must not conflict with control plane (counting down from 255) or agent pools (counting up from 0). | `number` | `200` | no |
 | <a name="input_network_ipv4_cidr"></a> [network\_ipv4\_cidr](#input\_network\_ipv4\_cidr) | The main network cidr that all subnets will be created upon. | `string` | `"10.0.0.0/8"` | no |
 | <a name="input_network_region"></a> [network\_region](#input\_network\_region) | Default region for network. | `string` | `"eu-central"` | no |
-| <a name="input_network_subnet_mode"></a> [network\_subnet\_mode](#input\_network\_subnet\_mode) | Subnet allocation mode for the primary private network. Use "legacy" for the classic kube-hetzner layout (one agent subnet from the start of the CIDR and one control-plane subnet from the end), or "per\_nodepool" to allocate dedicated subnets per control-plane and agent nodepool. | `string` | `"legacy"` | no |
+| <a name="input_network_subnet_mode"></a> [network\_subnet\_mode](#input\_network\_subnet\_mode) | Subnet allocation mode for the primary private network. Use "per\_nodepool" to allocate dedicated subnets per control-plane and agent nodepool. Use "shared" to allocate one shared agent subnet from the start of the CIDR and one shared control-plane subnet from the end. | `string` | `"per_nodepool"` | no |
 | <a name="input_nginx_merge_values"></a> [nginx\_merge\_values](#input\_nginx\_merge\_values) | Additional Helm values to merge with defaults (or nginx\_values if set). User values take precedence. Requires valid YAML format. | `string` | `""` | no |
 | <a name="input_nginx_values"></a> [nginx\_values](#input\_nginx\_values) | Additional helm values file to pass to nginx as 'valuesContent' at the HelmChart. | `string` | `""` | no |
 | <a name="input_nginx_version"></a> [nginx\_version](#input\_nginx\_version) | Version of Nginx helm chart. See https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table for the available versions. | `string` | `""` | no |

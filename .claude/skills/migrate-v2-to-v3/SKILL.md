@@ -22,6 +22,7 @@ Read these before editing:
 3. `CHANGELOG.md` - v3 upgrade notes and release context
 4. `variables.tf` - exact v3 input contract and validation rules
 5. `kube.tf.example` - current v3 configuration example
+6. `scripts/v2_to_v3_migration_assistant.py` - static config and plan audit
 
 ## Safety Rules
 
@@ -64,8 +65,13 @@ rg -n 'module "kube-hetzner"|source\\s*=|version\\s*=' .
 Find v2-only inputs:
 
 ```bash
-rg -n 'kubernetes_distribution_type|k3s_token|secrets_encryption|initial_k3s_channel|install_k3s_version|initial_rke2_channel|install_rke2_version|automatically_upgrade_k3s|sys_upgrade_controller_version|additional_k3s_environment|kubeapi_port|k3s_registries|k3s_kubelet_config|k3s_audit_policy_config|k3s_audit_log_path|k3s_audit_log_maxage|k3s_audit_log_maxbackup|k3s_audit_log_maxsize|k3s_exec_server_args|k3s_exec_agent_args|k3s_global_kubelet_args|k3s_control_plane_kubelet_args|k3s_agent_kubelet_args|k3s_autoscaler_kubelet_args|subnet_amount|placement_group_disable|block_icmp_ping_in|disable_hetzner_csi|load_balancer_disable_ipv6|load_balancer_disable_public_network|use_control_plane_lb|combine_load_balancers|control_plane_lb_type|control_plane_lb_enable_public_interface|control_plane_lb_enable_public_network|lb_hostname|robot_ccm_enabled|hetzner_ccm_use_helm|cilium_loadbalancer_acceleration_mode|enable_wireguard|k8s_config_updates_use_kured_sentinel|keep_disk_agents|keep_disk_cp|use_private_bastion|disable_kube_proxy|disable_network_policy|disable_selinux|k3s_prefer_bundled_bin|placement_group_compat_idx|disable_ipv4|disable_ipv6|autoscaler_disable_ipv4|autoscaler_disable_ipv6|existing_network_id|enable_x86|enable_arm|k3s_encryption_at_rest|autoscaler_labels|autoscaler_taints|extra_kustomize_' .
+uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root .
+rg -n 'kubernetes_distribution_type|k3s_token|secrets_encryption|initial_k3s_channel|install_k3s_version|initial_rke2_channel|install_rke2_version|automatically_upgrade_k3s|sys_upgrade_controller_version|additional_k3s_environment|kubeapi_port|k3s_registries|k3s_kubelet_config|k3s_audit_policy_config|k3s_audit_log_path|k3s_audit_log_maxage|k3s_audit_log_maxbackup|k3s_audit_log_maxsize|k3s_exec_server_args|k3s_exec_agent_args|k3s_global_kubelet_args|k3s_control_plane_kubelet_args|k3s_agent_kubelet_args|k3s_autoscaler_kubelet_args|subnet_amount|placement_group_disable|block_icmp_ping_in|disable_hetzner_csi|load_balancer_disable_ipv6|load_balancer_disable_public_network|use_control_plane_lb|combine_load_balancers|control_plane_lb_type|control_plane_lb_enable_public_interface|control_plane_lb_enable_public_network|lb_hostname|robot_ccm_enabled|hetzner_ccm_use_helm|enable_hetzner_ccm_helm|cilium_loadbalancer_acceleration_mode|enable_wireguard|k8s_config_updates_use_kured_sentinel|keep_disk_agents|keep_disk_cp|use_private_bastion|disable_kube_proxy|disable_network_policy|disable_selinux|k3s_prefer_bundled_bin|placement_group_compat_idx|disable_ipv4|disable_ipv6|autoscaler_disable_ipv4|autoscaler_disable_ipv6|existing_network_id|enable_x86|enable_arm|k3s_encryption_at_rest|autoscaler_labels|autoscaler_taints|extra_kustomize_' .
 ```
+
+The assistant is the primary first-pass report. The `rg` command is a manual
+cross-check when a root uses unusual formatting, Terragrunt, generated HCL, or
+split tfvars.
 
 ### 2. Back Up
 
@@ -94,10 +100,16 @@ Use `MIGRATION.md` for the complete map. Critical transformations:
 - Replace `enable_x86`/`enable_arm` with `enabled_architectures`.
 - Remove control-plane `network_id`; control planes are primary-network only.
 - Remove `network_id = 0`; primary network is omitted/null in v3.
+- Keep the default `network_subnet_mode = "per_nodepool"` for normal in-place
+  v2 upgrades; this matches released v2 subnet resources. Use
+  `network_subnet_mode = "shared"` only for new clusters or intentional subnet
+  topology changes.
 - Replace `placement_group_compat_idx` with `placement_group_index`.
 - Replace `extra_kustomize_*` with `user_kustomizations`.
 - Remove `enable_iscsid`, `k3s_encryption_at_rest`, `autoscaler_labels`, and
   `autoscaler_taints`.
+- Remove `hetzner_ccm_use_helm` / `enable_hetzner_ccm_helm`; v3 always
+  installs Hetzner CCM through the HelmChart manifest.
 
 ### 4. Initialize And Validate
 
@@ -120,6 +132,7 @@ before changing config.
 terraform plan -out=v3-upgrade.tfplan
 terraform show v3-upgrade.tfplan
 terraform show -json v3-upgrade.tfplan > v3-upgrade-plan.json
+uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root . --plan-json v3-upgrade-plan.json
 ```
 
 If `jq` is available, list destructive actions:

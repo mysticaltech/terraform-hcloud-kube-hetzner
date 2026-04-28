@@ -32,12 +32,51 @@ For brand-new clusters, start from `kube.tf.example` instead.
    external routes, private-only access, Robot/vSwitch coupling, or large
    multinetwork scale requirements.
 
+## Release readiness checklist
+
+Complete this before applying a v3 plan:
+
+- State backup exists from `terraform state pull`.
+- The module is pinned to the exact target v3 tag.
+- Removed v2 inputs no longer appear in the Terraform root.
+- Every inverted boolean was reviewed manually, especially public-IP,
+  SELinux, kube-proxy, network-policy, placement-group, CSI, and load-balancer
+  flags.
+- `terraform fmt -recursive`, `terraform init -upgrade`, and
+  `terraform validate` pass.
+- If using OpenTofu, `tofu init -upgrade`, `tofu validate`, and `tofu plan`
+  have been run in the real Terraform root.
+- The saved plan has no unexpected delete/replace actions.
+- Network, subnet, load balancer, NAT router, placement group, server, primary
+  IP, and volume changes have a written explanation.
+- Private-only, Robot/vSwitch, custom existing-network, external-overlay,
+  autoscaler, Longhorn, RKE2, and multinetwork clusters have a rollback or
+  blue/green path.
+
+## Support levels
+
+| Area | v3 support level | Guidance |
+| --- | --- | --- |
+| k3s on Leap Micro | Stable default | Best path for new clusters. |
+| RKE2 on Leap Micro | Supported | Heavier, stricter path; keep SELinux snapshot selection explicit when pinning snapshots. |
+| MicroOS | Legacy/upgrade support | Existing nodes are supported; new nodepools default to Leap Micro unless `os = "microos"` is set. |
+| Terraform | Supported | Requires Terraform `>= 1.10.1`. |
+| OpenTofu | Supported | Requires OpenTofu `>= 1.10.1`; run `tofu plan` before applying with OpenTofu. |
+| Flannel or Calico single-network clusters | Supported | Keep all nodes on one reachable private network. |
+| Cilium dual-stack | Supported | Preferred advanced CNI path. |
+| Cilium multinetwork public overlay | Supported opt-in | Only supported v3 path for spanning several Hetzner Cloud Networks. |
+| Flannel/Calico multinetwork scale | Unsupported | Separate Hetzner Networks are L3 islands; use Cilium public overlay or an external routed fabric. |
+| Tailscale/ZeroTier/WARP | Supported external pattern | Use `preinstall_exec`, `node_connection_overrides`, `control_plane_endpoint`, and optional firewall tightening; kube-hetzner does not manage the provider lifecycle. |
+| Robot/vSwitch | Advanced/special-case | Validate route exposure and migration plans manually. |
+| Private-only clusters | Advanced/special-case | Prove SSH and join paths before applying. |
+| Longhorn with attached volumes | Supported with caution | Review replacements and first-boot relabel/mount timing carefully. |
+
 ## Minimum versions
 
 v3 requires:
 
 - Terraform `>= 1.10.1` or OpenTofu `>= 1.10.1`
-- hcloud provider `>= 1.59.0`
+- hcloud provider `>= 1.62.0`
 
 Terraform 1.9+ cross-object variable validation is used heavily in v3, and the
 module requires a runtime compatible with Terraform/OpenTofu 1.10.1 or newer.
@@ -45,14 +84,15 @@ On Homebrew, install OpenTofu with `brew install opentofu`. OpenTofu users
 should verify behavior with `tofu init -upgrade`, `tofu validate`, and
 `tofu plan` before applying.
 
-If you validate both Terraform and OpenTofu in the same checkout, keep the
-OpenTofu plugin cache separate to avoid switching `.terraform/` provider
-installations back and forth:
+If you validate the module checkout itself with both Terraform and OpenTofu,
+run OpenTofu in a temporary copy so its ignored lock file and provider cache do
+not disturb Terraform's local state:
 
 ```bash
-TF_DATA_DIR=.terraform-tofu tofu init -backend=false
-TF_DATA_DIR=.terraform-tofu tofu validate
-terraform init -backend=false # restore Terraform's ignored local lock/cache if you continue with Terraform
+tmpdir="$(mktemp -d)"
+rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
+(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+rm -rf "$tmpdir"
 ```
 
 ## Phase 0: capture current state
@@ -71,10 +111,19 @@ too.
 
 ## Phase 1: inventory v2-only inputs
 
+Run the migration assistant from a local kube-hetzner checkout first. It is
+read-only: it scans a Terraform root, reports known v2 inputs, calls out
+advanced topology signals, and can also review a saved plan JSON for destructive
+actions.
+
+```bash
+uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root .
+```
+
 Search for known v2 inputs:
 
 ```bash
-rg -n 'kubernetes_distribution_type|k3s_token|secrets_encryption|initial_k3s_channel|install_k3s_version|initial_rke2_channel|install_rke2_version|automatically_upgrade_k3s|sys_upgrade_controller_version|additional_k3s_environment|kubeapi_port|k3s_registries|k3s_kubelet_config|k3s_audit_policy_config|k3s_audit_log_path|k3s_audit_log_maxage|k3s_audit_log_maxbackup|k3s_audit_log_maxsize|k3s_exec_server_args|k3s_exec_agent_args|k3s_global_kubelet_args|k3s_control_plane_kubelet_args|k3s_agent_kubelet_args|k3s_autoscaler_kubelet_args|subnet_amount|placement_group_disable|block_icmp_ping_in|disable_hetzner_csi|load_balancer_disable_ipv6|load_balancer_disable_public_network|use_control_plane_lb|combine_load_balancers|control_plane_lb_type|control_plane_lb_enable_public_interface|control_plane_lb_enable_public_network|lb_hostname|robot_ccm_enabled|hetzner_ccm_use_helm|cilium_loadbalancer_acceleration_mode|enable_wireguard|k8s_config_updates_use_kured_sentinel|keep_disk_agents|keep_disk_cp|use_private_bastion|disable_kube_proxy|disable_network_policy|disable_selinux|k3s_prefer_bundled_bin|placement_group_compat_idx|disable_ipv4|disable_ipv6|autoscaler_disable_ipv4|autoscaler_disable_ipv6|existing_network_id|enable_x86|enable_arm|k3s_encryption_at_rest|autoscaler_labels|autoscaler_taints|extra_kustomize_' .
+rg -n 'kubernetes_distribution_type|k3s_token|secrets_encryption|initial_k3s_channel|install_k3s_version|initial_rke2_channel|install_rke2_version|automatically_upgrade_k3s|sys_upgrade_controller_version|additional_k3s_environment|kubeapi_port|k3s_registries|k3s_kubelet_config|k3s_audit_policy_config|k3s_audit_log_path|k3s_audit_log_maxage|k3s_audit_log_maxbackup|k3s_audit_log_maxsize|k3s_exec_server_args|k3s_exec_agent_args|k3s_global_kubelet_args|k3s_control_plane_kubelet_args|k3s_agent_kubelet_args|k3s_autoscaler_kubelet_args|subnet_amount|placement_group_disable|block_icmp_ping_in|disable_hetzner_csi|load_balancer_disable_ipv6|load_balancer_disable_public_network|use_control_plane_lb|combine_load_balancers|control_plane_lb_type|control_plane_lb_enable_public_interface|control_plane_lb_enable_public_network|lb_hostname|robot_ccm_enabled|hetzner_ccm_use_helm|enable_hetzner_ccm_helm|cilium_loadbalancer_acceleration_mode|enable_wireguard|k8s_config_updates_use_kured_sentinel|keep_disk_agents|keep_disk_cp|use_private_bastion|disable_kube_proxy|disable_network_policy|disable_selinux|k3s_prefer_bundled_bin|placement_group_compat_idx|disable_ipv4|disable_ipv6|autoscaler_disable_ipv4|autoscaler_disable_ipv6|existing_network_id|enable_x86|enable_arm|k3s_encryption_at_rest|autoscaler_labels|autoscaler_taints|extra_kustomize_' .
 ```
 
 Every match should either be migrated or intentionally removed.
@@ -168,6 +217,14 @@ agent_nodepools = [
 Control-plane nodepools no longer accept `network_id`; control planes always
 stay on the primary kube-hetzner Network.
 
+New v3 clusters default to one subnet per control-plane and agent nodepool. That
+matches the released v2 subnet topology, so leave
+`network_subnet_mode = "per_nodepool"` for normal in-place v2 upgrades.
+
+`network_subnet_mode = "shared"` is an optional compact topology for new
+clusters or intentional topology changes. Do not use it during an in-place v2
+upgrade unless subnet replacements are expected and acceptable.
+
 ## Phase 3: migrate user kustomizations
 
 Replace the old `extra_kustomize_*` inputs with `user_kustomizations`.
@@ -195,6 +252,9 @@ Remove these inputs completely:
 
 - `enable_iscsid`: v3 enables `iscsid` where needed.
 - `k3s_encryption_at_rest`: use `enable_secrets_encryption`.
+- `hetzner_ccm_use_helm` / `enable_hetzner_ccm_helm`: remove this setting.
+  v3 always installs Hetzner CCM through the HelmChart manifest and migrates
+  away from the old raw-manifest CCM path.
 - `autoscaler_labels`: use `autoscaler_nodepools[*].labels`.
 - `autoscaler_taints`: use `autoscaler_nodepools[*].taints`.
 
@@ -231,6 +291,7 @@ For machine-readable review:
 
 ```bash
 terraform show -json v3-upgrade.tfplan > v3-upgrade-plan.json
+uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root . --plan-json v3-upgrade-plan.json
 ```
 
 Stop if the plan contains unexpected replacements or destroys:
@@ -254,7 +315,53 @@ Known areas requiring extra suspicion:
 Do not approve a plan because it is "probably fine." Make every replacement
 intentional.
 
+### Quick diagnostics for failed plans
+
+When `terraform validate` or `terraform plan` fails, do not work around the
+validation first. Read the error message and inspect the relevant inputs:
+
+```bash
+terraform validate
+terraform plan -out=v3-upgrade.tfplan
+rg -n 'network_id|existing_network|multinetwork_mode|control_plane_endpoint|nat_router|use_private_nat_router_bastion|enable_public_ipv4|enable_public_ipv6|autoscaler|placement_group|attached_volumes|user_kustomizations' .
+```
+
+If a plan was created, list risky actions directly:
+
+```bash
+terraform show -json v3-upgrade.tfplan \
+  | jq -r '.resource_changes[] | select(any(.change.actions[]; . == "delete" or . == "replace")) | "\(.address): \(.change.actions | join(","))"'
+```
+
+For join or reachability failures after a partial apply, check the planned
+endpoint and the node connection path first:
+
+```bash
+terraform output
+rg -n 'control_plane_endpoint|node_connection_overrides|firewall_ssh_source|firewall_kube_api_source|optional_bastion_host|nat_router' .
+```
+
+For Cilium multinetwork issues, verify the declared topology before debugging
+Kubernetes:
+
+```bash
+rg -n 'cni_plugin|multinetwork_mode|multinetwork_transport_ip_family|network_id|enable_public_ipv4|enable_public_ipv6|control_plane_endpoint' .
+```
+
 ## Phase 7: special cases
+
+### High-risk topology scan
+
+| Topology | Why it is risky | v3 recommendation |
+| --- | --- | --- |
+| Private-only nodes | SSH and Kubernetes join paths can be stranded if bastion, NAT, firewall, or endpoint settings disagree. | Prove access before applying; prefer blue/green if unsure. |
+| Existing Hetzner Networks | Out-of-band routes/subnets can conflict with v3 validation and attachment accounting. | Use `existing_network = { id = ... }`; review subnets and route exposure. |
+| Multiple Hetzner Networks | Networks are separate L3 islands and servers can attach to at most three Networks. | Use only `multinetwork_mode = "cilium_public_overlay"` with Cilium. |
+| Robot/vSwitch | Route exposure can be provider-managed or manually managed depending on ownership. | Validate `expose_routes_to_vswitch` and existing Network ownership. |
+| NAT router from old v2 clusters | Pre-v2.19 primary IP state can show replacement. | Import existing primary IPs if they must be preserved. |
+| Autoscaler with external networks | Cluster Autoscaler needs per-network `HCLOUD_NETWORK` behavior. | Use external autoscaler `network_id` only with Cilium public overlay. |
+| Longhorn or attached volumes | Replacements or mount changes can affect stateful workloads. | Back up data and review every volume action. |
+| External overlays such as Tailscale | Auth keys, ACLs, route approvals, DNS, and operator lifecycle live outside kube-hetzner. | Use generic hooks and keep provider lifecycle external. |
 
 ### NAT router primary IPs from old v2 clusters
 

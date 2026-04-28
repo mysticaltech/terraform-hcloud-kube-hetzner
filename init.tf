@@ -532,13 +532,15 @@ resource "terraform_data" "kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                   = var.enable_hetzner_ccm_helm
     cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
     system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
     system_upgrade_enable_eviction = tostring(var.system_upgrade_enable_eviction)
     rendered_addons_sha = sha256(join("\n---kube-hetzner---\n", compact([
       local.kustomization_backup_yaml,
+      data.http.kured_manifest.response_body,
+      data.http.system_upgrade_controller_manifest.response_body,
+      data.http.system_upgrade_controller_crd.response_body,
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
         {
@@ -563,7 +565,7 @@ resource "terraform_data" "kustomization" {
           target_namespace = local.ingress_controller_namespace
         }
       ),
-      var.enable_hetzner_ccm_helm ? templatefile(
+      templatefile(
         "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
         {
           values              = indent(4, local.hetzner_ccm_values)
@@ -571,8 +573,8 @@ resource "terraform_data" "kustomization" {
           using_klipper_lb    = local.using_klipper_lb
           default_lb_location = var.load_balancer_location
         }
-      ) : local.legacy_ccm_patch_yaml,
-      var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
+      ),
+      var.enable_load_balancer_monitoring ? templatefile(
         "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
         {}
       ) : "",
@@ -675,6 +677,22 @@ resource "terraform_data" "kustomization" {
     destination = "/var/post_install/kustomization.yaml"
   }
 
+  # Upload remote addon manifests as local kustomize resources to avoid release-asset fetch issues on the control plane.
+  provisioner "file" {
+    content     = data.http.kured_manifest.response_body
+    destination = "/var/post_install/kured-base.yaml"
+  }
+
+  provisioner "file" {
+    content     = data.http.system_upgrade_controller_manifest.response_body
+    destination = "/var/post_install/system-upgrade-controller.yaml"
+  }
+
+  provisioner "file" {
+    content     = data.http.system_upgrade_controller_crd.response_body
+    destination = "/var/post_install/system-upgrade-controller-crd.yaml"
+  }
+
   # Upload the flannel RBAC fix
   provisioner "file" {
     content     = file("${path.module}/kustomize/flannel-rbac.yaml")
@@ -717,15 +735,9 @@ resource "terraform_data" "kustomization" {
     destination = "/var/post_install/haproxy_ingress.yaml"
   }
 
-  # Upload the CCM patch config using the legacy deployment
+  # Upload the Hetzner CCM HelmChart manifest.
   provisioner "file" {
-    content     = var.enable_hetzner_ccm_helm ? "" : local.legacy_ccm_patch_yaml
-    destination = "/var/post_install/ccm.yaml"
-  }
-
-  # Upload the CCM patch config using helm
-  provisioner "file" {
-    content = var.enable_hetzner_ccm_helm ? templatefile(
+    content = templatefile(
       "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
       {
         values              = indent(4, local.hetzner_ccm_values)
@@ -733,13 +745,13 @@ resource "terraform_data" "kustomization" {
         using_klipper_lb    = local.using_klipper_lb
         default_lb_location = var.load_balancer_location
       }
-    ) : ""
+    )
     destination = "/var/post_install/hcloud-ccm-helm.yaml"
   }
 
   # Upload optional load balancer monitoring resources for Hetzner CCM
   provisioner "file" {
-    content = var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
+    content = var.enable_load_balancer_monitoring ? templatefile(
       "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
       {}
     ) : ""
@@ -894,13 +906,9 @@ resource "terraform_data" "kustomization" {
       local.cluster_has_ipv6 ? [] : [
         replace(local.ipv4_only_coredns_aaaa_filter_script, "__KUBECTL__", "kubectl")
       ],
-      var.enable_hetzner_ccm_helm ? [
+      [
         "echo 'Remove legacy ccm manifests if they exist'",
-        "kubectl delete serviceaccount,deployment -n kube-system --field-selector 'metadata.name=hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
-        "kubectl delete clusterrolebinding -n kube-system --field-selector 'metadata.name=system:hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
-        ] : [
-        "echo 'Uninstall helm ccm manifests if they exist'",
-        "kubectl delete --ignore-not-found -n kube-system helmchart.helm.cattle.io/hcloud-cloud-controller-manager",
+        replace(local.legacy_hetzner_ccm_cleanup_script, "__KUBECTL__", "kubectl"),
       ],
       compact([
         var.ingress_controller == "traefik" ? "" : "kubectl delete helmchart -n kube-system traefik --ignore-not-found",
@@ -982,13 +990,15 @@ resource "terraform_data" "rke2_kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    ccm_use_helm                   = var.enable_hetzner_ccm_helm
     cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
     system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
     system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
     system_upgrade_enable_eviction = tostring(var.system_upgrade_enable_eviction)
     rendered_addons_sha = sha256(join("\n---kube-hetzner---\n", compact([
       local.kustomization_backup_yaml,
+      data.http.kured_manifest.response_body,
+      data.http.system_upgrade_controller_manifest.response_body,
+      data.http.system_upgrade_controller_crd.response_body,
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
         {
@@ -1013,7 +1023,7 @@ resource "terraform_data" "rke2_kustomization" {
           target_namespace = local.ingress_controller_namespace
         }
       ),
-      var.enable_hetzner_ccm_helm ? templatefile(
+      templatefile(
         "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
         {
           values              = indent(4, local.hetzner_ccm_values)
@@ -1021,8 +1031,8 @@ resource "terraform_data" "rke2_kustomization" {
           using_klipper_lb    = local.using_klipper_lb
           default_lb_location = var.load_balancer_location
         }
-      ) : local.legacy_ccm_patch_yaml,
-      var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
+      ),
+      var.enable_load_balancer_monitoring ? templatefile(
         "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
         {}
       ) : "",
@@ -1123,6 +1133,22 @@ resource "terraform_data" "rke2_kustomization" {
     destination = "/var/post_install/kustomization.yaml"
   }
 
+  # Upload remote addon manifests as local kustomize resources to avoid release-asset fetch issues on the control plane.
+  provisioner "file" {
+    content     = data.http.kured_manifest.response_body
+    destination = "/var/post_install/kured-base.yaml"
+  }
+
+  provisioner "file" {
+    content     = data.http.system_upgrade_controller_manifest.response_body
+    destination = "/var/post_install/system-upgrade-controller.yaml"
+  }
+
+  provisioner "file" {
+    content     = data.http.system_upgrade_controller_crd.response_body
+    destination = "/var/post_install/system-upgrade-controller-crd.yaml"
+  }
+
   # Upload traefik ingress controller config
   provisioner "file" {
     content = templatefile(
@@ -1159,15 +1185,9 @@ resource "terraform_data" "rke2_kustomization" {
     destination = "/var/post_install/haproxy_ingress.yaml"
   }
 
-  # Upload the CCM patch config using the legacy deployment
+  # Upload the Hetzner CCM HelmChart manifest.
   provisioner "file" {
-    content     = var.enable_hetzner_ccm_helm ? "" : local.legacy_ccm_patch_yaml
-    destination = "/var/post_install/ccm.yaml"
-  }
-
-  # Upload the CCM patch config using helm
-  provisioner "file" {
-    content = var.enable_hetzner_ccm_helm ? templatefile(
+    content = templatefile(
       "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
       {
         values              = indent(4, local.hetzner_ccm_values)
@@ -1176,13 +1196,13 @@ resource "terraform_data" "rke2_kustomization" {
         default_lb_location = var.load_balancer_location
 
       }
-    ) : ""
+    )
     destination = "/var/post_install/hcloud-ccm-helm.yaml"
   }
 
   # Upload optional load balancer monitoring resources for Hetzner CCM
   provisioner "file" {
-    content = var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? templatefile(
+    content = var.enable_load_balancer_monitoring ? templatefile(
       "${path.module}/templates/load_balancer_monitoring.yaml.tpl",
       {}
     ) : ""
@@ -1337,13 +1357,9 @@ resource "terraform_data" "rke2_kustomization" {
       local.cluster_has_ipv6 ? [] : [
         replace(local.ipv4_only_coredns_aaaa_filter_script, "__KUBECTL__", local.kubectl_cli)
       ],
-      var.enable_hetzner_ccm_helm ? [
+      [
         "echo 'Remove legacy ccm manifests if they exist'",
-        "${local.kubectl_cli} delete serviceaccount,deployment -n kube-system --field-selector 'metadata.name=hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
-        "${local.kubectl_cli} delete clusterrolebinding -n kube-system --field-selector 'metadata.name=system:hcloud-cloud-controller-manager' --selector='app.kubernetes.io/managed-by!=Helm'",
-        ] : [
-        "echo 'Uninstall helm ccm manifests if they exist'",
-        "${local.kubectl_cli} delete --ignore-not-found -n kube-system helmchart.helm.cattle.io/hcloud-cloud-controller-manager",
+        replace(local.legacy_hetzner_ccm_cleanup_script, "__KUBECTL__", local.kubectl_cli),
       ],
       compact([
         var.ingress_controller == "traefik" ? "" : "${local.kubectl_cli} delete helmchart -n kube-system traefik --ignore-not-found",

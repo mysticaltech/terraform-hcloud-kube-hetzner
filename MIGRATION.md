@@ -12,21 +12,54 @@ For the full operator workflow, use
    ```bash
    terraform state pull > "terraform-state-before-kube-hetzner-v3-$(date +%Y%m%d%H%M%S).json"
    ```
-2. Rename/remove v2-only inputs listed below.
-3. Pin the module to your target v3 tag.
-4. Reinitialize providers and modules:
+2. Run the read-only migration assistant from a local kube-hetzner checkout:
+   ```bash
+   uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root .
+   ```
+3. Rename/remove v2-only inputs listed below.
+4. Pin the module to your target v3 tag.
+5. Reinitialize providers and modules:
    ```bash
    terraform init -upgrade
    ```
-5. Validate and review the plan before applying:
+6. Validate and review the plan before applying:
    ```bash
    terraform validate
    terraform plan
    ```
-6. Apply only after you understand every `replace`/`destroy` action.
+7. Apply only after you understand every `replace`/`destroy` action.
 
 Stop immediately if Terraform proposes unexpected replacements for networks,
 subnets, load balancers, servers, primary IPs, placement groups, or volumes.
+
+### v3 readiness checklist
+
+Before applying a v3 plan:
+
+- Back up state with `terraform state pull`.
+- Remove every v2-only input and review every renamed/inverted boolean.
+- Run `terraform fmt -recursive`, `terraform init -upgrade`, and
+  `terraform validate`.
+- Save and inspect a plan with `terraform plan -out=v3-upgrade.tfplan`.
+- Confirm there are no unexpected `delete`, `replace`, or `forces replacement`
+  actions.
+- Treat private-only, Robot/vSwitch, existing-network, external-network,
+  Tailscale/overlay, Longhorn/volume-heavy, autoscaler, and multinetwork
+  clusters as high-risk upgrade topologies.
+- Prefer blue/green migration when the plan is hard to explain.
+
+### v3 support levels
+
+| Area | Support level | Notes |
+| --- | --- | --- |
+| k3s on Leap Micro | Stable default | Recommended for new clusters. |
+| RKE2 on Leap Micro | Supported | Validate SELinux snapshot selection carefully when pinning snapshots. |
+| MicroOS | Legacy/upgrade support | Existing nodes stay supported; new nodepools default to Leap Micro. |
+| OpenTofu | Supported | Run `tofu validate` and `tofu plan` before applying with OpenTofu. |
+| Cilium multinetwork public overlay | Supported opt-in | Only supported large multi-Hetzner-Network topology in v3. |
+| Flannel/Calico multinetwork scale | Unsupported | Use one private Network or Cilium public overlay. |
+| Tailscale/ZeroTier/WARP | Supported external pattern | Use generic hooks; kube-hetzner does not manage provider lifecycle. |
+| Robot/vSwitch/private-only | Advanced/special-case | Review reachability and route exposure manually. |
 
 ## Migration items
 
@@ -77,7 +110,6 @@ Rename these inputs in your `kube.tf`:
 | `control_plane_lb_enable_public_network` | `control_plane_load_balancer_enable_public_network` |
 | `lb_hostname` | `load_balancer_hostname` |
 | `robot_ccm_enabled` | `enable_robot_ccm` |
-| `hetzner_ccm_use_helm` | `enable_hetzner_ccm_helm` |
 | `cilium_loadbalancer_acceleration_mode` | `cilium_load_balancer_acceleration_mode` |
 | `enable_wireguard` | `enable_cni_wireguard_encryption` |
 | `k8s_config_updates_use_kured_sentinel` | `kubernetes_config_updates_use_kured_sentinel` |
@@ -130,6 +162,9 @@ enabled_architectures = ["x86"]
 Removed inputs:
 
 - `k3s_encryption_at_rest`: use `enable_secrets_encryption`.
+- `hetzner_ccm_use_helm` / `enable_hetzner_ccm_helm`: v3 always installs
+  Hetzner CCM through the HelmChart manifest and removes the old raw-manifest
+  CCM path.
 - `autoscaler_labels` / `autoscaler_taints`: use
   `autoscaler_nodepools[*].labels` and `autoscaler_nodepools[*].taints`.
 
@@ -227,13 +262,27 @@ span several Hetzner Networks, v3 adds the opt-in Cilium-only
 
 ### 6) Networking behavior update
 
-Per-nodepool managed cloud subnets are preserved for both control-plane and agent pools to stay upgrade-compatible with existing `v2.x` clusters.
+v3 defaults new clusters to `network_subnet_mode = "per_nodepool"`, which
+creates one managed Hetzner Cloud subnet for each control-plane and agent
+nodepool. This matches the released `v2.x` subnet topology and is the normal
+in-place upgrade-safe path.
+
+The optional compact mode is for new clusters or intentional topology changes:
+
+```hcl
+network_subnet_mode = "shared"
+```
+
+Shared mode keeps one shared agent subnet at the start of the network CIDR and
+one shared control-plane subnet at the end of the network CIDR. Do not switch an
+in-place v2 upgrade to `shared` unless subnet resource changes are intentional.
 
 Node private IPv4 addresses are now assigned automatically by Hetzner within the attached subnet (instead of manual `cidrhost(...)` calculations in Terraform).
 
 For standard `v2.19.x` clusters, no manual state migration is expected for this change.
 
-If your `terraform plan` still proposes subnet replacements, first check for:
+If your `terraform plan` proposes subnet replacements, first check for:
+- `network_subnet_mode = "shared"` on an in-place v2 upgrade
 - custom `subnet_ip_range` overrides
 - manual network/subnet edits made outside Terraform
 - nodepool topology changes done at the same time as the module upgrade

@@ -13,6 +13,8 @@ Before diving into the specifics of the configuration file, it's crucial to unde
 * **Plan-Time Module Contract:** The module uses Terraform/OpenTofu input validations to reject invalid configurations during `terraform plan`. Pure input invariants belong there: required secrets, supported regions/locations, CIDR syntax and IP-family pairing, nodepool name/count/quorum rules, Hetzner network/subnet/placement-group limits, autoscaler boundaries, Cilium-only feature gates, load balancer dependencies, firewall source formats, Robot/vSwitch/NAT requirements, YAML snippets, audit settings, and attached volume definitions. Provider- or runtime-dependent assertions should remain in preconditions, postconditions, or checks.
 * **Cilium Multinetwork Scale Mode:** `multinetwork_mode = "cilium_public_overlay"` is the only supported v3 mode for spanning multiple Hetzner Cloud Networks. It requires `cni_plugin = "cilium"`, public node addresses for `multinetwork_transport_ip_family` (`ipv4`, `ipv6`, or `dualstack`), and a public control-plane endpoint or public control-plane load balancer. The module forces Cilium tunnel mode with WireGuard/node encryption, opens Cilium peer UDP ports, disables Hetzner CCM route reconciliation, avoids control-plane fanout to every external agent network, uses public load-balancer targets, and renders one cluster-autoscaler Deployment per effective `network_id`. Flannel/Calico private multinetwork scale, private-only multinetwork scale, and Robot/vSwitch route exposure as a Cloud-only scale solution remain unsupported.
 * **Hetzner Limits To Enforce:** Keep each Hetzner Network at or below 100 attached resources, each server at or below 3 attached Networks, and each spread Placement Group at or below 10 servers. Autoscaler `max_nodes`, NAT routers, Terraform-managed load balancers, static nodes, `extra_network_ids`, and external nodepool `network_id` values must be included in validation/counting.
+* **v3 Support Levels:** k3s on Leap Micro is the stable default. RKE2 on Leap Micro, OpenTofu, Cilium dual-stack, and Cilium public-overlay multinetwork are supported. MicroOS is legacy/upgrade support. Tailscale/ZeroTier/WARP are supported external overlay patterns through generic hooks. Robot/vSwitch, private-only, Longhorn-heavy, and existing-network upgrades are advanced/special-case paths that deserve blue/green consideration. Flannel/Calico multinetwork scale is unsupported.
+* **v3 Upgrade Rule:** Before applying a v3 plan, state must be backed up, removed v2 inputs must be gone, inverted booleans must be reviewed, validation must pass, and every network/subnet/load-balancer/server/primary-IP/placement-group/volume replacement must be intentional.
 
 This guide will walk through the provided Terraform configuration, explaining the purpose, implications, and interdependencies of each setting.
 
@@ -241,6 +243,18 @@ module "kube-hetzner" {
   * **Impact:** If changed, review pod/service CIDRs and every external route to avoid conflicts. Terraform validates CIDR syntax and related input combinations, but it cannot know every route outside the module.
 
 ```terraform
+  # New v3 clusters default to one subnet per control-plane and agent nodepool.
+  # This matches the released v2 subnet topology.
+  # network_subnet_mode = "per_nodepool"
+```
+
+* **`network_subnet_mode` (String, Optional):**
+  * **Default:** `"per_nodepool"`.
+  * **Purpose:** Controls how kube-hetzner allocates Hetzner Cloud private subnets inside `network_ipv4_cidr`.
+  * **Default and Upgrade Path:** `"per_nodepool"` creates one subnet per control-plane and agent nodepool. This matches released v2 subnet topology and is the normal in-place upgrade-safe mode.
+  * **Compact Shared Mode:** `"shared"` creates one shared agent subnet and one shared control-plane subnet. Use it for new clusters or intentional topology changes, not accidental v2 upgrades.
+
+```terraform
   # The amount of subnets into which the network will be split. Must be a power of 2.
   # subnet_count = 256
 ```
@@ -251,8 +265,8 @@ module "kube-hetzner" {
   * **Constraint:** Must be a positive power of 2 and large enough for the selected subnet mode plus module-created NAT/vSwitch subnets. Hetzner Cloud allows at most 50 subnets per private network, and the module validates this at plan time.
 
 * **Explanation of Subnet Allocation and Limits:**
-  * **Legacy Mode:** The default `network_subnet_mode = "legacy"` uses one shared agent subnet and one control-plane subnet in the module-managed primary network.
-  * **Per-Nodepool Mode:** `network_subnet_mode = "per_nodepool"` creates one subnet per control-plane and agent nodepool. This is bounded by Hetzner's 50-subnet network limit.
+  * **Default Mode:** `network_subnet_mode = "per_nodepool"` creates one subnet per control-plane and agent nodepool. This is bounded by Hetzner's 50-subnet network limit.
+  * **Shared Mode:** `network_subnet_mode = "shared"` uses one shared agent subnet and one shared control-plane subnet in the module-managed primary network.
   * **Additional Subnets:** NAT router and vSwitch integration can consume additional subnets. Terraform validates subnet index ranges and collisions before apply.
 
 ```terraform
@@ -1078,22 +1092,12 @@ The example shows three control plane nodepools, each with one node, in differen
 * **`hetzner_ccm_version` (String, Optional):**
   * **Default:** The module likely picks the latest stable version.
   * **Purpose:** Allows pinning the [Hetzner Cloud Controller Manager (CCM)](https://github.com/hetznercloud/hcloud-cloud-controller-manager) to a specific version.
+  * **Install Method:** v3 always installs Hetzner CCM through the HelmChart manifest. The legacy raw-manifest CCM path was removed.
   * **CCM Role:** The CCM is responsible for integrating Kubernetes with Hetzner Cloud specifics, such as:
     * Setting node addresses.
     * Managing Hetzner Load Balancers for services of type `LoadBalancer`.
     * Potentially other cloud-specific integrations.
   * **Reference:** The GitHub releases link provides available versions.
-
-```terraform
-  # By default, new installations use Helm to install Hetzner CCM. You can use the legacy deployment method (using `kubectl apply`) by setting `enable_hetzner_ccm_helm = false`.
-  enable_hetzner_ccm_helm = true
-```
-
-* **`enable_hetzner_ccm_helm` (Boolean, Optional):**
-  * **Default:** `true`.
-  * **Purpose:** Controls the deployment method for the Hetzner CCM.
-    * `true`: The module uses Helm to install and manage the CCM. This is generally the modern, preferred way.
-    * `false`: The module uses a legacy method, likely applying raw Kubernetes YAML manifests (`kubectl apply -f ...`). This might be for compatibility with older module versions or specific needs.
 
 ```terraform
   # To enable Hetzner CCM compatibility and connection with dedicated Robot servers, set the `enable_robot_ccm` to "true", default is "false".
@@ -2782,7 +2786,7 @@ terraform {
   required_providers {
     hcloud = {
       source  = "hetznercloud/hcloud"
-      version = ">= 1.59.0"
+      version = ">= 1.62.0"
     }
   }
 }
@@ -2795,7 +2799,7 @@ terraform {
   * **`required_version`:** Specifies the minimum Terraform CLI version required to apply this configuration.
   * **`required_providers`:** Declares the providers needed by this root module and their source/version constraints.
     * `hcloud`: Specifies the official Hetzner Cloud provider from `hetznercloud/hcloud` on the Terraform Registry.
-    * `version = ">= 1.59.0"`: Constrains to use version 1.59.0 or newer of the Hetzner provider, which is required by kube-hetzner v3.
+    * `version = ">= 1.62.0"`: Constrains to use version 1.62.0 or newer of the Hetzner provider, which is required by kube-hetzner v3.
 
 ---
 
@@ -3271,7 +3275,7 @@ These variables are part of the current v3 module contract and should be conside
 * **`enable_load_balancer_monitoring` (Boolean, Optional):**
   * **Default:** `false`.
   * **Purpose:** Installs ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics.
-  * **Requirements:** `enable_hetzner_ccm_helm = true` and Prometheus Operator CRDs.
+  * **Requirements:** Prometheus Operator CRDs.
 
 * **`reuse_control_plane_load_balancer` (Boolean, Optional):**
   * **Default:** `false`.

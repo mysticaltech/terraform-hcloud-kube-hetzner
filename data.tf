@@ -25,6 +25,30 @@ data "http" "kured_release" {
   }
 }
 
+data "http" "kured_manifest" {
+  url = "https://github.com/kubereboot/kured/releases/download/${local.kured_version}/kured-${local.kured_version}-${local.kured_yaml_suffix}.yaml"
+
+  request_headers = {
+    Accept = "text/plain"
+  }
+}
+
+data "http" "system_upgrade_controller_manifest" {
+  url = "https://github.com/rancher/system-upgrade-controller/releases/download/${var.system_upgrade_controller_version}/system-upgrade-controller.yaml"
+
+  request_headers = {
+    Accept = "text/plain"
+  }
+}
+
+data "http" "system_upgrade_controller_crd" {
+  url = "https://github.com/rancher/system-upgrade-controller/releases/download/${var.system_upgrade_controller_version}/crd.yaml"
+
+  request_headers = {
+    Accept = "text/plain"
+  }
+}
+
 data "http" "calico_release" {
   count = var.calico_version == null && var.cni_plugin == "calico" ? 1 : 0
   url   = "https://api.github.com/repos/projectcalico/calico/releases/latest"

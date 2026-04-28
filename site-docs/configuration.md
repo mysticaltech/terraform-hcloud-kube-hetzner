@@ -225,7 +225,6 @@
 - `agent_nodepools`
 - `load_balancer_type`
 - `load_balancer_location`
-- `enable_hetzner_ccm_helm`
 - `system_upgrade_use_drain`
 - `dns_servers`
 - `token`

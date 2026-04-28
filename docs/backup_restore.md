@@ -229,7 +229,7 @@ module "kube-hetzner" {
 
 2. Set the following sensible environment variables
 
-    - `export TF_VAR_k3s_token="..."` (Be careful, this token is like an admin password to the entire cluster. You need
+    - `export TF_VAR_cluster_token="..."` (Be careful, this token is like an admin password to the entire cluster. You need
       to use the same cluster_token which you saved when creating the backup.)
     - `export etcd_s3_secret_key="..."`
 

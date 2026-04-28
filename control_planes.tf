@@ -4,11 +4,10 @@ resource "hcloud_primary_ip" "control_planes_ipv4" {
     if var.primary_ip_pool.enable_ipv4 && !value.disable_ipv4 && value.primary_ipv4_id == null
   }
 
-  type          = "ipv4"
-  name          = "${var.cluster_name}-cp-${each.key}-ipv4"
-  location      = each.value.location
-  auto_delete   = var.primary_ip_pool.auto_delete
-  assignee_type = "server"
+  type        = "ipv4"
+  name        = "${var.cluster_name}-cp-${each.key}-ipv4"
+  location    = each.value.location
+  auto_delete = var.primary_ip_pool.auto_delete
 
   lifecycle {
     ignore_changes = [location]
@@ -21,11 +20,10 @@ resource "hcloud_primary_ip" "control_planes_ipv6" {
     if var.primary_ip_pool.enable_ipv6 && !value.disable_ipv6 && value.primary_ipv6_id == null
   }
 
-  type          = "ipv6"
-  name          = "${var.cluster_name}-cp-${each.key}-ipv6"
-  location      = each.value.location
-  auto_delete   = var.primary_ip_pool.auto_delete
-  assignee_type = "server"
+  type        = "ipv6"
+  name        = "${var.cluster_name}-cp-${each.key}-ipv6"
+  location    = each.value.location
+  auto_delete = var.primary_ip_pool.auto_delete
 
   lifecycle {
     ignore_changes = [location]
@@ -714,6 +712,8 @@ resource "terraform_data" "control_planes_rke2" {
     terraform_data.first_control_plane_rke2,
     terraform_data.control_plane_config_rke2,
     terraform_data.authentication_config,
+    hcloud_load_balancer_service.control_plane,
+    hcloud_load_balancer_service.control_plane_rke2_supervisor,
     hcloud_network_subnet.control_plane
   ]
 }
@@ -770,6 +770,7 @@ resource "terraform_data" "control_planes" {
     terraform_data.first_control_plane,
     terraform_data.control_plane_config,
     terraform_data.authentication_config,
+    hcloud_load_balancer_service.control_plane,
     hcloud_network_subnet.control_plane
   ]
 }

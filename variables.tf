@@ -442,12 +442,12 @@ variable "network_ipv4_cidr" {
 }
 
 variable "network_subnet_mode" {
-  description = "Subnet allocation mode for the primary private network. Use \"legacy\" for the classic kube-hetzner layout (one agent subnet from the start of the CIDR and one control-plane subnet from the end), or \"per_nodepool\" to allocate dedicated subnets per control-plane and agent nodepool."
+  description = "Subnet allocation mode for the primary private network. Use \"per_nodepool\" to allocate dedicated subnets per control-plane and agent nodepool. Use \"shared\" to allocate one shared agent subnet from the start of the CIDR and one shared control-plane subnet from the end."
   type        = string
-  default     = "legacy"
+  default     = "per_nodepool"
   validation {
-    condition     = contains(["legacy", "per_nodepool"], var.network_subnet_mode)
-    error_message = "network_subnet_mode must be either \"legacy\" or \"per_nodepool\"."
+    condition     = contains(["per_nodepool", "shared"], var.network_subnet_mode)
+    error_message = "network_subnet_mode must be either \"per_nodepool\" or \"shared\"."
   }
 }
 
@@ -952,14 +952,9 @@ variable "load_balancer_health_check_retries" {
 }
 
 variable "enable_load_balancer_monitoring" {
-  description = "Enable ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics. Requires enable_hetzner_ccm_helm=true and Prometheus Operator CRDs."
+  description = "Enable ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics. Requires Prometheus Operator CRDs."
   type        = bool
   default     = false
-
-  validation {
-    condition     = !var.enable_load_balancer_monitoring || var.enable_hetzner_ccm_helm
-    error_message = "enable_load_balancer_monitoring requires enable_hetzner_ccm_helm = true."
-  }
 }
 
 variable "exclude_agents_from_external_load_balancers" {
@@ -1986,17 +1981,6 @@ variable "hetzner_ccm_version" {
   type        = string
   default     = null
   description = "Version of Kubernetes Cloud Controller Manager for Hetzner Cloud. See https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases for the available versions."
-}
-
-variable "enable_hetzner_ccm_helm" {
-  type        = bool
-  default     = false
-  description = "Whether to use the helm chart for the Hetzner CCM or the legacy manifest which is the default."
-
-  validation {
-    condition     = !var.enable_robot_ccm || var.enable_hetzner_ccm_helm
-    error_message = "enable_robot_ccm requires enable_hetzner_ccm_helm = true."
-  }
 }
 
 variable "hetzner_csi_version" {

@@ -7,16 +7,9 @@ locals {
   # For terraforms provisioner.connection.agent_identity, we need the public key as a string.
   ssh_agent_identity = var.ssh_private_key == null ? local.ssh_public_key : null
 
-  ssh_public_key_without_comment = join(" ", slice(split(" ", trimspace(var.ssh_public_key)), 0, 2))
-  matching_hcloud_ssh_key_ids = var.hcloud_ssh_key_id == null ? [
-    for key in data.hcloud_ssh_keys.k3s_existing[0].ssh_keys : tostring(key.id)
-    if try(join(" ", slice(split(" ", trimspace(key.public_key)), 0, 2)), trimspace(key.public_key)) == local.ssh_public_key_without_comment
-  ] : []
-  existing_hcloud_ssh_key_id = length(local.matching_hcloud_ssh_key_ids) > 0 ? local.matching_hcloud_ssh_key_ids[0] : null
-
   # If passed, a key already registered within hetzner is used.
   # Otherwise, a new one will be created by the module.
-  hcloud_ssh_key_id = coalesce(var.hcloud_ssh_key_id, local.existing_hcloud_ssh_key_id, try(tostring(hcloud_ssh_key.k3s[0].id), null))
+  hcloud_ssh_key_id = coalesce(var.hcloud_ssh_key_id, try(tostring(hcloud_ssh_key.k3s[0].id), null))
 
   # if given as a variable, we want to use the given token. This is needed to restore the cluster
   cluster_token = var.cluster_token == null ? random_password.k3s_token.result : var.cluster_token
@@ -340,12 +333,12 @@ EOT
     kind       = "Kustomization"
     resources = concat(
       [
-        "https://github.com/kubereboot/kured/releases/download/${local.kured_version}/kured-${local.kured_version}-${local.kured_yaml_suffix}.yaml",
-        "https://github.com/rancher/system-upgrade-controller/releases/download/${var.system_upgrade_controller_version}/system-upgrade-controller.yaml",
-        "https://github.com/rancher/system-upgrade-controller/releases/download/${var.system_upgrade_controller_version}/crd.yaml"
+        "kured-base.yaml",
+        "system-upgrade-controller.yaml",
+        "system-upgrade-controller-crd.yaml"
       ],
-      var.enable_hetzner_ccm_helm ? ["hcloud-ccm-helm.yaml"] : ["https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases/download/${local.ccm_version}/ccm-networks.yaml"],
-      var.enable_load_balancer_monitoring && var.enable_hetzner_ccm_helm ? ["load_balancer_monitoring.yaml"] : [],
+      ["hcloud-ccm-helm.yaml"],
+      var.enable_load_balancer_monitoring ? ["load_balancer_monitoring.yaml"] : [],
       var.enable_hetzner_csi ? ["hcloud-csi.yaml"] : [],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
       local.kubernetes_distribution == "k3s" ? lookup(local.cni_install_resources, var.cni_plugin, []) : [],
@@ -357,7 +350,7 @@ EOT
       var.enable_rancher ? ["rancher.yaml"] : [],
       var.rancher_registration_manifest_url != "" ? [var.rancher_registration_manifest_url] : []
     ),
-    patches = concat([
+    patches = [
       {
         target = {
           group     = "apps"
@@ -371,20 +364,8 @@ EOT
       {
         path = "kured.yaml"
       }
-      ],
-      var.enable_hetzner_ccm_helm ? [] : [{ path = "ccm.yaml" }]
-    )
+    ]
   })
-
-  legacy_ccm_patch_yaml = templatefile(
-    "${path.module}/templates/ccm.yaml.tpl",
-    {
-      cluster_cidr_ipv4        = local.hetzner_ccm_route_cluster_cidr
-      default_lb_location      = var.load_balancer_location
-      using_klipper_lb         = local.using_klipper_lb
-      instances_address_family = local.hetzner_ccm_instances_address_family
-    }
-  )
 
   apply_k3s_selinux = [<<-EOT
 echo "Checking k3s SELinux policy status..."
@@ -1091,6 +1072,39 @@ for COREDNS_CONFIGMAP in coredns rke2-coredns-rke2-coredns; do
 done
 EOT
 
+  legacy_hetzner_ccm_cleanup_script = <<-EOT
+KUBECTL="__KUBECTL__"
+
+delete_legacy_ccm_resource() {
+  resource="$1"
+  name="$2"
+  namespace="$${3:-}"
+
+  if [ -n "$namespace" ]; then
+    managed_by="$($KUBECTL -n "$namespace" get "$resource/$name" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || true)"
+  else
+    managed_by="$($KUBECTL get "$resource/$name" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || true)"
+  fi
+
+  if [ "$managed_by" = "Helm" ]; then
+    echo "Keeping Helm-managed $resource/$name"
+    return 0
+  fi
+
+  if [ -n "$namespace" ]; then
+    $KUBECTL -n "$namespace" delete "$resource/$name" --ignore-not-found
+  else
+    $KUBECTL delete "$resource/$name" --ignore-not-found
+  fi
+}
+
+delete_legacy_ccm_resource serviceaccount hcloud-cloud-controller-manager kube-system
+delete_legacy_ccm_resource deployment hcloud-cloud-controller-manager kube-system
+delete_legacy_ccm_resource clusterrole system:hcloud-cloud-controller-manager
+delete_legacy_ccm_resource clusterrolebinding system:hcloud-cloud-controller-manager
+delete_legacy_ccm_resource clusterrolebinding system:hcloud-cloud-controller-manager:restricted
+EOT
+
   post_install_readiness_wait_script = <<-EOT
 KUBECTL="__KUBECTL__"
 
@@ -1502,8 +1516,9 @@ loadBalancer:
   acceleration: "${var.cilium_load_balancer_acceleration_mode}"
 
 bpf:
-  # Enable eBPF-based Masquerading ("The eBPF-based implementation is the most efficient implementation")
-  masquerade: true
+  # Cilium's eBPF masquerading depends on Cilium's BPF NodePort datapath.
+  # Keep it off when kube-proxy owns NodePort to avoid Cilium startup failures.
+  masquerade: ${!var.enable_kube_proxy}
 %{if local.cilium_wireguard_effective}
 encryption:
   enabled: true

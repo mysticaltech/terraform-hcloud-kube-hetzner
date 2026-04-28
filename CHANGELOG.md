@@ -20,19 +20,22 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
    - Apply only after reviewing all resource actions.
 3. If you use private-network NAT routers created before v2.19.0, check for primary IP replacement and perform state migration first (see migration notes).
 4. Networking behavior changed in v3: nodepool `network_id` is active, control-plane attachment behavior is explicit, and Cilium public overlay is the only supported multinetwork scale mode. Prefer blue/green migration for custom/private/Robot/multinetwork topologies; do not apply plans that unexpectedly destroy or recreate network subnets.
-5. Several public inputs were renamed or removed in v3 to clean up the module contract. See `MIGRATION.md` for the old-to-new variable map, especially the inverted positive booleans (`enable_hetzner_csi`, `enable_placement_groups`, `allow_inbound_icmp`, `enable_kube_proxy`, `enable_network_policy`, `enable_selinux`, nodepool `enable_public_ipv4`/`enable_public_ipv6`, autoscaler public-IP flags, and load-balancer enable flags).
+5. New clusters and normal in-place v2 upgrades use `network_subnet_mode = "per_nodepool"`, matching the released v2 subnet topology. Optional `network_subnet_mode = "shared"` is for new clusters or intentional topology changes only.
+6. Several public inputs were renamed or removed in v3 to clean up the module contract. See `MIGRATION.md` for the old-to-new variable map, especially the inverted positive booleans (`enable_hetzner_csi`, `enable_placement_groups`, `allow_inbound_icmp`, `enable_kube_proxy`, `enable_network_policy`, `enable_selinux`, nodepool `enable_public_ipv4`/`enable_public_ipv6`, autoscaler public-IP flags, and load-balancer enable flags).
 
 #### Version Requirements
 
 - Minimum Terraform/OpenTofu version: `1.10.1`
-- Minimum hcloud provider version: `1.59.0`
+- Minimum hcloud provider version: `1.62.0`
 
 ### 💥 Breaking Changes
 
-- **Public input cleanup** - Renamed Kubernetes distribution, install, audit, load-balancer, Robot, CCM, WireGuard, firewall, placement group, public-IP, kube-proxy, SELinux, and storage inputs to a consistent v3 contract. Removed obsolete inputs such as `enable_iscsid`, `extra_kustomize_*`, `autoscaler_labels`, and `autoscaler_taints`. See `MIGRATION.md`.
+- **Public input cleanup** - Renamed Kubernetes distribution, install, audit, load-balancer, Robot, CCM, WireGuard, firewall, placement group, public-IP, kube-proxy, SELinux, and storage inputs to a consistent v3 contract. Removed obsolete inputs such as `enable_iscsid`, `extra_kustomize_*`, `autoscaler_labels`, `autoscaler_taints`, and the old CCM deployment-mode switch. See `MIGRATION.md`.
+- **Hetzner CCM HelmChart only** - Removed the legacy raw-manifest Hetzner CCM path. v3 always renders the CCM HelmChart manifest and removes old non-Helm CCM objects during addon reconciliation.
 - **Existing Network shape** - Replaced `existing_network_id` with `existing_network = { id = 1234567 }`; `network_id = 0` is no longer a valid user value, and omitted/null `network_id` means the primary kube-hetzner Network.
 - **Nodepool network behavior** - Agent and autoscaler `network_id` values are now active. Control planes stay on the primary Network and do not accept `network_id`.
-- **Minimum tool versions** - Terraform/OpenTofu `>= 1.10.1` and hcloud provider `>= 1.59.0` are required.
+- **Subnet allocation modes** - New v3 clusters and normal in-place v2 upgrades use `network_subnet_mode = "per_nodepool"`, matching the released v2 subnet topology. Added optional `network_subnet_mode = "shared"` for compact new-cluster layouts that intentionally use one shared agent subnet and one shared control-plane subnet.
+- **Minimum tool versions** - Terraform/OpenTofu `>= 1.10.1` and hcloud provider `>= 1.62.0` are required.
 - **Default/architecture changes** - New nodes default to Leap Micro, architecture selection is consolidated into `enabled_architectures`, and default behavior moved to explicit positive booleans.
 
 ### 🚀 New Features
@@ -49,11 +52,12 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 - **Per-Nodepool Snapshot Overrides** - Added `os_snapshot_id` overrides to control-plane and agent nodepools and node overrides (#2158).
 - **Plan-Time Configuration Guardrails** - Added Terraform/OpenTofu cross-variable validation for architecture toggles, network regions/CIDRs, nodepool topology, load balancers, autoscaler settings, CCM/Robot, Cilium-only features, firewall sources, and multi-volume attachments so invalid combinations fail during `terraform plan`.
 - **Robot vSwitch Route Exposure Control** - Added `expose_routes_to_vswitch` to manage Hetzner Cloud route exposure to coupled Robot vSwitches when kube-hetzner creates the primary Network.
-- **v2-to-v3 Migration Assistant** - Added a project skill and migration playbook for guided v2 configuration rewrites, plan review, and state-safety checks.
+- **v2-to-v3 Migration Assistant** - Added a read-only audit script, project skill, and migration playbook for guided v2 configuration rewrites, plan review, and state-safety checks.
 - **OpenTofu Support** - Documented OpenTofu as a supported engine and expanded Hetzner CI presets to run both Terraform and OpenTofu apply/health/destroy paths.
 
 ### 🐛 Bug Fixes
 
+- **Cilium Default Bootstrap** - Cilium now enables eBPF masquerading only when kube-proxy replacement is enabled, matching Cilium's BPF NodePort dependency and preventing default Cilium clusters from CrashLooping on startup.
 - **Interface Rename Self-Heal** - Added a boot-time `kh-rename-interface.service` and stale udev MAC refresh so private NIC renames survive MAC changes and reboots (#2182).
 - **User Kustomization Redeploys** - User kustomization uploads and deploys now rerun after first control-plane replacement (#2160).
 - **Custom Ingress Mode** - `ingress_controller = "custom"` now skips managed ingress Service lookup/wait logic (#2173).
@@ -62,7 +66,10 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 - **Cilium Egress Gateway Validation** - Enforces `enable_kube_proxy = false` when Cilium Egress Gateway is enabled, matching Cilium's kube-proxy replacement requirement (#2178).
 - **Cilium Egress Gateway HA Reconciler** - Treats `CiliumEgressGatewayPolicy` as cluster-scoped when retargeting labeled policies (#2178).
 - **Upgrade-Safe Ingress Namespace Defaults** - Restored legacy nginx default namespace (`nginx`) to avoid Helm ownership conflicts during upgrades from v2.19.x clusters.
-- **CCM Ownership Compatibility** - Reverted Hetzner CCM management to the existing HelmChart manifest flow for `enable_hetzner_ccm_helm`, avoiding release-name collisions with already-installed CCM chart instances.
+- **CCM Ownership Compatibility** - Keeps Hetzner CCM on the existing HelmChart manifest flow, avoiding release-name collisions with already-installed CCM chart instances.
+- **CCM Helm Migration Cleanup** - v3 now removes the full legacy non-Helm Hetzner CCM RBAC surface before installing the Helm-managed CCM, while preserving Helm-owned CCM resources on later applies.
+- **Upgrade-Safe Hetzner SSH Key State** - Preserves the v2-managed `hcloud_ssh_key.k3s` resource during v3 upgrades instead of auto-adopting the same key through a data source and planning key deletion.
+- **Addon Manifest Fetch Stability** - Terraform now fetches kured and system-upgrade-controller release manifests and uploads them as local kustomize resources, avoiding control-plane kustomize failures on GitHub release-asset URLs.
 - **Subnet Topology Compatibility** - Restored per-nodepool control-plane/agent subnet resources and nodepool subnet attachment while keeping auto-assigned private IPv4 behavior.
 - **RKE2 SELinux Apply Parity** - Wired RKE2 server/agent install flows to apply the `rke2-selinux` policy module when available and added safe post-install `restorecon` relabeling for RKE2 binaries.
 - **LeapMicro SELinux Snapshot Matrix (k3s/rke2 x x86/arm)** - LeapMicro packer now builds distro-specific SELinux snapshots (`selinux_package_to_install`), labels snapshots with `kube-hetzner/k8s-distro` and architecture, and auto-selection now matches `kubernetes_distribution` to prevent k3s/rke2 SELinux RPM conflicts.
@@ -83,7 +90,6 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 - **K3s Channel Guardrail** - Default `k3s_channel` now uses the live `stable` channel, and plan-time validation rejects minor live channels unless an exact `k3s_version`/`rke2_version` is set, avoiding broken upstream minor-channel installer resolution.
 - **API Port Consistency** - k3s first bootstrap now honors `kubernetes_api_port`, the control-plane LB health check/backend follows the configured listener port, IPv6 kubeconfig endpoints are bracketed correctly, and RKE2 now rejects unsupported non-6443 API port settings.
 - **RKE2 Apply Parity** - RKE2 kustomization triggers now include CCM values and system-upgrade drain/eviction/window settings, readiness waits evaluate dynamically, deployment/job waits match k3s, and RKE2 secret deployment uses the shared file-based secret path instead of shell argv literals.
-- **RKE2 Legacy CCM Kustomization** - RKE2 legacy Hetzner CCM installs now upload the required `ccm.yaml` patch file and include the rendered patch in addon reapply hashes, fixing post-install `kubectl apply -k` failures.
 - **Node Route Robustness** - Host cloud-init now handles public-IPv6-only nodes by routing IPv4 through the private gateway while preserving public IPv6 routing, matching autoscaler behavior.
 - **Leap Micro First-Boot Readiness** - Host provisioning now resets and tolerates the known non-critical `transactional-update.service` first-boot failure while still blocking on other failed systemd units.
 - **Upgrade-Safe Detection/Provisioning** - Existing hyphenated nodepool names without random suffixes are detected correctly for OS defaults, NAT routers no longer recreate for image/user-data drift, and RKE2 autoscaler SSH keys use the normalized authorized-key list.
@@ -96,6 +102,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 ### 🔧 Changes
 
 - **iSCSI Daemon Defaults** - `iscsid` is now enabled on all nodes by default, and the `enable_iscsid` input was removed.
+- **Primary IP Provider Cleanup** - Removed now-unused `assignee_type = "server"` attributes from hcloud Primary IP resources and raised the hcloud provider minimum to `1.62.0`.
 - **Release Attribution Robustness** - Release workflow now maps commits to associated PR authors (including squash merges) when generating contributor credits, so original implementers are preserved.
 
 ---

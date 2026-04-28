@@ -13,7 +13,7 @@ A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k
 
 [![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.10.1-844FBA?style=flat-square&logo=terraform)](https://terraform.io)&nbsp;&nbsp;
 [![OpenTofu](https://img.shields.io/badge/OpenTofu-Compatible-FFDA18?style=flat-square&logo=opentofu)](https://opentofu.org)&nbsp;&nbsp;
-[![HCloud Provider](https://img.shields.io/badge/hcloud-%3E%3D1.59.0-00ADEF?style=flat-square)](https://registry.terraform.io/providers/hetznercloud/hcloud/latest)&nbsp;&nbsp;
+[![HCloud Provider](https://img.shields.io/badge/hcloud-%3E%3D1.62.0-00ADEF?style=flat-square)](https://registry.terraform.io/providers/hetznercloud/hcloud/latest)&nbsp;&nbsp;
 [![K3s](https://img.shields.io/badge/K3s-v1.35-FFC61C?style=flat-square&logo=k3s)](https://k3s.io)&nbsp;&nbsp;
 [![License](https://img.shields.io/github/license/kube-hetzner/terraform-hcloud-kube-hetzner?style=flat-square&color=blue)](LICENSE)&nbsp;&nbsp;
 [![GitHub Stars](https://img.shields.io/github/stars/kube-hetzner/terraform-hcloud-kube-hetzner?style=flat-square&logo=github)](https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/stargazers)
@@ -94,14 +94,42 @@ Upgrading from `v2.x` to `v3.x`?
 
 Review the operator playbook in
 [`docs/v2-to-v3-migration.md`](docs/v2-to-v3-migration.md) and the variable map
-in [`MIGRATION.md`](MIGRATION.md) first, then run:
+in [`MIGRATION.md`](MIGRATION.md) first. From a local kube-hetzner checkout,
+audit the Terraform root, then run:
 
 ```bash
+uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root .
 terraform init -upgrade
 terraform plan
 ```
 
 Only apply after reviewing all planned resource actions.
+
+### v3 Support Levels
+
+| Area | Support level | Notes |
+| --- | --- | --- |
+| k3s on Leap Micro | Stable default | Recommended path for new clusters. |
+| RKE2 on Leap Micro | Supported | Heavier distribution, covered by v3 validation and CI presets. |
+| MicroOS | Legacy/upgrade support | Existing clusters remain supported; new nodepools default to Leap Micro. |
+| OpenTofu | Supported | Validate with `tofu init`, `tofu validate`, and `tofu plan` before applying. |
+| Cilium dual-stack | Supported | Preferred advanced CNI path. |
+| Cilium multinetwork public overlay | Supported opt-in | The only supported multi-Hetzner-Network scale topology in v3. |
+| Flannel/Calico multinetwork scale | Unsupported | Use one private Hetzner Network or switch to Cilium public overlay. |
+| Tailscale/ZeroTier/WARP | Supported external pattern | Use generic hooks; kube-hetzner does not manage provider lifecycle. |
+| Robot/vSwitch coupling | Advanced/special-case | Prefer blue/green migration and review route exposure carefully. |
+
+### v3 Readiness Checklist
+
+Before applying a v3 upgrade, confirm:
+
+- Current state is backed up with `terraform state pull`.
+- Removed v2 inputs are gone and renamed booleans with inverted meaning are reviewed.
+- In-place v2 upgrades keep the default `network_subnet_mode = "per_nodepool"` unless subnet resource changes are intentional.
+- `terraform validate` or `tofu validate` passes before planning.
+- `terraform plan` has no unexpected `delete`, `replace`, or `forces replacement` actions.
+- Network, subnet, load balancer, NAT router, placement group, server, and volume changes are intentional.
+- Private-only, Robot/vSwitch, external-network, Tailscale/overlay, Longhorn, and autoscaler clusters have a rollback or blue/green plan.
 
 ---
 
@@ -206,7 +234,7 @@ Only apply after reviewing all planned resource actions.
 </tr>
 </table>
 
-> **Required tools:** [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [OpenTofu](https://opentofu.org/docs/intro/install/) >= 1.10.1 (`brew install opentofu`), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli). The module requires `hetznercloud/hcloud` provider >= 1.59.0.
+> **Required tools:** [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [OpenTofu](https://opentofu.org/docs/intro/install/) >= 1.10.1 (`brew install opentofu`), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli). The module requires `hetznercloud/hcloud` provider >= 1.62.0.
 
 OpenTofu is officially supported. Pull requests are validated in CI with both Terraform and OpenTofu, including real Hetzner preset apply/health/destroy tests when Hetzner E2E is enabled.
 

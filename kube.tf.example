@@ -111,12 +111,20 @@ module "kube-hetzner" {
   # network_ipv4_cidr = "10.0.0.0/8"
   # Nodes use Hetzner-assigned private IPs from the module-created private subnets.
   #
-  # network_subnet_mode = "legacy" keeps the v2-compatible layout: one agent subnet
-  # at the start of the CIDR and one control-plane subnet at the end.
+  # Default for new v3 clusters:
+  # network_subnet_mode = "per_nodepool"
   #
-  # network_subnet_mode = "per_nodepool" creates one subnet per control-plane and
-  # agent nodepool. Keep subnet_count large enough for nodepool subnets plus any
-  # additional module-created subnets such as NAT router and vSwitch.
+  # This also matches the released v2 subnet topology: one subnet per
+  # control-plane and agent nodepool. Keep
+  # subnet_count large enough for nodepool subnets plus any additional
+  # module-created subnets such as NAT router and vSwitch.
+  #
+  # Optional compact/shared subnet layout:
+  # network_subnet_mode = "shared"
+  #
+  # This creates one shared agent subnet at the start of the CIDR and one shared
+  # control-plane subnet at the end. Do not use this during an in-place v2
+  # upgrade unless subnet resource changes are intentional.
 
   # If you must change the cluster CIDR you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
@@ -441,7 +449,7 @@ module "kube-hetzner" {
   # load_balancer_health_check_retries = 3
 
   # Enable Hetzner CCM load balancer monitoring resources (ServiceMonitor + PrometheusRule).
-  # Requires `enable_hetzner_ccm_helm = true` and Prometheus Operator CRDs in the cluster.
+  # Requires Prometheus Operator CRDs in the cluster.
   # enable_load_balancer_monitoring = true
 
 
@@ -674,16 +682,13 @@ module "kube-hetzner" {
   # enable_hetzner_csi = true
 
   # If you want to use a specific Hetzner CCM and CSI version, set them below; otherwise, leave them as-is for the latest versions.
+  # v3 always installs Hetzner CCM through the HelmChart manifest and removes the old raw-manifest CCM path.
   # See https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases for the available versions.
   # hetzner_ccm_version = ""
-
-  # By default, new installations use Helm to install Hetzner CCM. You can use the legacy deployment method (using `kubectl apply`) by setting `enable_hetzner_ccm_helm = false`.
-  enable_hetzner_ccm_helm = true
 
   # To enable Hetzner CCM compatibility with dedicated Robot servers, set the `enable_robot_ccm` to "true", default is "false".
   # Requirements for the CCM and Kubernetes Cluster to work with dedicated Robot servers:
   # - Create Robot Webservice credentials and set them to the `robot_user` and `robot_password` TF-variables. They are passed on via secrets to HCCM env.
-  # - `enable_hetzner_ccm_helm = true`
   # - `enable_robot_ccm = true`
   # See more from https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/docs/add-robot-server.md
   # enable_robot_ccm = false
@@ -1689,7 +1694,7 @@ terraform {
   required_providers {
     hcloud = {
       source  = "hetznercloud/hcloud"
-      version = ">= 1.59.0"
+      version = ">= 1.62.0"
     }
   }
 }

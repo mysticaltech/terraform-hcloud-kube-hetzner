@@ -148,12 +148,11 @@ resource "hcloud_network_route" "nat_route_public_internet" {
 resource "hcloud_primary_ip" "nat_router_primary_ipv4" {
   # explicitly declare the ipv4 address, such that the address
   # is stable against possible replacements of the nat router
-  count         = var.nat_router != null ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
-  type          = "ipv4"
-  name          = var.nat_router.enable_redundancy ? "${local.nat_router_name}-${random_string.nat_router[count.index].id}-ipv4" : "${var.cluster_name}-nat-router-ipv4"
-  location      = var.nat_router.enable_redundancy && count.index == 1 ? var.nat_router.standby_location : var.nat_router.location
-  auto_delete   = false
-  assignee_type = "server"
+  count       = var.nat_router != null ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
+  type        = "ipv4"
+  name        = var.nat_router.enable_redundancy ? "${local.nat_router_name}-${random_string.nat_router[count.index].id}-ipv4" : "${var.cluster_name}-nat-router-ipv4"
+  location    = var.nat_router.enable_redundancy && count.index == 1 ? var.nat_router.standby_location : var.nat_router.location
+  auto_delete = false
 
   # Prevent recreation when user changes location after initial creation
   lifecycle {
@@ -164,12 +163,11 @@ resource "hcloud_primary_ip" "nat_router_primary_ipv4" {
 resource "hcloud_primary_ip" "nat_router_primary_ipv6" {
   # explicitly declare the ipv6 address, such that the address
   # is stable against possible replacements of the nat router
-  count         = var.nat_router != null ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
-  type          = "ipv6"
-  name          = var.nat_router.enable_redundancy ? "${local.nat_router_name}-${random_string.nat_router[count.index].id}-ipv6" : "${var.cluster_name}-nat-router-ipv6"
-  location      = var.nat_router.enable_redundancy && count.index == 1 ? var.nat_router.standby_location : var.nat_router.location
-  auto_delete   = false
-  assignee_type = "server"
+  count       = var.nat_router != null ? (var.nat_router.enable_redundancy ? 2 : 1) : 0
+  type        = "ipv6"
+  name        = var.nat_router.enable_redundancy ? "${local.nat_router_name}-${random_string.nat_router[count.index].id}-ipv6" : "${var.cluster_name}-nat-router-ipv6"
+  location    = var.nat_router.enable_redundancy && count.index == 1 ? var.nat_router.standby_location : var.nat_router.location
+  auto_delete = false
 
   # Prevent recreation when user changes location after initial creation
   lifecycle {
