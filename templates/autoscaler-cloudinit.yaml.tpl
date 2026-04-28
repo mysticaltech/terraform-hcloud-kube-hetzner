@@ -103,6 +103,13 @@ growpart:
 hostname: ${hostname}
 preserve_hostname: true
 
+bootcmd:
+  # Leap Micro/MicroOS health-checker can form a systemd ordering cycle with
+  # cloud-final. Autoscaler nodes rely on cloud-final for Kubernetes bootstrap,
+  # so mask it before the final cloud-init stage is scheduled.
+  - [sh, -c, 'systemctl disable --now health-checker.service 2>/dev/null || true']
+  - [sh, -c, 'systemctl mask health-checker.service 2>/dev/null || true']
+
 runcmd:
 
 ${cloudinit_runcmd_common}

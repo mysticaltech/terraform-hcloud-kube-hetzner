@@ -57,6 +57,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🐛 Bug Fixes
 
+- **Cloud-Init Health-Checker Race** - Host and autoscaler cloud-init now masks Leap Micro/MicroOS `health-checker.service` before `cloud-final` to prevent a systemd ordering-cycle race that can skip first-boot Kubernetes bootstrap on autoscaled nodes.
 - **Cilium Default Bootstrap** - Cilium now enables eBPF masquerading only when kube-proxy replacement is enabled, matching Cilium's BPF NodePort dependency and preventing default Cilium clusters from CrashLooping on startup.
 - **Interface Rename Self-Heal** - Added a boot-time `kh-rename-interface.service` and stale udev MAC refresh so private NIC renames survive MAC changes and reboots (#2182).
 - **User Kustomization Redeploys** - User kustomization uploads and deploys now rerun after first control-plane replacement (#2160).
