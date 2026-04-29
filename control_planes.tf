@@ -361,8 +361,8 @@ locals {
       kubelet-arg                 = concat(local.kubelet_arg, v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [], var.global_kubelet_args, var.control_plane_kubelet_args, v.kubelet_args)
       kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
-      node-ip                     = local.multinetwork_overlay_enabled ? join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[k].ipv6_address : null])) : module.control_planes[k].private_ipv4_address
-      advertise-address           = local.multinetwork_overlay_enabled ? (local.multinetwork_transport_ipv4_enabled ? module.control_planes[k].ipv4_address : module.control_planes[k].ipv6_address) : module.control_planes[k].private_ipv4_address
+      node-ip                     = module.control_planes[k].private_ipv4_address
+      advertise-address           = module.control_planes[k].private_ipv4_address
       node-label                  = v.labels
       node-taint                  = v.taints
       selinux                     = !var.enable_selinux ? false : (v.selinux == true ? true : false)
@@ -418,8 +418,8 @@ locals {
       kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface
-      node-ip                     = local.multinetwork_overlay_enabled ? join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[k].ipv6_address : null])) : module.control_planes[k].private_ipv4_address
-      advertise-address           = local.multinetwork_overlay_enabled ? (local.multinetwork_transport_ipv4_enabled ? module.control_planes[k].ipv4_address : module.control_planes[k].ipv6_address) : module.control_planes[k].private_ipv4_address
+      node-ip                     = module.control_planes[k].private_ipv4_address
+      advertise-address           = module.control_planes[k].private_ipv4_address
       node-label                  = v.labels
       node-taint                  = v.taints
       selinux                     = !var.enable_selinux ? false : (v.selinux == true ? true : false)

@@ -960,6 +960,72 @@ EOT
     node_key => local.agent_effective_join_endpoint_type_by_node[node_key] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
   }
 
+  public_join_endpoint_enabled = anytrue(concat(
+    [for _, endpoint_type in local.control_plane_effective_join_endpoint_type_by_node : endpoint_type == "public"],
+    [for _, endpoint_type in local.agent_effective_join_endpoint_type_by_node : endpoint_type == "public"],
+    [for _, endpoint_type in local.autoscaler_effective_join_endpoint_type_by_index : endpoint_type == "public"]
+  ))
+
+  public_join_endpoint_outbound_firewall_rules = local.public_join_endpoint_enabled ? [
+    {
+      description     = "Allow Outbound Kubernetes API Requests"
+      direction       = "out"
+      protocol        = "tcp"
+      port            = tostring(var.kubernetes_api_port)
+      destination_ips = ["0.0.0.0/0", "::/0"]
+    }
+  ] : []
+
+  restricted_outbound_firewall_rules = flatten([
+    [
+      {
+        description     = "Allow Outbound ICMP Ping Requests"
+        direction       = "out"
+        protocol        = "icmp"
+        port            = ""
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound TCP DNS Requests"
+        direction       = "out"
+        protocol        = "tcp"
+        port            = "53"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound UDP DNS Requests"
+        direction       = "out"
+        protocol        = "udp"
+        port            = "53"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound HTTP Requests"
+        direction       = "out"
+        protocol        = "tcp"
+        port            = "80"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound HTTPS Requests"
+        direction       = "out"
+        protocol        = "tcp"
+        port            = "443"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      }
+    ],
+    local.public_join_endpoint_outbound_firewall_rules,
+    [
+      {
+        description     = "Allow Outbound UDP NTP Requests"
+        direction       = "out"
+        protocol        = "udp"
+        port            = "123"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      }
+    ]
+  ])
+
   k3s_private_join_host_by_control_plane = {
     for node_key, _ in local.control_plane_nodes :
     node_key => (
@@ -1149,6 +1215,7 @@ for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.ena
 done
 EOT
 
+  hetzner_ccm_networking_enabled       = local.cluster_has_ipv4
   hetzner_ccm_route_cluster_cidr       = coalesce(local.cluster_ipv4_cidr_effective, "")
   hetzner_ccm_instances_address_family = local.cluster_has_ipv6 ? (local.cluster_has_ipv4 ? "dualstack" : "ipv6") : "ipv4"
 
@@ -1280,58 +1347,7 @@ EOT
         source_ips  = local.multinetwork_cilium_peer_source_cidrs
       }
     ] : [],
-    !var.restrict_outbound_traffic ? [] : [
-      # Allow basic out traffic
-      # ICMP to ping outside services
-      {
-        description     = "Allow Outbound ICMP Ping Requests"
-        direction       = "out"
-        protocol        = "icmp"
-        port            = ""
-        destination_ips = ["0.0.0.0/0", "::/0"]
-      },
-
-      # DNS
-      {
-        description     = "Allow Outbound TCP DNS Requests"
-        direction       = "out"
-        protocol        = "tcp"
-        port            = "53"
-        destination_ips = ["0.0.0.0/0", "::/0"]
-      },
-      {
-        description     = "Allow Outbound UDP DNS Requests"
-        direction       = "out"
-        protocol        = "udp"
-        port            = "53"
-        destination_ips = ["0.0.0.0/0", "::/0"]
-      },
-
-      # HTTP(s)
-      {
-        description     = "Allow Outbound HTTP Requests"
-        direction       = "out"
-        protocol        = "tcp"
-        port            = "80"
-        destination_ips = ["0.0.0.0/0", "::/0"]
-      },
-      {
-        description     = "Allow Outbound HTTPS Requests"
-        direction       = "out"
-        protocol        = "tcp"
-        port            = "443"
-        destination_ips = ["0.0.0.0/0", "::/0"]
-      },
-
-      #NTP
-      {
-        description     = "Allow Outbound UDP NTP Requests"
-        direction       = "out"
-        protocol        = "udp"
-        port            = "123"
-        destination_ips = ["0.0.0.0/0", "::/0"]
-      }
-    ],
+    !var.restrict_outbound_traffic ? [] : local.restricted_outbound_firewall_rules,
     !local.using_klipper_lb ? [] : [
       # Allow incoming web traffic for single node clusters, because we are using k3s servicelb there,
       # not an external load-balancer.
@@ -1682,8 +1698,8 @@ controller:
 
   hetzner_ccm_values_default = <<EOT
 networking:
-  enabled: ${local.cluster_has_ipv4 && !local.multinetwork_overlay_enabled}
-%{if local.cluster_has_ipv4 && !local.multinetwork_overlay_enabled~}
+  enabled: ${local.hetzner_ccm_networking_enabled}
+%{if local.hetzner_ccm_networking_enabled~}
   clusterCIDR: "${local.hetzner_ccm_route_cluster_cidr}"
 %{endif~}
 %{if local.use_robot_ccm~}
