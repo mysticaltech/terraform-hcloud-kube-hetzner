@@ -137,6 +137,11 @@ Only apply after reviewing all planned resource actions.
 
 Full guide: [`docs/v3-topology-recommendations.md`](docs/v3-topology-recommendations.md).
 
+Public node join endpoints require a real public API host: either
+`control_plane_endpoint`, a public control-plane load balancer, or public
+IPv4/IPv6 on the control-plane nodes. IPv6-only public joins are valid; private
+control planes without one of those hosts are rejected during validation.
+
 ### v3 Readiness Checklist
 
 Before applying a v3 upgrade, confirm:
@@ -684,7 +689,8 @@ cilium_gateway_api_enabled = true
 When enabled, kube-hetzner installs the standard Gateway API CRDs for the
 selected Cilium line, enables `gatewayAPI.enabled` in Cilium values, and enables
 cert-manager Gateway API support. This is separate from Traefik's Kubernetes
-Gateway provider.
+Gateway provider. Choose one Gateway API controller per cluster; v3 rejects
+enabling Cilium Gateway API and Traefik's Gateway provider at the same time.
 
 Use [`examples/cilium-gateway-api`](examples/cilium-gateway-api/) for a working
 GatewayClass/Gateway/HTTPRoute/cert-manager HTTP-01 starting point.

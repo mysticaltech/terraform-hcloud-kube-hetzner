@@ -63,6 +63,11 @@ Common endpoint modes:
 | Explicit endpoint | `control_plane_endpoint` points at your own LB, DNS, proxy, or overlay endpoint | You own endpoint security outside kube-hetzner |
 | Tailscale MagicDNS | kubeconfig points at the first control plane's Tailnet hostname | You want API/SSH through Tailnet and closed public Kubernetes rules |
 
+Public join endpoints must resolve to a real API host. v3 accepts IPv4-only,
+IPv6-only, and dual-stack public joins, but it rejects private-only control
+planes unless `control_plane_endpoint` or a public control-plane Load Balancer
+provides the public API host.
+
 ## Tailscale Multinetwork Rules
 
 Hetzner Cloud Networks are separate L3 islands. A server can attach to only a
@@ -115,7 +120,9 @@ ingress_controller                         = "traefik"
 traefik_provider_kubernetes_gateway_enabled = true
 ```
 
-Both paths use Gateway API objects, but they are different controllers.
+Both paths use Gateway API objects, but they are different controllers. Choose
+one Gateway controller per cluster; v3 rejects enabling Cilium Gateway API and
+Traefik's Gateway provider at the same time.
 
 ## Embedded Registry Mirror
 

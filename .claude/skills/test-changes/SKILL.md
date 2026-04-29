@@ -128,6 +128,11 @@ group, or example docs change.** This checks the +100-node and
 10,000-total-node reference topology math without creating real 10k
 infrastructure.
 
+The v3 smoke matrix also covers public join endpoint family handling: IPv6-only
+control-plane public joins must remain valid, and public joins without a real
+public API host must fail before deployment. The helper retries transient
+provider-download failures during `terraform init`.
+
 ## Step 6.6: Validate v3 Final-Polish Surfaces
 
 ```bash
@@ -150,7 +155,8 @@ uv run scripts/smoke_v3_plan_matrix.py
 **Must pass when Cilium Gateway API, embedded registry mirror, Tailscale node
 transport, multinetwork validation, or endpoint-mode logic changes.** This
 creates disposable Terraform roots and never applies, but it needs a real HCloud
-token so successful plans can read provider data sources. Set
+token so successful plans can read provider data sources. It covers k3s and RKE2
+Tailscale registry paths plus the single-Gateway-controller guard. Set
 `SMOKE_HCLOUD_EXTERNAL_NETWORK_ID` if no existing HCloud Network is available
 for the external-network Tailscale plan smoke.
 

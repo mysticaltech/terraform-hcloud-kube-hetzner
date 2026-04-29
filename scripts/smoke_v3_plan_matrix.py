@@ -36,8 +36,24 @@ class Scenario:
     extra_module_hcl: str
     expect_success: bool
     expect_output: tuple[str, ...] = ()
+    control_plane_nodepools_hcl: str | None = None
     agent_nodepools_hcl: str | None = None
     skip_reason: str | None = None
+    ingress_controller: str = "none"
+
+
+BASE_CONTROL_PLANE_NODEPOOLS_HCL = """
+control_plane_nodepools = [
+  {
+    name        = "control-plane"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 1
+  }
+]
+"""
 
 
 BASE_AGENT_NODEPOOLS_HCL = """
@@ -70,6 +86,7 @@ def load_dotenv_token() -> str | None:
 
 
 def base_hcl(module_source: Path, scenario: Scenario) -> str:
+    control_plane_nodepools_hcl = scenario.control_plane_nodepools_hcl or BASE_CONTROL_PLANE_NODEPOOLS_HCL
     agent_nodepools_hcl = scenario.agent_nodepools_hcl or BASE_AGENT_NODEPOOLS_HCL
     return textwrap.dedent(
         f"""
@@ -101,7 +118,7 @@ def base_hcl(module_source: Path, scenario: Scenario) -> str:
 
           cluster_name       = var.cluster_name
           network_region     = "eu-central"
-          ingress_controller = "none"
+          ingress_controller = "{scenario.ingress_controller}"
 
           # Pin addon versions so smoke plans do not spend GitHub unauthenticated
           # release API quota while still exercising the same module graph.
@@ -109,16 +126,7 @@ def base_hcl(module_source: Path, scenario: Scenario) -> str:
           hetzner_csi_version = "v2.17.0"
           kured_version       = "1.21.0"
 
-          control_plane_nodepools = [
-            {{
-              name        = "control-plane"
-              server_type = "cx23"
-              location    = "nbg1"
-              labels      = []
-              taints      = []
-              count       = 1
-            }}
-          ]
+        {textwrap.indent(control_plane_nodepools_hcl.strip(), "  ")}
 
         {textwrap.indent(agent_nodepools_hcl.strip(), "  ")}
 
@@ -202,6 +210,93 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
             """,
             expect_success=False,
             expect_output=("cilium_gateway_api_enabled", "enable_kube_proxy"),
+        ),
+        Scenario(
+            name="gateway-api-invalid-dual-controllers",
+            extra_module_hcl="""
+            cni_plugin                                  = "cilium"
+            enable_kube_proxy                           = false
+            cilium_gateway_api_enabled                  = true
+            traefik_provider_kubernetes_gateway_enabled = true
+            """,
+            expect_success=False,
+            expect_output=(
+                "Choose either traefik_provider_kubernetes_gateway_enabled or",
+                "cilium_gateway_api_enabled, not both",
+            ),
+            ingress_controller="traefik",
+        ),
+        Scenario(
+            name="public-join-ipv6-only-valid",
+            extra_module_hcl="",
+            expect_success=True,
+            control_plane_nodepools_hcl="""
+            control_plane_nodepools = [
+              {
+                name               = "control-plane"
+                server_type        = "cx23"
+                location           = "nbg1"
+                labels             = []
+                taints             = []
+                count              = 1
+                enable_public_ipv4 = false
+                enable_public_ipv6 = true
+              }
+            ]
+            """,
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name               = "agent"
+                server_type        = "cx23"
+                location           = "nbg1"
+                labels             = []
+                taints             = []
+                count              = 1
+                join_endpoint_type = "public"
+              }
+            ]
+            """,
+        ),
+        Scenario(
+            name="public-join-private-control-plane-invalid",
+            extra_module_hcl="""
+            enable_control_plane_load_balancer              = true
+            control_plane_load_balancer_enable_public_network = false
+            nat_router = {
+              server_type = "cx23"
+              location    = "nbg1"
+            }
+            """,
+            expect_success=False,
+            expect_output=("A public Kubernetes join endpoint without control_plane_endpoint",),
+            control_plane_nodepools_hcl="""
+            control_plane_nodepools = [
+              {
+                name               = "control-plane"
+                server_type        = "cx23"
+                location           = "nbg1"
+                labels             = []
+                taints             = []
+                count              = 1
+                enable_public_ipv4 = false
+                enable_public_ipv6 = false
+              }
+            ]
+            """,
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name               = "agent"
+                server_type        = "cx23"
+                location           = "nbg1"
+                labels             = []
+                taints             = []
+                count              = 1
+                join_endpoint_type = "public"
+              }
+            ]
+            """,
         ),
         Scenario(
             name="embedded-registry-k3s-valid",
@@ -299,6 +394,48 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
             skip_reason=external_network_skip,
         ),
         Scenario(
+            name="rke2-tailscale-registry-multinetwork-valid",
+            extra_module_hcl="""
+            kubernetes_distribution = "rke2"
+            cni_plugin              = "cilium"
+            node_transport_mode     = "tailscale"
+            firewall_kube_api_source = null
+            firewall_ssh_source      = null
+            tailscale_auth_key       = var.tailscale_auth_key
+
+            tailscale_node_transport = {
+              bootstrap_mode             = "cloud_init"
+              magicdns_domain            = "example-tailnet.ts.net"
+              enable_experimental_rke2   = true
+              enable_experimental_cilium = true
+              routing = {
+                advertise_node_private_routes = true
+              }
+            }
+
+            embedded_registry_mirror = {
+              enabled    = true
+              registries = ["docker.io"]
+            }
+            """,
+            expect_success=True,
+            expect_output=("terraform_data.registries", "additional_nodepool_networks"),
+            skip_reason=external_network_skip,
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name        = "agent"
+                server_type = "cx23"
+                location    = "nbg1"
+                labels      = []
+                taints      = []
+                count       = 1
+                network_id  = %s
+              }
+            ]
+            """ % external_network_hcl,
+        ),
+        Scenario(
             name="tailscale-registry-multinetwork-invalid-no-routes",
             extra_module_hcl="""
             cni_plugin                = "flannel"
@@ -352,8 +489,22 @@ def run(command: list[str], cwd: Path, env: dict[str, str]) -> subprocess.Comple
     )
 
 
+def should_retry_transient(output: str) -> bool:
+    return any(marker in output for marker in TRANSIENT_PLAN_ERRORS)
+
+
 def scenario_matches_filter(name: str, filters: list[str]) -> bool:
     return not filters or any(part in name for part in filters)
+
+
+def run_init_with_retry(root: Path, env: dict[str, str], attempts: int = 3) -> subprocess.CompletedProcess[str]:
+    init: subprocess.CompletedProcess[str] | None = None
+    for _ in range(attempts):
+        init = run(["terraform", "init", "-backend=false", "-no-color"], cwd=root, env=env)
+        if init.returncode == 0 or not should_retry_transient(init.stdout):
+            return init
+    assert init is not None
+    return init
 
 
 def run_plan_with_retry(root: Path, env: dict[str, str], attempts: int = 2) -> subprocess.CompletedProcess[str]:
@@ -364,7 +515,7 @@ def run_plan_with_retry(root: Path, env: dict[str, str], attempts: int = 2) -> s
             cwd=root,
             env=env,
         )
-        if plan.returncode in (0, 2) or not any(marker in plan.stdout for marker in TRANSIENT_PLAN_ERRORS):
+        if plan.returncode in (0, 2) or not should_retry_transient(plan.stdout):
             return plan
     assert plan is not None
     return plan
@@ -409,7 +560,7 @@ def main() -> int:
             continue
         (root / "main.tf").write_text(base_hcl(args.module_source.resolve(), scenario), encoding="utf-8")
 
-        init = run(["terraform", "init", "-backend=false", "-no-color"], cwd=root, env=env)
+        init = run_init_with_retry(root, env)
         if init.returncode != 0:
             failures.append(f"{scenario.name}: terraform init failed\n{excerpt(init.stdout)}")
             print(f"FAIL {scenario.name}: init failed", flush=True)

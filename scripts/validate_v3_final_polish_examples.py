@@ -39,6 +39,7 @@ def main() -> int:
     llms = read("docs/llms.md")
     topology = read("docs/v3-topology-recommendations.md")
     changelog = read("CHANGELOG.md")
+    smoke_matrix = read("scripts/smoke_v3_plan_matrix.py")
 
     require(errors, 'variable "cilium_gateway_api_enabled"' in variables, "variables.tf must define cilium_gateway_api_enabled")
     require(errors, 'cni_plugin == "cilium" && !var.enable_kube_proxy' in variables, "Cilium Gateway API must validate Cilium plus kube-proxy replacement")
@@ -52,6 +53,8 @@ def main() -> int:
     require(errors, "registries_config_effective" in locals_tf, "locals.tf must build an effective registries.yaml")
     require(errors, '"embedded-registry" = true' in locals_tf, "locals.tf must set embedded-registry on server config")
     require(errors, '"disable-default-registry-endpoint" = true' in locals_tf, "locals.tf must support disabling default registry endpoints")
+    require(errors, "public_endpoint_ipv6_candidate" in locals_tf, "locals.tf must decouple public join endpoint address family from Cilium multinetwork transport")
+    require(errors, "public Kubernetes join endpoint without control_plane_endpoint" in variables, "variables.tf must reject public join endpoints without a public API host")
 
     require(errors, "gateway_api_standard_crds_manifest" in init_tf, "init.tf must include Gateway API CRDs in addon hash/rendering")
     require(errors, "00-gateway-api-standard-crds.yaml" in init_tf, "init.tf must preload Gateway API CRDs for RKE2 first bootstrap")
@@ -68,6 +71,7 @@ def main() -> int:
         "tailscale_agent_magicdns_hosts",
     ]:
         require(errors, f'output "{output_name}"' in outputs, f"output.tf missing {output_name}")
+    require(errors, "local.first_control_plane_ip" not in outputs, "output.tf public IPv4 outputs must not fall back to Terraform SSH connection targets")
 
     for rel in [
         "docs/v3-topology-recommendations.md",
@@ -131,6 +135,8 @@ def main() -> int:
         "tests/README.md",
     ]:
         require(errors, "smoke_v3_plan_matrix.py" in read(rel), f"{rel} must mention smoke_v3_plan_matrix.py")
+    for needle in ["run_init_with_retry", "public-join-ipv6-only-valid", "public-join-private-control-plane-invalid"]:
+        require(errors, needle in smoke_matrix, f"scripts/smoke_v3_plan_matrix.py must include {needle}")
 
     live_null_resource = []
     for path in ROOT.rglob("*.tf"):

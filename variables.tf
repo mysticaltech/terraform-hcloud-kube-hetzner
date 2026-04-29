@@ -1497,6 +1497,50 @@ variable "control_plane_nodepools" {
   }
 
   validation {
+    condition = (
+      var.control_plane_endpoint != null ||
+      (var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network) ||
+      !(
+        var.multinetwork_mode == "cilium_public_overlay" ||
+        anytrue([
+          for control_plane_nodepool in var.control_plane_nodepools :
+          control_plane_nodepool.join_endpoint_type == "public" ||
+          anytrue([
+            for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+            control_plane_node.join_endpoint_type == "public"
+          ])
+        ]) ||
+        anytrue([
+          for agent_nodepool in var.agent_nodepools :
+          agent_nodepool.join_endpoint_type == "public" ||
+          anytrue([
+            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+            agent_node.join_endpoint_type == "public"
+          ])
+        ]) ||
+        anytrue([
+          for autoscaler_nodepool in var.autoscaler_nodepools :
+          coalesce(autoscaler_nodepool.join_endpoint_type, "private") == "public"
+        ])
+      ) ||
+      alltrue(flatten([
+        for control_plane_nodepool in var.control_plane_nodepools : concat(
+          [
+            for _ in range(max(0, floor(coalesce(control_plane_nodepool.count, 0)))) :
+            control_plane_nodepool.enable_public_ipv4 || control_plane_nodepool.enable_public_ipv6
+          ],
+          [
+            for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+            coalesce(control_plane_node.enable_public_ipv4, control_plane_nodepool.enable_public_ipv4) ||
+            coalesce(control_plane_node.enable_public_ipv6, control_plane_nodepool.enable_public_ipv6)
+          ]
+        )
+      ]))
+    )
+    error_message = "A public Kubernetes join endpoint without control_plane_endpoint or a public control-plane load balancer requires public IPv4 or IPv6 on every control-plane node."
+  }
+
+  validation {
     condition = alltrue([
       for control_plane_nodepool in var.control_plane_nodepools :
       (control_plane_nodepool.primary_ipv4_id == null || (control_plane_nodepool.enable_public_ipv4 && control_plane_nodepool.primary_ipv4_id > 0)) &&
@@ -2623,6 +2667,11 @@ variable "traefik_provider_kubernetes_gateway_enabled" {
   validation {
     condition     = !var.traefik_provider_kubernetes_gateway_enabled || var.ingress_controller == "traefik"
     error_message = "traefik_provider_kubernetes_gateway_enabled requires ingress_controller = \"traefik\"."
+  }
+
+  validation {
+    condition     = !(var.traefik_provider_kubernetes_gateway_enabled && var.cilium_gateway_api_enabled)
+    error_message = "Choose either traefik_provider_kubernetes_gateway_enabled or cilium_gateway_api_enabled, not both. They install separate Gateway API controllers."
   }
 }
 

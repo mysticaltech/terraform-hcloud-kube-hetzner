@@ -238,8 +238,9 @@ access/post-bootstrap features.
 Also verify the final v3 topology polish surfaces stay aligned:
 `docs/v3-topology-recommendations.md`, `examples/cilium-gateway-api`,
 `cilium_gateway_api_enabled`, `embedded_registry_mirror`, endpoint outputs,
-OpenTofu/null-resource gates, and the large-scale Tailscale examples must all
-match `variables.tf`, `locals.tf`, `kube.tf.example`, and `docs/llms.md`.
+public join endpoint IPv6/no-public-host guards, OpenTofu/null-resource gates,
+and the large-scale Tailscale examples must all match `variables.tf`,
+`locals.tf`, `kube.tf.example`, and `docs/llms.md`.
 
 ### Release Notes Template
 
@@ -390,7 +391,7 @@ Files that may need version updates:
 - [ ] Tailscale node-transport README/example/skill guidance matches variables.tf
 - [ ] v3 topology chooser, Cilium Gateway API, embedded registry mirror, and endpoint outputs are documented
 - [ ] `uv run scripts/validate_v3_final_polish_examples.py` passed
-- [ ] `uv run scripts/smoke_v3_plan_matrix.py` passed for Gateway API, registry mirror, and Tailscale multinetwork constraints
+- [ ] `uv run scripts/smoke_v3_plan_matrix.py` passed for Gateway API, registry mirror, public join endpoint guards, k3s/RKE2 Tailscale multinetwork constraints, and single-Gateway-controller validation
 - [ ] Terraform and OpenTofu validation passed
 - [ ] Release notes drafted
 - [ ] Changes committed and pushed

@@ -31,7 +31,10 @@ uv run scripts/smoke_v3_plan_matrix.py
 
 This never applies, but it needs a real HCloud token so successful plans can
 read provider data sources. It covers default k3s+Cilium, Cilium Gateway API
-valid/invalid cases, embedded registry mirror valid/invalid cases, and
-Tailscale multinetwork registry constraints. Set
+valid/invalid cases, public join endpoint IPv6 and no-public-host guards,
+embedded registry mirror valid/invalid cases, k3s/RKE2 Tailscale multinetwork
+registry constraints, and the single-Gateway-controller guard. It retries
+transient provider-download failures during `terraform init` and transient plan
+timeouts. Set
 `SMOKE_HCLOUD_EXTERNAL_NETWORK_ID` if the account has no existing Network for
 the external-network Tailscale plan smoke.

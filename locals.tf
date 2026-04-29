@@ -88,6 +88,8 @@ locals {
   cross_network_transport_enabled     = local.multinetwork_overlay_enabled || local.node_transport_tailscale_enabled
   multinetwork_transport_ipv4_enabled = contains(["ipv4", "dualstack"], var.multinetwork_transport_ip_family)
   multinetwork_transport_ipv6_enabled = contains(["ipv6", "dualstack"], var.multinetwork_transport_ip_family)
+  public_endpoint_ipv4_candidate      = !local.multinetwork_overlay_enabled || local.multinetwork_transport_ipv4_enabled
+  public_endpoint_ipv6_candidate      = !local.multinetwork_overlay_enabled || local.multinetwork_transport_ipv6_enabled
   multinetwork_cilium_peer_source_cidrs = compact(concat(
     local.multinetwork_transport_ipv4_enabled ? var.multinetwork_cilium_peer_ipv4_cidrs : [],
     local.multinetwork_transport_ipv6_enabled ? var.multinetwork_cilium_peer_ipv6_cidrs : []
@@ -106,10 +108,10 @@ locals {
   control_plane_private_host  = var.enable_control_plane_load_balancer ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
   control_plane_public_host = coalesce(
     local.control_plane_endpoint_host,
-    var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.multinetwork_transport_ipv4_enabled ? hcloud_load_balancer.control_plane.*.ipv4[0] : null,
-    var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.multinetwork_transport_ipv6_enabled ? hcloud_load_balancer.control_plane.*.ipv6[0] : null,
-    local.multinetwork_transport_ipv4_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null,
-    local.multinetwork_transport_ipv6_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null,
+    var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.public_endpoint_ipv4_candidate ? hcloud_load_balancer.control_plane.*.ipv4[0] : null,
+    var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.public_endpoint_ipv6_candidate ? hcloud_load_balancer.control_plane.*.ipv6[0] : null,
+    local.public_endpoint_ipv4_candidate ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null,
+    local.public_endpoint_ipv6_candidate ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null,
   )
   control_plane_public_host_formatted = local.control_plane_public_host != null && provider::assert::ipv6(local.control_plane_public_host) ? "[${local.control_plane_public_host}]" : local.control_plane_public_host
   control_plane_private_endpoint      = "https://${local.control_plane_private_host}:${var.kubernetes_api_port}"

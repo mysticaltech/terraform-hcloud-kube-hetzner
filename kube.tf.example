@@ -862,7 +862,8 @@ module "kube-hetzner" {
 
   # Enable Traefik's Kubernetes Gateway API provider (https://doc.traefik.io/traefik/providers/kubernetes-gateway/).
   # Requires ingress_controller = "traefik". The module installs standard Gateway API CRDs
-  # when either this or cilium_gateway_api_enabled is true.
+  # when either this or cilium_gateway_api_enabled is true. Choose one Gateway
+  # API controller per cluster; v3 rejects enabling Traefik Gateway and Cilium Gateway together.
   # The default is false.
   # traefik_provider_kubernetes_gateway_enabled = true
 
@@ -1231,7 +1232,8 @@ module "kube-hetzner" {
   # Enable Cilium's native Gateway API controller.
   # Requires cni_plugin = "cilium" and enable_kube_proxy = false. The module installs
   # standard Gateway API CRDs matching the selected Cilium line and enables
-  # cert-manager Gateway API support when any Gateway provider is active.
+  # cert-manager Gateway API support when any Gateway provider is active. Choose
+  # this or Traefik's Gateway provider, not both.
   # cilium_gateway_api_enabled = true
 
   # Enables Hubble Observability to collect and visualize network traffic. Default: false
