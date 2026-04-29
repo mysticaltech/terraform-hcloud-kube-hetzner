@@ -90,10 +90,12 @@ module "kube-hetzner" {
   # Optionally attach every control plane and agent node to additional existing Hetzner networks.
   # extra_network_ids = [12345, 67890]
 
-  # Optional, Cilium-only multi-network scale mode for clusters that need to span several Hetzner Cloud Networks.
-  # This uses public node addresses plus Cilium WireGuard/tunnel mode for pod-to-pod reachability.
+  # Experimental, Cilium-only multi-network preview for clusters that need to span several Hetzner Cloud Networks.
+  # This uses public node addresses plus Cilium WireGuard/tunnel mode for pod-to-pod reachability, but is not
+  # production-supported until the live cross-network Cilium datapath E2E passes.
   # Defaults remain disabled and keep the legacy single-private-network behavior.
   # Requirements enforced at terraform plan:
+  # - enable_experimental_cilium_public_overlay = true
   # - cni_plugin = "cilium"
   # - public node addresses enabled for the selected transport family
   # - control_plane_endpoint or a public control-plane load balancer
@@ -101,9 +103,10 @@ module "kube-hetzner" {
   # - managed ingress load balancers keep public networking enabled
   # See examples/cilium-multinetwork/README.md for a complete pattern.
   #
-  # multinetwork_mode                = "cilium_public_overlay" # disabled | cilium_public_overlay
-  # multinetwork_transport_ip_family = "ipv4"                  # ipv4 | ipv6 | dualstack
-  # multinetwork_cilium_mtu          = 1370
+  # enable_experimental_cilium_public_overlay = true
+  # multinetwork_mode                         = "cilium_public_overlay" # disabled | cilium_public_overlay
+  # multinetwork_transport_ip_family          = "ipv4"                  # ipv4 | ipv6 | dualstack
+  # multinetwork_cilium_mtu                   = 1370
   # multinetwork_cilium_peer_ipv4_cidrs = ["0.0.0.0/0"] # tighten to trusted node CIDRs when possible
   # multinetwork_cilium_peer_ipv6_cidrs = ["::/0"]       # tighten to trusted node CIDRs when possible
 

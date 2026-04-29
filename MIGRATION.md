@@ -56,8 +56,8 @@ Before applying a v3 plan:
 | RKE2 on Leap Micro | Supported | Validate SELinux snapshot selection carefully when pinning snapshots. |
 | MicroOS | Legacy/upgrade support | Existing nodes stay supported; new nodepools default to Leap Micro. |
 | OpenTofu | Supported | Run `tofu validate` and `tofu plan` before applying with OpenTofu. |
-| Cilium multinetwork public overlay | Supported opt-in | Only supported large multi-Hetzner-Network topology in v3. |
-| Flannel/Calico multinetwork scale | Unsupported | Use one private Network or Cilium public overlay. |
+| Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; do not use for production upgrades yet. |
+| Flannel/Calico multinetwork scale | Unsupported | Use one private Network or an external routed/VPN fabric. |
 | Tailscale/ZeroTier/WARP | Supported external pattern | Use generic hooks; kube-hetzner does not manage provider lifecycle. |
 | Robot/vSwitch/private-only | Advanced/special-case | Review reachability and route exposure manually. |
 
@@ -256,9 +256,9 @@ cluster_autoscaler_resource_values = {
 ### 5) Network scale note
 
 Hetzner Cloud network constraints still apply. Validate expected cluster size
-against current provider/network limits before upgrade. For clusters that need to
-span several Hetzner Networks, v3 adds the opt-in Cilium-only
-`multinetwork_mode = "cilium_public_overlay"` topology.
+against current provider/network limits before upgrade. v3 includes a gated
+Cilium-only `multinetwork_mode = "cilium_public_overlay"` preview, but it is not
+production-supported until live cross-network datapath validation passes.
 
 ### 6) Networking behavior update
 
@@ -316,11 +316,14 @@ Current behavior:
 - In `multinetwork_mode = "cilium_public_overlay"`, control-plane fanout is
   disabled and Cilium uses public IPv4/IPv6 transport with WireGuard encryption
   for pod-to-pod reachability across Hetzner Network islands.
+- This public-overlay path is an experimental preview and requires
+  `enable_experimental_cilium_public_overlay = true`; do not use it for
+  production upgrades yet.
 - A public join path is required for multinetwork setups:
   - set `control_plane_endpoint`, or
   - enable a public control-plane LB.
 
-First v3 multinetwork release is intentionally Cilium-only. Do not use it with
+First v3 multinetwork preview is intentionally Cilium-only. Do not use it with
 Flannel or Calico; Terraform validation rejects that combination.
 
 ## Post-upgrade verification checklist

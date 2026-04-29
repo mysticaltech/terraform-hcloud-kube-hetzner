@@ -118,7 +118,8 @@ resource "terraform_data" "first_control_plane" {
           cluster-dns                 = local.cluster_dns
         },
         local.multinetwork_overlay_enabled ? {
-          node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null]))
+          node-external-ip     = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null]))
+          egress-selector-mode = "disabled"
         } : {},
         lookup(local.cni_k3s_settings, var.cni_plugin, {}),
         var.enable_control_plane_load_balancer ? {

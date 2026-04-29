@@ -269,13 +269,18 @@ variable "extra_network_ids" {
 }
 
 variable "multinetwork_mode" {
-  description = "Optional multinetwork topology mode. Use \"disabled\" for the existing single-private-network behavior, or \"cilium_public_overlay\" to let Cilium span multiple Hetzner Networks over public node addresses with WireGuard encryption."
+  description = "Optional multinetwork topology mode. Use \"disabled\" for the existing single-private-network behavior. \"cilium_public_overlay\" is an experimental preview that lets Cilium span multiple Hetzner Networks over public node addresses with WireGuard encryption."
   type        = string
   default     = "disabled"
 
   validation {
     condition     = contains(["disabled", "cilium_public_overlay"], var.multinetwork_mode)
     error_message = "multinetwork_mode must be either \"disabled\" or \"cilium_public_overlay\"."
+  }
+
+  validation {
+    condition     = var.multinetwork_mode != "cilium_public_overlay" || var.enable_experimental_cilium_public_overlay
+    error_message = "multinetwork_mode=\"cilium_public_overlay\" is experimental and not release-supported for production clusters yet. Set enable_experimental_cilium_public_overlay=true only for lab validation."
   }
 
   validation {
@@ -318,8 +323,14 @@ variable "multinetwork_mode" {
 
 }
 
+variable "enable_experimental_cilium_public_overlay" {
+  description = "Explicit opt-in gate for the experimental Cilium public-overlay multinetwork preview. This mode is not production-supported until live Cilium datapath validation passes."
+  type        = bool
+  default     = false
+}
+
 variable "multinetwork_transport_ip_family" {
-  description = "Public transport address family for cilium_public_overlay. IPv4 is the conservative default; IPv6 and dualstack require public IPv6 on every node."
+  description = "Public transport address family for the experimental cilium_public_overlay preview. IPv4 is the conservative default; IPv6 and dualstack require public IPv6 on every node."
   type        = string
   default     = "ipv4"
 
@@ -384,7 +395,7 @@ variable "multinetwork_transport_ip_family" {
 }
 
 variable "multinetwork_cilium_mtu" {
-  description = "Cilium device MTU used by cilium_public_overlay. The default leaves room for Hetzner public networking plus Cilium tunnel and WireGuard overhead."
+  description = "Cilium device MTU used by the experimental cilium_public_overlay preview. The default leaves room for Hetzner public networking plus Cilium tunnel and WireGuard overhead."
   type        = number
   default     = 1370
 
@@ -395,7 +406,7 @@ variable "multinetwork_cilium_mtu" {
 }
 
 variable "multinetwork_cilium_peer_ipv4_cidrs" {
-  description = "IPv4 source CIDRs allowed to reach Cilium public overlay peer ports on every node when cilium_public_overlay is enabled."
+  description = "IPv4 source CIDRs allowed to reach Cilium public overlay peer ports on every node when the experimental cilium_public_overlay preview is enabled."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 
@@ -409,7 +420,7 @@ variable "multinetwork_cilium_peer_ipv4_cidrs" {
 }
 
 variable "multinetwork_cilium_peer_ipv6_cidrs" {
-  description = "IPv6 source CIDRs allowed to reach Cilium public overlay peer ports on every node when cilium_public_overlay is enabled with IPv6 or dual-stack transport."
+  description = "IPv6 source CIDRs allowed to reach Cilium public overlay peer ports on every node when the experimental cilium_public_overlay preview is enabled with IPv6 or dual-stack transport."
   type        = list(string)
   default     = ["::/0"]
 

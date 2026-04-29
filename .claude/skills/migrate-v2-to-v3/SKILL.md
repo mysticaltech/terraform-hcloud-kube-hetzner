@@ -149,8 +149,11 @@ terraform show -json v3-upgrade.tfplan \
 - `existing_network` plus `vswitch_id` cannot have module-managed
   `expose_routes_to_vswitch`; set it false or enable route exposure manually.
 - Private-only clusters need a working NAT/bastion/control-plane join path.
-- Multinetwork scale requires `multinetwork_mode = "cilium_public_overlay"` and
-  `cni_plugin = "cilium"`.
+- Multinetwork public overlay is a lab-only preview. It requires
+  `multinetwork_mode = "cilium_public_overlay"`,
+  `enable_experimental_cilium_public_overlay = true`, and
+  `cni_plugin = "cilium"`; do not recommend it for production upgrades until the
+  live datapath E2E passes.
 - External agent/autoscaler Network IDs must be positive Hetzner Network IDs.
   Omit/null means the primary Network.
 

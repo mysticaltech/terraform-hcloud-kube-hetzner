@@ -18,9 +18,8 @@ overlay pattern, not as a provider-specific `enable_tailscale` switch.
 kube-hetzner does not manage your tailnet, ACLs, auth keys, MagicDNS, route
 approvals, subnet routers, Tailscale Services, or Tailscale Kubernetes
 Operator installation. Tailscale is supported as an external operator-access
-overlay, not as the cluster CNI or the v3 multinetwork scale fabric. For large
-Hetzner Cloud multinetwork clusters, use `multinetwork_mode =
-"cilium_public_overlay"`.
+overlay, not as the cluster CNI. The v3 Cilium public-overlay multinetwork path
+is still an experimental preview, not a production-supported scale fabric.
 
 Avoid putting long-lived Tailscale auth keys directly in Terraform strings.
 `preinstall_exec` commands and server user-data can appear in Terraform/provider

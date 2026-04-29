@@ -64,8 +64,8 @@ Complete this before applying a v3 plan:
 | OpenTofu | Supported | Requires OpenTofu `>= 1.10.1`; run `tofu plan` before applying with OpenTofu. |
 | Flannel or Calico single-network clusters | Supported | Keep all nodes on one reachable private network. |
 | Cilium dual-stack | Supported | Preferred advanced CNI path. |
-| Cilium multinetwork public overlay | Supported opt-in | Only supported v3 path for spanning several Hetzner Cloud Networks. |
-| Flannel/Calico multinetwork scale | Unsupported | Separate Hetzner Networks are L3 islands; use Cilium public overlay or an external routed fabric. |
+| Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; do not use for production upgrades yet. |
+| Flannel/Calico multinetwork scale | Unsupported | Separate Hetzner Networks are L3 islands; use one private Network or an external routed/VPN fabric. |
 | Tailscale/ZeroTier/WARP | Supported external pattern | Use `preinstall_exec`, `node_connection_overrides`, `control_plane_endpoint`, and optional firewall tightening; kube-hetzner does not manage the provider lifecycle. |
 | Robot/vSwitch | Advanced/special-case | Validate route exposure and migration plans manually. |
 | Private-only clusters | Advanced/special-case | Prove SSH and join paths before applying. |
@@ -356,10 +356,10 @@ rg -n 'cni_plugin|multinetwork_mode|multinetwork_transport_ip_family|network_id|
 | --- | --- | --- |
 | Private-only nodes | SSH and Kubernetes join paths can be stranded if bastion, NAT, firewall, or endpoint settings disagree. | Prove access before applying; prefer blue/green if unsure. |
 | Existing Hetzner Networks | Out-of-band routes/subnets can conflict with v3 validation and attachment accounting. | Use `existing_network = { id = ... }`; review subnets and route exposure. |
-| Multiple Hetzner Networks | Networks are separate L3 islands and servers can attach to at most three Networks. | Use only `multinetwork_mode = "cilium_public_overlay"` with Cilium. |
+| Multiple Hetzner Networks | Networks are separate L3 islands and servers can attach to at most three Networks. | Treat `multinetwork_mode = "cilium_public_overlay"` as a lab-only preview until live datapath validation passes. |
 | Robot/vSwitch | Route exposure can be provider-managed or manually managed depending on ownership. | Validate `expose_routes_to_vswitch` and existing Network ownership. |
 | NAT router from old v2 clusters | Pre-v2.19 primary IP state can show replacement. | Import existing primary IPs if they must be preserved. |
-| Autoscaler with external networks | Cluster Autoscaler needs per-network `HCLOUD_NETWORK` behavior. | Use external autoscaler `network_id` only with Cilium public overlay. |
+| Autoscaler with external networks | Cluster Autoscaler needs per-network `HCLOUD_NETWORK` behavior. | Use external autoscaler `network_id` only with the experimental Cilium public-overlay preview. |
 | Longhorn or attached volumes | Replacements or mount changes can affect stateful workloads. | Back up data and review every volume action. |
 | External overlays such as Tailscale | Auth keys, ACLs, route approvals, DNS, and operator lifecycle live outside kube-hetzner. | Use generic hooks and keep provider lifecycle external. |
 
@@ -388,18 +388,20 @@ expose_routes_to_vswitch = false
 
 ### Multinetwork scale
 
-v3 supports real large multinetwork Cloud clusters only through:
+v3 includes a lab-only large multinetwork Cloud preview through:
 
 ```hcl
+enable_experimental_cilium_public_overlay = true
 multinetwork_mode = "cilium_public_overlay"
 cni_plugin        = "cilium"
 ```
 
 This mode uses public node addresses plus Cilium WireGuard/tunnel overlay. It is
-not a Flannel or Calico private-network feature. External Network IDs may be set
-on agent nodepools; autoscaler nodepools may also set external Network IDs only
-in this mode, where kube-hetzner renders one autoscaler Deployment per effective
-Network. Primary Network nodepools omit `network_id`.
+not a Flannel or Calico private-network feature, and it must not be used for
+production upgrades until the live Cilium datapath test passes. External Network
+IDs may be set on agent nodepools; autoscaler nodepools may also set external
+Network IDs only in this mode, where kube-hetzner renders one autoscaler
+Deployment per effective Network. Primary Network nodepools omit `network_id`.
 
 ### Placement groups
 

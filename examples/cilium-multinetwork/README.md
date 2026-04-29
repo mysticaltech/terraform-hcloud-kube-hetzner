@@ -1,7 +1,9 @@
-# Cilium Multinetwork Scale Pattern for v3
+# Cilium Multinetwork Preview Pattern for v3
 
-This example shows the supported v3 path for clusters that need to span more
-than one Hetzner Cloud Network. It is intentionally Cilium-only.
+This example shows the experimental v3 preview for clusters that need to span
+more than one Hetzner Cloud Network. It is intentionally Cilium-only, but it is
+not production-supported until the live cross-network Cilium datapath test
+passes.
 
 ## Boundary
 
@@ -18,8 +20,9 @@ multinetwork scale need a separately routed or VPN-backed topology.
 ```hcl
 cni_plugin = "cilium"
 
-multinetwork_mode                = "cilium_public_overlay"
-multinetwork_transport_ip_family = "ipv4" # ipv4 | ipv6 | dualstack
+enable_experimental_cilium_public_overlay = true
+multinetwork_mode                         = "cilium_public_overlay"
+multinetwork_transport_ip_family          = "ipv4" # ipv4 | ipv6 | dualstack
 
 enable_control_plane_load_balancer                   = true
 control_plane_load_balancer_enable_public_network    = true

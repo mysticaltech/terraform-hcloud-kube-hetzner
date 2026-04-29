@@ -966,15 +966,47 @@ EOT
     [for _, endpoint_type in local.autoscaler_effective_join_endpoint_type_by_index : endpoint_type == "public"]
   ))
 
-  public_join_endpoint_outbound_firewall_rules = local.public_join_endpoint_enabled ? [
-    {
-      description     = "Allow Outbound Kubernetes API Requests"
-      direction       = "out"
-      protocol        = "tcp"
-      port            = tostring(var.kubernetes_api_port)
-      destination_ips = ["0.0.0.0/0", "::/0"]
-    }
-  ] : []
+  public_overlay_outbound_firewall_rules = concat(
+    local.public_join_endpoint_enabled ? [
+      {
+        description     = "Allow Outbound Kubernetes API Requests"
+        direction       = "out"
+        protocol        = "tcp"
+        port            = tostring(var.kubernetes_api_port)
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      }
+    ] : [],
+    local.multinetwork_overlay_enabled ? [
+      {
+        description     = "Allow Outbound Kubelet API for public overlay nodes"
+        direction       = "out"
+        protocol        = "tcp"
+        port            = "10250"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound Cilium Health for public overlay nodes"
+        direction       = "out"
+        protocol        = "tcp"
+        port            = "4240"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound Cilium WireGuard public overlay peer traffic"
+        direction       = "out"
+        protocol        = "udp"
+        port            = "51871"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound Cilium Geneve public overlay peer traffic"
+        direction       = "out"
+        protocol        = "udp"
+        port            = "6081"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      }
+    ] : []
+  )
 
   restricted_outbound_firewall_rules = flatten([
     [
@@ -1014,7 +1046,7 @@ EOT
         destination_ips = ["0.0.0.0/0", "::/0"]
       }
     ],
-    local.public_join_endpoint_outbound_firewall_rules,
+    local.public_overlay_outbound_firewall_rules,
     [
       {
         description     = "Allow Outbound UDP NTP Requests"
@@ -1344,6 +1376,20 @@ EOT
         direction   = "in"
         protocol    = "udp"
         port        = "6081"
+        source_ips  = local.multinetwork_cilium_peer_source_cidrs
+      },
+      {
+        description = "Allow Kubelet API for public overlay nodes"
+        direction   = "in"
+        protocol    = "tcp"
+        port        = "10250"
+        source_ips  = local.multinetwork_cilium_peer_source_cidrs
+      },
+      {
+        description = "Allow Cilium Health for public overlay nodes"
+        direction   = "in"
+        protocol    = "tcp"
+        port        = "4240"
         source_ips  = local.multinetwork_cilium_peer_source_cidrs
       }
     ] : [],
@@ -1734,6 +1780,14 @@ env:
 %{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
+%{if local.multinetwork_overlay_enabled~}
+
+# In public-overlay preview mode, external-network agents are not attached to
+# the primary Hetzner Network. Pin CCM to control planes so its HCLOUD_NETWORK
+# initialization sees the primary Network and can remove cloud taints.
+nodeSelector:
+  node-role.kubernetes.io/control-plane: "true"
+%{endif~}
 
 # The chart hardcodes base tolerations in its template and uses
 # additionalTolerations for extras. The defaults miss not-ready:NoSchedule

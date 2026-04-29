@@ -114,8 +114,8 @@ Only apply after reviewing all planned resource actions.
 | MicroOS | Legacy/upgrade support | Existing clusters remain supported; new nodepools default to Leap Micro. |
 | OpenTofu | Supported | Validate with `tofu init`, `tofu validate`, and `tofu plan` before applying. |
 | Cilium dual-stack | Supported | Preferred advanced CNI path. |
-| Cilium multinetwork public overlay | Supported opt-in | The only supported multi-Hetzner-Network scale topology in v3. |
-| Flannel/Calico multinetwork scale | Unsupported | Use one private Hetzner Network or switch to Cilium public overlay. |
+| Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; not production-supported until live datapath validation passes. |
+| Flannel/Calico multinetwork scale | Unsupported | Use one private Hetzner Network or an external routed/VPN fabric. |
 | Tailscale/ZeroTier/WARP | Supported external pattern | Use generic hooks; kube-hetzner does not manage provider lifecycle. |
 | Robot/vSwitch coupling | Advanced/special-case | Prefer blue/green migration and review route exposure carefully. |
 
@@ -151,7 +151,7 @@ Before applying a v3 upgrade, confirm:
 - [x] **WireGuard encryption** — Optional encrypted overlay
 - [x] **Dual-stack** — Full IPv4 & IPv6 support
 - [x] **Custom subnets** — Define CIDR blocks per nodepool
-- [x] **Cilium multinetwork scale** — Opt-in encrypted public overlay across Hetzner Networks
+- [ ] **Cilium multinetwork scale** — Experimental public-overlay preview, not production-supported yet
 
 ### ⚖️ Load Balancing
 - [x] **Ingress controllers** — Traefik, Nginx, or HAProxy
@@ -522,7 +522,7 @@ Use [Kustomize](https://kustomize.io) for additional deployments:
 Repository examples:
 
 - [`examples/argocd`](examples/argocd/) — configure Kubernetes/Helm providers from `kubeconfig_data` and install ArgoCD.
-- [`examples/cilium-multinetwork`](examples/cilium-multinetwork/) — v3 Cilium-only scale-out across multiple Hetzner Cloud Networks.
+- [`examples/cilium-multinetwork`](examples/cilium-multinetwork/) — experimental Cilium-only public-overlay preview across multiple Hetzner Cloud Networks.
 - [`examples/external-overlay-tailscale`](examples/external-overlay-tailscale/) — external Tailscale overlay access with `node_connection_overrides`.
 - [`examples/kustomization_user_deploy`](examples/kustomization_user_deploy/) — ordered `user_kustomizations` sets.
 - [`examples/tls`](examples/tls/) — basic Ingress TLS resources for Traefik and cert-manager.
@@ -1028,18 +1028,19 @@ module "kube-hetzner" {
 <details>
 <summary><strong>Multinetwork (agent scale-out)</strong></summary>
 
-For clusters that need more than one Hetzner Cloud Network, enable the explicit
-Cilium public overlay mode. In this mode Hetzner private Networks remain the
-server attachment boundary, while Cilium provides encrypted pod-to-pod
-reachability over public node addresses.
+For clusters that need more than one Hetzner Cloud Network, v3 includes an
+experimental Cilium public overlay preview. It is intentionally gated because
+fresh live release testing still found a cross-network Cilium datapath gap. Do
+not use it for production clusters or release claims until the live E2E passes.
 
 ```tf
 cni_plugin = "cilium"
 
-multinetwork_mode                = "cilium_public_overlay"
-multinetwork_transport_ip_family = "ipv4" # ipv4 | ipv6 | dualstack
+enable_experimental_cilium_public_overlay = true
+multinetwork_mode                         = "cilium_public_overlay"
+multinetwork_transport_ip_family          = "ipv4" # ipv4 | ipv6 | dualstack
 
-enable_control_plane_load_balancer                   = true
+enable_control_plane_load_balancer                = true
 control_plane_load_balancer_enable_public_network = true
 
 agent_nodepools = [
@@ -1084,10 +1085,12 @@ autoscaler_nodepools = [
 ```
 
 The module validates the important Hetzner and Kubernetes constraints during
-`terraform plan`:
+`terraform plan`, but this mode is still a lab-only preview:
 
 - `cilium_public_overlay` requires `cni_plugin = "cilium"` and public node
   addresses for the selected transport family.
+- `enable_experimental_cilium_public_overlay = true` is required so users do not
+  accidentally deploy the preview path.
 - Control planes always stay on the primary kube-hetzner network and no longer
   accept `network_id`.
 - Agent and autoscaler nodepools use the primary kube-hetzner network when
@@ -1102,8 +1105,7 @@ The module validates the important Hetzner and Kubernetes constraints during
 - Managed load balancers target public node IPs in this mode. Private-only
   multinetwork scale remains out of scope until a routed/VPN fabric is modeled.
 - Outside this mode, `network_id` is a bounded static-agent compatibility path,
-  not the large-cluster scale-out path; autoscaler external Networks require the
-  Cilium public overlay.
+  not the large-cluster scale-out path.
 </details>
 
 <details>
