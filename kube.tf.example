@@ -45,6 +45,9 @@ module "kube-hetzner" {
   # layouts, autoscaler/network combinations that are not supported yet, and malformed YAML snippets.
   # Keep pure input contract rules in variable validation; provider/runtime facts belong in preconditions,
   # postconditions, or checks.
+  #
+  # v3 topology chooser and release rules:
+  # docs/v3-topology-recommendations.md
 
   # Customize the SSH port (by default 22)
   # ssh_port = 2222
@@ -109,6 +112,61 @@ module "kube-hetzner" {
   # multinetwork_cilium_mtu                   = 1370
   # multinetwork_cilium_peer_ipv4_cidrs = ["0.0.0.0/0"] # tighten to trusted node CIDRs when possible
   # multinetwork_cilium_peer_ipv6_cidrs = ["::/0"]       # tighten to trusted node CIDRs when possible
+
+  # Tailscale node transport.
+  # Use this for secure single-network clusters that should close public API/SSH,
+  # or for production private multinetwork scale-out when agent/autoscaler
+  # nodepools use external network_id values.
+  #
+  # Kubernetes keeps Hetzner private node IPs. For multinetwork clusters, the
+  # module advertises each node's Hetzner private /32 route into the Tailnet,
+  # accepts Tailnet routes on every node, and disables Tailscale subnet-route
+  # SNAT so CNI/node traffic keeps the real Hetzner node source IP.
+  #
+  # Requirements enforced at terraform plan:
+  # - magicdns_domain is set
+  # - public API/SSH firewall sources are closed or restricted, not world-open
+  # - module-managed control-plane Load Balancers are disabled
+  # - autoscaler_nodepools use bootstrap_mode = "cloud_init"
+  # - cni_plugin = "flannel" unless Cilium is explicitly enabled as experimental
+  # - flannel_backend is not "host-gw"
+  # - Tailnet reserved CIDRs do not overlap cluster/service/network CIDRs
+  # - Tailnet ACLs must auto-approve advertised node-private routes for the users/groups/tags you use when external network_id nodepools are used
+  # - nat_router is used only with primary-network nodes, not external network_id nodepools
+  # - managed Hetzner ingress uses public node targets; use Klipper/custom/none for private-only or NAT-router ingress
+  # - +100-node and 10k-node reference layouts are in examples/tailscale-node-transport/
+  #
+  # Large-scale exposure model:
+  # - close public Kubernetes API/SSH with firewall_kube_api_source = null and firewall_ssh_source = null
+  # - set ingress_controller = "none" unless you intentionally want a public web entrypoint
+  # - keep node public IPv4/IPv6 enabled for Tailscale bootstrap and direct UDP/41641 WireGuard paths
+  # - use externally managed Tailscale bootstrap and per-network private egress if you require no public IPs at all
+  #
+  # node_transport_mode = "tailscale"
+  # tailscale_auth_key  = var.tailscale_auth_key
+  # # Shared auth keys must be reusable. Optional role-specific keys are useful when
+  # # autoscaler nodes should use an ephemeral, reusable, pre-approved key.
+  # # tailscale_control_plane_auth_key = var.tailscale_control_plane_auth_key
+  # # tailscale_agent_auth_key         = var.tailscale_agent_auth_key
+  # # tailscale_autoscaler_auth_key    = var.tailscale_autoscaler_auth_key
+  # tailscale_node_transport = {
+  #   bootstrap_mode  = "cloud_init"
+  #   magicdns_domain = "example-tailnet.ts.net"
+  #   auth = {
+  #     mode = "auth_key"
+  #     # Optional; configure Tailnet tagOwners/autoApprovers before enabling tags.
+  #     # advertise_tags_control_plane = ["tag:kube-hetzner-control-plane"]
+  #     # advertise_tags_agent         = ["tag:kube-hetzner-agent"]
+  #     # advertise_tags_autoscaler    = ["tag:kube-hetzner-autoscaler"]
+  #   }
+  #   routing = {
+  #     # Single-network clusters may set this to false to avoid Tailnet route
+  #     # approvals. Keep true for external network_id nodepools.
+  #     advertise_node_private_routes = true
+  #   }
+  # }
+  # firewall_kube_api_source = null
+  # firewall_ssh_source      = null
 
   # If you must change the network CIDR you can do so below, but it is highly advised against.
   # network_ipv4_cidr = "10.0.0.0/8"
@@ -195,7 +253,8 @@ module "kube-hetzner" {
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
 
-      # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
+      # Fine-grained control over placement groups. Leave unset to auto-shard count-based nodepools every 10 servers.
+      # Explicit placement_group values must stay at 10 servers or fewer, and the project cap is 50 placement groups:
       # placement_group = "default"
 
       # Enable automatic backups via Hetzner (default: false)
@@ -224,7 +283,8 @@ module "kube-hetzner" {
       # Disable random host suffix to keep deterministic node names (default: true).
       # append_random_suffix = false
 
-      # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
+      # Fine-grained control over placement groups. Leave unset to auto-shard count-based nodepools every 10 servers.
+      # Explicit placement_group values must stay at 10 servers or fewer, and the project cap is 50 placement groups:
       # placement_group = "default"
 
       # Enable automatic backups via Hetzner (default: false)
@@ -244,7 +304,8 @@ module "kube-hetzner" {
       taints      = [],
       count       = 1
 
-      # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
+      # Fine-grained control over placement groups. Leave unset to auto-shard count-based nodepools every 10 servers.
+      # Explicit placement_group values must stay at 10 servers or fewer, and the project cap is 50 placement groups:
       # placement_group = "default"
 
       # Enable automatic backups via Hetzner (default: false)
@@ -273,7 +334,8 @@ module "kube-hetzner" {
       # kubelet_args = ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
       # append_random_suffix = false
 
-      # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
+      # Fine-grained control over placement groups. Leave unset to auto-shard count-based nodepools every 10 servers.
+      # Explicit placement_group values must stay at 10 servers or fewer, and the project cap is 50 placement groups:
       # placement_group = "default"
 
       # Enable automatic backups via Hetzner (default: false)
@@ -292,7 +354,8 @@ module "kube-hetzner" {
       count           = 1
       subnet_ip_range = "10.100.0.0/16"
 
-      # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
+      # Fine-grained control over placement groups. Leave unset to auto-shard count-based nodepools every 10 servers.
+      # Explicit placement_group values must stay at 10 servers or fewer, and the project cap is 50 placement groups:
       # placement_group = "default"
 
       # Enable automatic backups via Hetzner (default: false)
@@ -457,8 +520,9 @@ module "kube-hetzner" {
 
 
   # Setup a NAT router, and automatically disable public ips on all control plane and agent nodes.
-  # To use this, you must also set enable_control_plane_load_balancer = true, otherwise kubectl can never
-  # reach the cluster. The NAT router will also function as bastion. This makes securing the cluster
+  # To use this, you must also set enable_control_plane_load_balancer = true unless
+  # node_transport_mode = "tailscale" provides the API/kubeconfig path through the tailnet.
+  # The NAT router will also function as bastion. This makes securing the cluster
   # easier, as all public traffic passes through a single strongly secured node. It does
   # however also introduce a single point of failure, so if you need high-availability on your
   # egress, you should consider other configurations.
@@ -762,9 +826,8 @@ module "kube-hetzner" {
   # Optional map of node name => SSH host override.
   # Useful when an external overlay network (Tailscale, ZeroTier, Cloudflare WARP, etc.)
   # is managed outside this module and you want Terraform to connect through overlay IPs.
-  # Tailscale is supported as an external overlay pattern; kube-hetzner deliberately
-  # does not manage tailnets, ACLs, auth keys, MagicDNS, route approvals, or the
-  # Tailscale Kubernetes Operator. There is no `enable_tailscale` input by design.
+  # For official Tailscale cluster node transport, use node_transport_mode = "tailscale"
+  # instead of this manual override pattern.
   # If you bootstrap overlay clients with preinstall_exec, use short-lived one-use keys
   # and assume commands/user-data may be visible in Terraform state or cloud-init logs.
   # After Kubernetes is healthy, install the Tailscale Kubernetes Operator separately
@@ -797,7 +860,9 @@ module "kube-hetzner" {
   # The default is true.
   # traefik_pod_disruption_budget = false
 
-  # Enable kubernetes gateway api (https://doc.traefik.io/traefik/providers/kubernetes-gateway/) provider support.
+  # Enable Traefik's Kubernetes Gateway API provider (https://doc.traefik.io/traefik/providers/kubernetes-gateway/).
+  # Requires ingress_controller = "traefik". The module installs standard Gateway API CRDs
+  # when either this or cilium_gateway_api_enabled is true.
   # The default is false.
   # traefik_provider_kubernetes_gateway_enabled = true
 
@@ -951,6 +1016,23 @@ module "kube-hetzner" {
           username: username
           password: password
   EOT */
+
+  # Opt-in k3s/RKE2 embedded registry mirror for trusted larger clusters.
+  # This enables the embedded Spegel mirror and adds empty mirror entries to the
+  # effective registries.yaml. Existing registries_config mirrors/endpoints are
+  # preserved and override these empty defaults.
+  #
+  # Security model: all nodes are trusted peers. Images pulled with credentials
+  # on one node may be shared with other nodes, and mutable tags can be poisoned
+  # by a node that can place images in containerd. Prefer image digests for
+  # critical workloads. In Tailscale multinetwork clusters, keep
+  # tailscale_node_transport.routing.advertise_node_private_routes = true.
+  #
+  # embedded_registry_mirror = {
+  #   enabled                  = true
+  #   registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+  #   disable_default_endpoint = false
+  # }
 
   # Additional environment variables for the host OS on which k3s runs. See for example https://docs.k3s.io/advanced#configuring-an-http-proxy .
   # additional_kubernetes_install_environment = {
@@ -1129,7 +1211,7 @@ module "kube-hetzner" {
 
   # You can choose the version of Cilium that you want. By default we keep the version up to date and configure Cilium with compatible settings according to the version.
   # See https://github.com/cilium/cilium/releases for the available versions.
-  # cilium_version = "1.17.0"
+  # cilium_version = "1.19.3"
 
   # Set native-routing mode ("native") or tunneling mode ("tunnel"). Default: tunnel
   # cilium_routing_mode = "native"
@@ -1145,6 +1227,12 @@ module "kube-hetzner" {
   # to a currently Ready node labeled with node.kubernetes.io/role=egress.
   # Policies to be managed by this reconciler must have: kube-hetzner.io/egress-ha=true
   # cilium_egress_gateway_ha_enabled = true
+
+  # Enable Cilium's native Gateway API controller.
+  # Requires cni_plugin = "cilium" and enable_kube_proxy = false. The module installs
+  # standard Gateway API CRDs matching the selected Cilium line and enables
+  # cert-manager Gateway API support when any Gateway provider is active.
+  # cilium_gateway_api_enabled = true
 
   # Enables Hubble Observability to collect and visualize network traffic. Default: false
   # cilium_hubble_enabled = true
@@ -1174,6 +1262,9 @@ module "kube-hetzner" {
   # enable_network_policy = false
 
   # Enable automatic Hetzner placement group "spread" assignment. See https://docs.hetzner.com/cloud/placement-groups/overview/
+  # Count-based static nodepools without an explicit placement_group are auto-sharded every 10 servers.
+  # Hetzner spread placement groups support 10 servers per group and 50 groups per project.
+  # Autoscaler-created nodes are not assigned placement groups by kube-hetzner today.
   # We advise to not touch that setting, unless you have a specific purpose.
   # The default is "true".
   # enable_placement_groups = true

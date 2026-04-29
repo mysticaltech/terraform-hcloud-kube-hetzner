@@ -21,7 +21,7 @@ resource "hcloud_load_balancer" "cluster" {
 }
 
 resource "hcloud_load_balancer_network" "cluster" {
-  count = local.has_external_load_balancer || local.multinetwork_overlay_enabled ? 0 : 1
+  count = local.has_external_load_balancer || local.cross_network_transport_enabled ? 0 : 1
 
   load_balancer_id = hcloud_load_balancer.cluster.*.id[0]
   # Use the last usable IP in the subnet. If control-plane LB is also enabled
@@ -69,7 +69,7 @@ resource "hcloud_load_balancer_target" "cluster" {
       })"
     ]
   ))
-  use_private_ip = !local.multinetwork_overlay_enabled
+  use_private_ip = !local.cross_network_transport_enabled
 }
 
 locals {
@@ -122,6 +122,8 @@ resource "terraform_data" "first_control_plane" {
           egress-selector-mode = "disabled"
         } : {},
         lookup(local.cni_k3s_settings, var.cni_plugin, {}),
+        local.embedded_registry_mirror_server_config,
+        local.disable_default_registry_endpoint_config,
         var.enable_control_plane_load_balancer ? {
           tls-san = concat(
             compact([
@@ -207,7 +209,8 @@ resource "terraform_data" "first_control_plane" {
   }
 
   depends_on = [
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    terraform_data.tailscale_control_planes
   ]
 }
 moved {
@@ -256,6 +259,12 @@ resource "terraform_data" "control_plane_setup_rke2" {
     ]
   }
 
+  # Gateway API CRDs must exist before Cilium starts when Cilium Gateway API is enabled.
+  provisioner "file" {
+    content     = local.gateway_api_standard_crds_file
+    destination = "/var/lib/rancher/rke2/server/manifests/00-gateway-api-standard-crds.yaml"
+  }
+
   # Generating rke2 master config file
   provisioner "file" {
     content = yamlencode(
@@ -283,6 +292,8 @@ resource "terraform_data" "control_plane_setup_rke2" {
         local.multinetwork_overlay_enabled ? {
           node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null]))
         } : {},
+        local.embedded_registry_mirror_server_config,
+        local.disable_default_registry_endpoint_config,
         var.enable_control_plane_load_balancer ? {
           tls-san = concat(
             compact([
@@ -338,6 +349,10 @@ resource "terraform_data" "control_plane_setup_rke2" {
     content     = local.rke2_cni_config_manifest
     destination = "/var/lib/rancher/rke2/server/manifests/kube-hetzner-rke2-cni-config.yaml"
   }
+
+  depends_on = [
+    terraform_data.tailscale_control_planes,
+  ]
 }
 
 resource "terraform_data" "first_control_plane_rke2" {
@@ -408,6 +423,7 @@ resource "terraform_data" "first_control_plane_rke2" {
   depends_on = [
     hcloud_network_subnet.control_plane,
     terraform_data.control_plane_setup_rke2,
+    terraform_data.tailscale_control_planes,
   ]
 }
 moved {
@@ -548,6 +564,7 @@ resource "terraform_data" "kustomization" {
       data.http.kured_manifest.response_body,
       data.http.system_upgrade_controller_manifest.response_body,
       data.http.system_upgrade_controller_crd.response_body,
+      local.gateway_api_standard_crds_manifest,
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
         {
@@ -763,6 +780,12 @@ resource "terraform_data" "kustomization" {
       {}
     ) : ""
     destination = "/var/post_install/load_balancer_monitoring.yaml"
+  }
+
+  # Upload standard Gateway API CRDs when Cilium or Traefik Gateway API support is enabled.
+  provisioner "file" {
+    content     = local.gateway_api_standard_crds_manifest
+    destination = "/var/post_install/gateway-api-standard-crds.yaml"
   }
 
   # Upload the calico patch config, for the kustomization of the calico manifest
@@ -1006,6 +1029,7 @@ resource "terraform_data" "rke2_kustomization" {
       data.http.kured_manifest.response_body,
       data.http.system_upgrade_controller_manifest.response_body,
       data.http.system_upgrade_controller_crd.response_body,
+      local.gateway_api_standard_crds_manifest,
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
         {
@@ -1214,6 +1238,12 @@ resource "terraform_data" "rke2_kustomization" {
       {}
     ) : ""
     destination = "/var/post_install/load_balancer_monitoring.yaml"
+  }
+
+  # Upload standard Gateway API CRDs when Cilium or Traefik Gateway API support is enabled.
+  provisioner "file" {
+    content     = local.gateway_api_standard_crds_manifest
+    destination = "/var/post_install/gateway-api-standard-crds.yaml"
   }
 
   # Upload the k3s Calico kustomization patch. RKE2 CNI manifests are handled

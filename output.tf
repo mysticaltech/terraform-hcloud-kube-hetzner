@@ -79,6 +79,35 @@ output "k3s_endpoint" {
   value       = local.k3s_endpoint
 }
 
+output "effective_kubeconfig_endpoint" {
+  description = "Effective Kubernetes API endpoint written into the generated kubeconfig."
+  value       = local.kubeconfig_server
+}
+
+output "effective_node_join_endpoint" {
+  description = "Effective default node join endpoint for the selected Kubernetes distribution."
+  value       = local.kubernetes_distribution == "rke2" ? local.rke2_join_endpoint : local.k3s_endpoint
+}
+
+output "node_transport_mode" {
+  description = "Effective Kubernetes node transport mode."
+  value       = var.node_transport_mode
+}
+
+output "tailscale_control_plane_magicdns_hosts" {
+  description = "Tailnet MagicDNS hostnames for control-plane nodes when node_transport_mode is tailscale."
+  value = local.node_transport_tailscale_enabled ? {
+    for k, node in module.control_planes : k => "${node.name}.${local.tailscale_magicdns_domain}"
+  } : {}
+}
+
+output "tailscale_agent_magicdns_hosts" {
+  description = "Tailnet MagicDNS hostnames for static agent nodes when node_transport_mode is tailscale."
+  value = local.node_transport_tailscale_enabled ? {
+    for k, node in module.agents : k => "${node.name}.${local.tailscale_magicdns_domain}"
+  } : {}
+}
+
 output "cluster_token" {
   description = "The cluster token to register new nodes"
   value       = local.cluster_token

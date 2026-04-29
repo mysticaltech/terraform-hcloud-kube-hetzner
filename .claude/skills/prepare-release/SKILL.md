@@ -220,9 +220,26 @@ tmpdir="$(mktemp -d)"
 rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
 (cd "$tmpdir" && tofu init -backend=false && tofu validate)
 rm -rf "$tmpdir"
+uv run scripts/validate_tailscale_large_scale_examples.py
+uv run scripts/validate_v3_final_polish_examples.py
+uv run scripts/smoke_v3_plan_matrix.py
 ```
 
 Also verify `README.md`, `kube.tf.example`, `docs/llms.md`, and `.claude/skills/*/SKILL.md` do not contain removed v2 input names except in explicit migration sections.
+
+For v3, additionally verify the Tailscale node-transport surfaces stay aligned:
+`node_transport_mode = "tailscale"` is the supported secure single-network and
+private multinetwork path, Flannel is first supported, Cilium is experimental,
+Calico is rejected, subnet-route SNAT is disabled when advertising routes,
+single-network examples may disable node-private route advertisement, and
+external-overlay docs still describe only user-owned operator
+access/post-bootstrap features.
+
+Also verify the final v3 topology polish surfaces stay aligned:
+`docs/v3-topology-recommendations.md`, `examples/cilium-gateway-api`,
+`cilium_gateway_api_enabled`, `embedded_registry_mirror`, endpoint outputs,
+OpenTofu/null-resource gates, and the large-scale Tailscale examples must all
+match `variables.tf`, `locals.tf`, `kube.tf.example`, and `docs/llms.md`.
 
 ### Release Notes Template
 
@@ -370,6 +387,10 @@ Files that may need version updates:
 - [ ] Version badges updated (if needed)
 - [ ] `docs/terraform.md` regenerated
 - [ ] Project skills checked for stale v2 names
+- [ ] Tailscale node-transport README/example/skill guidance matches variables.tf
+- [ ] v3 topology chooser, Cilium Gateway API, embedded registry mirror, and endpoint outputs are documented
+- [ ] `uv run scripts/validate_v3_final_polish_examples.py` passed
+- [ ] `uv run scripts/smoke_v3_plan_matrix.py` passed for Gateway API, registry mirror, and Tailscale multinetwork constraints
 - [ ] Terraform and OpenTofu validation passed
 - [ ] Release notes drafted
 - [ ] Changes committed and pushed

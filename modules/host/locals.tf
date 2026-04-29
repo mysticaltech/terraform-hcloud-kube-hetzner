@@ -37,10 +37,12 @@ locals {
       : null
     )
   )
+  suffix_connection_host = trimspace(var.connection_host_suffix) != "" ? "${local.name}.${trim(trimspace(var.connection_host_suffix), ".")}" : null
 
   provisioner_connection_host = coalesce(
     trimspace(var.connection_host) != "" ? trimspace(var.connection_host) : null,
     local.map_connection_host,
+    local.suffix_connection_host,
     local.default_connection_host
   )
 }

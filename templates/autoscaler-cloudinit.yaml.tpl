@@ -214,6 +214,11 @@ ${cloudinit_runcmd_common}
   fi
 %{endif~}
 
+%{if tailscale_bootstrap_script != ""~}
+- |
+${indent(2, tailscale_bootstrap_script)}
+%{endif~}
+
 %{if swap_size != ""~}
 - |
   btrfs subvolume create /var/lib/swap 2>/dev/null || true

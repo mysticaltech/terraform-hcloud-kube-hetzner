@@ -1,8 +1,14 @@
 # External Tailscale Overlay Pattern for v3
 
-This example keeps Tailscale outside of `kube-hetzner` core logic and uses
-generic kube-hetzner inputs. Tailscale is supported as a blessed external
-overlay pattern, not as a provider-specific `enable_tailscale` switch.
+This example keeps Tailscale outside of `kube-hetzner` core node-transport
+logic and uses generic kube-hetzner inputs. Use this pattern for operator
+access, custom kube API endpoints, or post-bootstrap Tailscale Kubernetes
+Operator features that you own outside the module.
+
+For official Tailscale cluster node transport, whether for secure single-network
+access or for multiple Hetzner Networks, use `node_transport_mode = "tailscale"`
+instead and start from
+[`../tailscale-node-transport/README.md`](../tailscale-node-transport/README.md).
 
 ## Goals
 
@@ -15,11 +21,12 @@ overlay pattern, not as a provider-specific `enable_tailscale` switch.
 
 ## Boundary
 
-kube-hetzner does not manage your tailnet, ACLs, auth keys, MagicDNS, route
-approvals, subnet routers, Tailscale Services, or Tailscale Kubernetes
-Operator installation. Tailscale is supported as an external operator-access
-overlay, not as the cluster CNI. The v3 Cilium public-overlay multinetwork path
-is still an experimental preview, not a production-supported scale fabric.
+kube-hetzner's managed Tailscale surface is deliberately narrow:
+`node_transport_mode = "tailscale"` handles Kubernetes node transport. This
+external-overlay pattern does not. Here, kube-hetzner does not manage your
+tailnet, ACLs, auth keys, MagicDNS, route approvals, subnet routers, Tailscale
+Services, or Tailscale Kubernetes Operator installation. Tailscale is not the
+cluster CNI.
 
 Avoid putting long-lived Tailscale auth keys directly in Terraform strings.
 `preinstall_exec` commands and server user-data can appear in Terraform/provider

@@ -154,8 +154,27 @@ terraform show -json v3-upgrade.tfplan \
   `enable_experimental_cilium_public_overlay = true`, and
   `cni_plugin = "cilium"`; do not recommend it for production upgrades until the
   live datapath E2E passes.
+- Tailscale node transport is the supported secure Tailnet access and private
+  multinetwork path in v3. Use `node_transport_mode = "tailscale"` for
+  single-network API/SSH hardening or Flannel-first multinetwork scale, but
+  introduce large multinetwork scale in a separate audited plan after the base
+  v2-to-v3 upgrade unless the operator is intentionally doing a blue/green
+  migration.
+- Tailscale mode keeps Kubernetes node IPs on Hetzner private addresses and
+  can advertise node-private `/32` routes with Tailscale subnet-route SNAT
+  disabled. Single-network clusters may disable route advertisement; external
+  `network_id` nodepools require route advertisement and Tailnet auto-approval.
 - External agent/autoscaler Network IDs must be positive Hetzner Network IDs.
   Omit/null means the primary Network.
+- Do not add new optional v3 features such as `cilium_gateway_api_enabled`,
+  `embedded_registry_mirror`, or new Tailscale multinetwork shards during the
+  same first in-place v2-to-v3 apply unless the operator explicitly accepts a
+  blue/green/topology-change migration. Upgrade cleanly first, then add those
+  features in a separate reviewed plan.
+- If adding Cilium Gateway API after migration, require `cni_plugin = "cilium"`
+  and `enable_kube_proxy = false`.
+- If adding embedded registry mirror after migration, warn that nodes are
+  equal-trust registry peers and critical images should use digests.
 
 ### 7. Report
 

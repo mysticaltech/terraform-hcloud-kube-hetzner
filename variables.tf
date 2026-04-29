@@ -321,6 +321,14 @@ variable "multinetwork_mode" {
     error_message = "multinetwork_mode=\"cilium_public_overlay\" requires public Hetzner Load Balancers for managed ingress controllers. Set load_balancer_enable_public_network=true, use a custom/no ingress controller, or use Klipper/MetalLB."
   }
 
+  validation {
+    condition = (
+      var.multinetwork_mode == "disabled" ||
+      var.node_transport_mode != "tailscale"
+    )
+    error_message = "node_transport_mode=\"tailscale\" is an alternative cross-network transport and must be used with multinetwork_mode=\"disabled\"."
+  }
+
 }
 
 variable "enable_experimental_cilium_public_overlay" {
@@ -431,6 +439,286 @@ variable "multinetwork_cilium_peer_ipv6_cidrs" {
     ])
     error_message = "multinetwork_cilium_peer_ipv6_cidrs must contain valid IPv6 CIDR blocks."
   }
+}
+
+variable "node_transport_mode" {
+  description = "Kubernetes node transport mode. \"hetzner_private\" keeps the classic Hetzner private Network transport. \"tailscale\" makes Tailscale the official node transport and secure Tailnet access path for single-network hardening and supported large-cluster multinetwork topologies."
+  type        = string
+  default     = "hetzner_private"
+
+  validation {
+    condition     = contains(["hetzner_private", "tailscale"], var.node_transport_mode)
+    error_message = "node_transport_mode must be either \"hetzner_private\" or \"tailscale\"."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      trimspace(var.tailscale_node_transport.magicdns_domain != null ? var.tailscale_node_transport.magicdns_domain : "") != ""
+    )
+    error_message = "node_transport_mode=\"tailscale\" requires tailscale_node_transport.magicdns_domain so the module can build deterministic Tailnet endpoints."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.auth.mode == "external" ||
+      (
+        var.tailscale_node_transport.auth.mode == "auth_key" &&
+        (
+          (
+            var.tailscale_auth_key != null &&
+            trimspace(var.tailscale_auth_key) != ""
+          ) ||
+          (
+            var.tailscale_control_plane_auth_key != null &&
+            trimspace(var.tailscale_control_plane_auth_key) != "" &&
+            var.tailscale_agent_auth_key != null &&
+            trimspace(var.tailscale_agent_auth_key) != ""
+          )
+        )
+      ) ||
+      (
+        var.tailscale_node_transport.auth.mode == "oauth_client_secret" &&
+        var.tailscale_oauth_client_secret != null &&
+        trimspace(var.tailscale_oauth_client_secret) != ""
+      )
+    )
+    error_message = "node_transport_mode=\"tailscale\" requires tailscale_auth_key or per-role Tailscale auth keys when auth.mode=\"auth_key\", tailscale_oauth_client_secret when auth.mode=\"oauth_client_secret\", or auth.mode=\"external\"."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.kubernetes_distribution == "k3s" ||
+      (
+        var.kubernetes_distribution == "rke2" &&
+        var.cni_plugin == "cilium" &&
+        var.tailscale_node_transport.enable_experimental_rke2 &&
+        var.tailscale_node_transport.enable_experimental_cilium
+      )
+    )
+    error_message = "Tailscale node transport is release-supported for k3s first. RKE2 requires cni_plugin=\"cilium\" plus tailscale_node_transport.enable_experimental_rke2=true and enable_experimental_cilium=true until live validation promotes it."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.cni_plugin == "flannel" ||
+      (
+        var.cni_plugin == "cilium" &&
+        var.tailscale_node_transport.enable_experimental_cilium
+      )
+    )
+    error_message = "Tailscale node transport supports cni_plugin=\"flannel\" first. Cilium requires tailscale_node_transport.enable_experimental_cilium=true until the Cilium/Tailscale datapath is live-proven. Calico is not supported yet."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.cni_plugin != "flannel" ||
+      coalesce(var.flannel_backend, "vxlan") != "host-gw"
+    )
+    error_message = "Tailscale node transport cannot use flannel_backend=\"host-gw\" because Tailscale is not a shared L2 network. Use VXLAN or wireguard-native."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      length(local.validation_tailnet_ipv4_cidr_starts_inside) == 0 &&
+      length(local.validation_tailnet_ipv6_cidr_starts_inside) == 0
+    )
+    error_message = "Tailscale node transport cannot use cluster, service, or Hetzner network CIDRs that start inside Tailscale's reserved 100.64.0.0/10 or fd7a:115c:a1e0::/48 ranges."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.firewall_kube_api_source == null ||
+      (
+        !contains(var.firewall_kube_api_source, "0.0.0.0/0") &&
+        !contains(var.firewall_kube_api_source, "::/0")
+      )
+    )
+    error_message = "node_transport_mode=\"tailscale\" must not leave the Kubernetes API open to the internet. Set firewall_kube_api_source=null to close public API access or restrict it to explicit CIDRs."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.firewall_ssh_source == null ||
+      (
+        !contains(var.firewall_ssh_source, "0.0.0.0/0") &&
+        !contains(var.firewall_ssh_source, "::/0")
+      )
+    )
+    error_message = "node_transport_mode=\"tailscale\" must not leave public SSH open to the internet. Set firewall_ssh_source=null for cloud-init/tailnet SSH paths or restrict it to explicit CIDRs for remote-exec bootstrap."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      !var.enable_control_plane_load_balancer ||
+      !var.control_plane_load_balancer_enable_public_network
+    )
+    error_message = "node_transport_mode=\"tailscale\" supports the module-managed control-plane Load Balancer only with control_plane_load_balancer_enable_public_network=false. Keep the Kubernetes API on the Tailnet/private network or use an explicit external endpoint you secure outside kube-hetzner."
+  }
+}
+
+variable "tailscale_node_transport" {
+  description = "Configuration for node_transport_mode=\"tailscale\". Tailscale is used as secure node transport and Tailnet access. In multinetwork topologies it advertises node-private routes; it is not a CNI and does not manage pod networking by itself."
+  type = object({
+    bootstrap_mode  = optional(string, "remote_exec")
+    version         = optional(string, "latest")
+    magicdns_domain = optional(string, null)
+    hostname_mode   = optional(string, "node_name")
+
+    auth = optional(object({
+      mode                         = optional(string, "auth_key")
+      advertise_tags_control_plane = optional(list(string), [])
+      advertise_tags_agent         = optional(list(string), [])
+      advertise_tags_autoscaler    = optional(list(string), [])
+      oauth_static_nodes_ephemeral = optional(bool, false)
+      oauth_autoscaler_ephemeral   = optional(bool, true)
+      oauth_preauthorized          = optional(bool, true)
+    }), {})
+
+    ssh = optional(object({
+      use_tailnet_for_terraform = optional(bool, true)
+      enable_tailscale_ssh      = optional(bool, false)
+    }), {})
+
+    routing = optional(object({
+      advertise_node_private_routes = optional(bool, true)
+      advertise_additional_routes   = optional(list(string), [])
+    }), {})
+
+    kubernetes = optional(object({
+      cni_mtu             = optional(number, 1280)
+      kubeconfig_endpoint = optional(string, "first_control_plane_tailnet")
+    }), {})
+
+    enable_experimental_cilium = optional(bool, false)
+    enable_experimental_rke2   = optional(bool, false)
+  })
+  default = {}
+
+  validation {
+    condition     = contains(["remote_exec", "cloud_init", "external"], var.tailscale_node_transport.bootstrap_mode)
+    error_message = "tailscale_node_transport.bootstrap_mode must be one of: remote_exec, cloud_init, external."
+  }
+
+  validation {
+    condition     = var.tailscale_node_transport.version == "latest" || can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.tailscale_node_transport.version))
+    error_message = "tailscale_node_transport.version must be \"latest\" or a concrete Tailscale version such as \"1.96.4\"."
+  }
+
+  validation {
+    condition     = contains(["auth_key", "oauth_client_secret", "external"], var.tailscale_node_transport.auth.mode)
+    error_message = "tailscale_node_transport.auth.mode must be one of: auth_key, oauth_client_secret, external."
+  }
+
+  validation {
+    condition = (
+      var.tailscale_node_transport.auth.mode != "oauth_client_secret" ||
+      (
+        length(var.tailscale_node_transport.auth.advertise_tags_control_plane) > 0 &&
+        length(var.tailscale_node_transport.auth.advertise_tags_agent) > 0 &&
+        length(var.tailscale_node_transport.auth.advertise_tags_autoscaler) > 0
+      )
+    )
+    error_message = "tailscale_node_transport.auth.mode=\"oauth_client_secret\" requires advertise_tags_control_plane, advertise_tags_agent, and advertise_tags_autoscaler because Tailscale OAuth auth keys must be tag-scoped."
+  }
+
+  validation {
+    condition = (
+      var.tailscale_node_transport.auth.mode == "oauth_client_secret" ||
+      (
+        var.tailscale_node_transport.auth.oauth_static_nodes_ephemeral == false &&
+        var.tailscale_node_transport.auth.oauth_autoscaler_ephemeral == true &&
+        var.tailscale_node_transport.auth.oauth_preauthorized == true
+      )
+    )
+    error_message = "tailscale_node_transport.auth.oauth_* settings only apply when auth.mode=\"oauth_client_secret\". For auth_key mode, choose ephemeral/preapproved behavior when generating the Tailscale auth key."
+  }
+
+  validation {
+    condition = alltrue([
+      for tag in concat(
+        var.tailscale_node_transport.auth.advertise_tags_control_plane,
+        var.tailscale_node_transport.auth.advertise_tags_agent,
+        var.tailscale_node_transport.auth.advertise_tags_autoscaler
+      ) :
+      can(regex("^tag:[A-Za-z0-9][A-Za-z0-9_-]*$", tag))
+    ])
+    error_message = "Tailscale advertise tags must start with tag: and contain only letters, numbers, underscores, or dashes after the prefix."
+  }
+
+  validation {
+    condition     = contains(["node_name"], var.tailscale_node_transport.hostname_mode)
+    error_message = "tailscale_node_transport.hostname_mode currently supports only \"node_name\"."
+  }
+
+  validation {
+    condition     = var.tailscale_node_transport.kubernetes.cni_mtu >= 1180 && var.tailscale_node_transport.kubernetes.cni_mtu <= 1400 && floor(var.tailscale_node_transport.kubernetes.cni_mtu) == var.tailscale_node_transport.kubernetes.cni_mtu
+    error_message = "tailscale_node_transport.kubernetes.cni_mtu must be an integer between 1180 and 1400."
+  }
+
+  validation {
+    condition     = contains(["first_control_plane_tailnet", "explicit"], var.tailscale_node_transport.kubernetes.kubeconfig_endpoint)
+    error_message = "tailscale_node_transport.kubernetes.kubeconfig_endpoint must be either \"first_control_plane_tailnet\" or \"explicit\"."
+  }
+
+  validation {
+    condition = (
+      var.tailscale_node_transport.kubernetes.kubeconfig_endpoint != "explicit" ||
+      trimspace(var.kubeconfig_server_address) != ""
+    )
+    error_message = "tailscale_node_transport.kubernetes.kubeconfig_endpoint=\"explicit\" requires kubeconfig_server_address."
+  }
+
+  validation {
+    condition = alltrue([
+      for cidr in var.tailscale_node_transport.routing.advertise_additional_routes :
+      can(cidrhost(cidr, 0))
+    ])
+    error_message = "tailscale_node_transport.routing.advertise_additional_routes must contain valid CIDR blocks."
+  }
+}
+
+variable "tailscale_auth_key" {
+  description = "Sensitive default Tailscale auth key used when node_transport_mode=\"tailscale\" and tailscale_node_transport.auth.mode=\"auth_key\". Role-specific keys override it. If this key is used by more than one node it must be reusable; single-use keys only register the first node. In cloud_init mode this is rendered into hcloud user_data and, for autoscaler nodes, a Kubernetes Secret."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "tailscale_control_plane_auth_key" {
+  description = "Optional control-plane-specific Tailscale auth key. Use this when static control-plane nodes need a different Tailscale key policy than agents or autoscaler-created nodes. It must be reusable if it is shared by multiple control-plane nodes."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "tailscale_agent_auth_key" {
+  description = "Optional static-agent-specific Tailscale auth key. Use this when static agents need a different Tailscale key policy than control planes or autoscaler-created nodes. It must be reusable if it is shared by multiple static agents."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "tailscale_autoscaler_auth_key" {
+  description = "Optional autoscaler-specific Tailscale auth key. Prefer a reusable, pre-approved, tagged, ephemeral key for autoscaler nodes so deleted machines do not linger in the tailnet."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "tailscale_oauth_client_secret" {
+  description = "Sensitive Tailscale OAuth client secret used when node_transport_mode=\"tailscale\" and tailscale_node_transport.auth.mode=\"oauth_client_secret\". The module appends role-specific OAuth auth-key parameters for static and autoscaler nodes. In cloud_init mode this is rendered into hcloud user_data and, for autoscaler nodes, a Kubernetes Secret."
+  type        = string
+  default     = null
+  sensitive   = true
 }
 
 variable "network_ipv4_cidr" {
@@ -627,7 +915,7 @@ variable "kubernetes_api_port" {
 
 
 variable "nat_router" {
-  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires enable_control_plane_load_balancer=true when enabled. Automatically forwards kubernetes_api_port to the control plane LB when control_plane_load_balancer_enable_public_network=false. extra_runcmd commands run as root after NAT router cloud-init completes and rerun when the command list changes."
+  description = "Do you want to pipe all egress through a single nat router which is to be constructed? Note: Requires enable_control_plane_load_balancer=true unless node_transport_mode=\"tailscale\" provides the API/kubeconfig path through the tailnet. Automatically forwards kubernetes_api_port to the control plane LB when control_plane_load_balancer_enable_public_network=false. extra_runcmd commands run as root after NAT router cloud-init completes and rerun when the command list changes."
   nullable    = true
   default     = null
   type = object({
@@ -646,8 +934,19 @@ variable "nat_router" {
   }
 
   validation {
-    condition     = var.nat_router == null || var.enable_control_plane_load_balancer
-    error_message = "When nat_router is enabled, enable_control_plane_load_balancer must be set to true."
+    condition     = var.nat_router == null || var.enable_control_plane_load_balancer || var.node_transport_mode == "tailscale"
+    error_message = "When nat_router is enabled, enable_control_plane_load_balancer must be set to true unless node_transport_mode=\"tailscale\" provides the API/kubeconfig path through the tailnet."
+  }
+
+  validation {
+    condition = (
+      var.nat_router == null ||
+      var.node_transport_mode != "tailscale" ||
+      var.ingress_controller == "none" ||
+      var.ingress_controller == "custom" ||
+      var.enable_klipper_metal_lb
+    )
+    error_message = "nat_router with node_transport_mode=\"tailscale\" makes Terraform-managed nodes private-only. Use Klipper/MetalLB, ingress_controller=\"custom\"/\"none\", or an external load balancer instead of managed Hetzner ingress."
   }
 }
 
@@ -1217,6 +1516,28 @@ variable "control_plane_nodepools" {
   }
 
   validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.bootstrap_mode == "external" ||
+      alltrue(flatten([
+        for control_plane_nodepool in var.control_plane_nodepools : concat(
+          [
+            for _ in range(max(0, floor(coalesce(control_plane_nodepool.count, 0)))) :
+            var.nat_router != null || control_plane_nodepool.enable_public_ipv4 || control_plane_nodepool.enable_public_ipv6
+          ],
+          [
+            for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+            var.nat_router != null ||
+            coalesce(control_plane_node.enable_public_ipv4, control_plane_nodepool.enable_public_ipv4) ||
+            coalesce(control_plane_node.enable_public_ipv6, control_plane_nodepool.enable_public_ipv6)
+          ]
+        )
+      ]))
+    )
+    error_message = "Managed Tailscale bootstrap requires every control-plane node to have internet egress via public IPv4, public IPv6, or nat_router. Use tailscale_node_transport.bootstrap_mode=\"external\" only when your own bootstrap handles this."
+  }
+
+  validation {
     condition = alltrue([
       for control_plane_nodepool in var.control_plane_nodepools :
       (
@@ -1457,9 +1778,54 @@ variable "agent_nodepools" {
   }
 
   validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.routing.advertise_node_private_routes ||
+      alltrue(flatten([
+        for agent_nodepool in var.agent_nodepools : concat(
+          [
+            agent_nodepool.count == null ||
+            agent_nodepool.count <= 0 ||
+            coalesce(agent_nodepool.network_id, 0) == 0
+          ],
+          [
+            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+            coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
+          ]
+        )
+      ]))
+    )
+    error_message = "tailscale_node_transport.routing.advertise_node_private_routes can be false only when all static agent nodepools stay on the primary Hetzner Network. External agent network_id values need approved node-private routes for cross-network Kubernetes traffic."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.ingress_controller == "none" ||
+      var.ingress_controller == "custom" ||
+      var.enable_klipper_metal_lb ||
+      var.load_balancer_enable_public_network ||
+      alltrue(flatten([
+        for agent_nodepool in var.agent_nodepools : concat(
+          [
+            agent_nodepool.count == null ||
+            agent_nodepool.count <= 0 ||
+            coalesce(agent_nodepool.network_id, 0) == 0
+          ],
+          [
+            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+            coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
+          ]
+        )
+      ]))
+    )
+    error_message = "Tailscale node transport does not make Hetzner private Load Balancers span external static agent Networks. With external agent network_id values, managed Hetzner ingress needs public Load Balancers and public node targets; otherwise use Klipper/MetalLB, ingress_controller=\"custom\"/\"none\", or an external load balancer."
+  }
+
+  validation {
     condition = 1 + length(distinct(concat(
       var.extra_network_ids,
-      var.multinetwork_mode == "cilium_public_overlay" ? [] : flatten([
+      (var.multinetwork_mode == "cilium_public_overlay" || var.node_transport_mode == "tailscale") ? [] : flatten([
         for agent_nodepool in var.agent_nodepools : concat(
           coalesce(agent_nodepool.network_id, 0) == 0 ? [] : [coalesce(agent_nodepool.network_id, 0)],
           [
@@ -1470,7 +1836,7 @@ variable "agent_nodepools" {
         )
       ])
     ))) <= 3
-    error_message = "Control planes can attach to at most 3 Networks. Reduce extra_network_ids or use multinetwork_mode=\"cilium_public_overlay\" so control planes do not fan out to every external agent Network."
+    error_message = "Control planes can attach to at most 3 Networks. Reduce extra_network_ids or use multinetwork_mode=\"cilium_public_overlay\" or node_transport_mode=\"tailscale\" so control planes do not fan out to every external agent Network."
   }
 
   validation {
@@ -1488,9 +1854,10 @@ variable "agent_nodepools" {
         ])
       ))) <= 1 ||
       var.control_plane_endpoint != null ||
-      var.multinetwork_mode == "cilium_public_overlay"
+      var.multinetwork_mode == "cilium_public_overlay" ||
+      var.node_transport_mode == "tailscale"
     )
-    error_message = "When using multiple primary private networks, set control_plane_endpoint or enable multinetwork_mode=\"cilium_public_overlay\". The module-managed Hetzner control-plane load balancer is not treated as a cross-network public join endpoint."
+    error_message = "When using multiple primary private networks, set control_plane_endpoint, enable multinetwork_mode=\"cilium_public_overlay\", or use node_transport_mode=\"tailscale\". The module-managed Hetzner control-plane load balancer is not treated as a cross-network public join endpoint."
   }
 
   validation {
@@ -1523,6 +1890,22 @@ variable "agent_nodepools" {
   }
 
   validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.nat_router == null ||
+      alltrue([
+        for agent_nodepool in var.agent_nodepools :
+        coalesce(agent_nodepool.network_id, 0) == 0 &&
+        alltrue([
+          for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+          coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
+        ])
+      ])
+    )
+    error_message = "node_transport_mode=\"tailscale\" can combine with nat_router only when all static agent nodes are on the primary Hetzner Network. The module NAT router does not provide egress for external Hetzner Networks."
+  }
+
+  validation {
     condition = alltrue([
       for agent_nodepool in var.agent_nodepools :
       (agent_nodepool.primary_ipv4_id == null || (agent_nodepool.enable_public_ipv4 && agent_nodepool.primary_ipv4_id > 0)) &&
@@ -1539,6 +1922,34 @@ variable "agent_nodepools" {
       ])
     ])
     error_message = "primary_ipv4_id/primary_ipv6_id values must be positive and require the matching public IP family to be enabled."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.bootstrap_mode == "external" ||
+      alltrue(flatten([
+        for agent_nodepool in var.agent_nodepools : concat(
+          [
+            for _ in range(max(0, floor(coalesce(agent_nodepool.count, 0)))) :
+            (
+              coalesce(agent_nodepool.network_id, 0) == 0 &&
+              var.nat_router != null
+            ) || agent_nodepool.enable_public_ipv4 || agent_nodepool.enable_public_ipv6
+          ],
+          [
+            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+            (
+              coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0 &&
+              var.nat_router != null
+            ) ||
+            coalesce(agent_node.enable_public_ipv4, agent_nodepool.enable_public_ipv4) ||
+            coalesce(agent_node.enable_public_ipv6, agent_nodepool.enable_public_ipv6)
+          ]
+        )
+      ]))
+    )
+    error_message = "Managed Tailscale bootstrap requires every static agent node to have internet egress via public IPv4, public IPv6, or a nat_router on the primary Hetzner Network. External-network nodes need their own public egress unless tailscale_node_transport.bootstrap_mode=\"external\" handles bootstrap outside the module."
   }
 
   validation {
@@ -1835,6 +2246,32 @@ variable "autoscaler_nodepools" {
 
   validation {
     condition = (
+      var.node_transport_mode != "tailscale" ||
+      length(var.autoscaler_nodepools) == 0 ||
+      var.tailscale_node_transport.bootstrap_mode == "cloud_init"
+    )
+    error_message = "Tailscale node transport with autoscaler_nodepools requires tailscale_node_transport.bootstrap_mode=\"cloud_init\" because autoscaler-created nodes cannot be configured by Terraform remote-exec before joining."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.auth.mode != "auth_key" ||
+      length(var.autoscaler_nodepools) == 0 ||
+      (
+        var.tailscale_autoscaler_auth_key != null &&
+        trimspace(var.tailscale_autoscaler_auth_key) != ""
+      ) ||
+      (
+        var.tailscale_auth_key != null &&
+        trimspace(var.tailscale_auth_key) != ""
+      )
+    )
+    error_message = "Tailscale node transport with autoscaler_nodepools and auth.mode=\"auth_key\" requires tailscale_autoscaler_auth_key or a shared tailscale_auth_key. Prefer an ephemeral, reusable, pre-approved autoscaler key."
+  }
+
+  validation {
+    condition = (
       length(compact([
         for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.os
       ])) == 0 ||
@@ -1918,6 +2355,35 @@ variable "autoscaler_nodepools" {
   }
 
   validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.routing.advertise_node_private_routes ||
+      alltrue([
+        for autoscaler_nodepool in var.autoscaler_nodepools :
+        autoscaler_nodepool.max_nodes <= 0 ||
+        coalesce(autoscaler_nodepool.network_id, 0) == 0
+      ])
+    )
+    error_message = "tailscale_node_transport.routing.advertise_node_private_routes can be false only when all autoscaler nodepools stay on the primary Hetzner Network. External autoscaler network_id values need approved node-private routes for cross-network Kubernetes traffic."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.ingress_controller == "none" ||
+      var.ingress_controller == "custom" ||
+      var.enable_klipper_metal_lb ||
+      var.load_balancer_enable_public_network ||
+      alltrue([
+        for autoscaler_nodepool in var.autoscaler_nodepools :
+        autoscaler_nodepool.max_nodes <= 0 ||
+        coalesce(autoscaler_nodepool.network_id, 0) == 0
+      ])
+    )
+    error_message = "Tailscale node transport does not make Hetzner private Load Balancers span external autoscaler Networks. With external autoscaler network_id values, managed Hetzner ingress needs public Load Balancers and public node targets; otherwise use Klipper/MetalLB, ingress_controller=\"custom\"/\"none\", or an external load balancer."
+  }
+
+  validation {
     condition = alltrue([
       for autoscaler_nodepool in var.autoscaler_nodepools :
       autoscaler_nodepool.subnet_ip_range == null || (
@@ -1953,6 +2419,7 @@ variable "autoscaler_nodepools" {
     condition = (
       length(var.autoscaler_nodepools) == 0 ||
       var.multinetwork_mode == "cilium_public_overlay" ||
+      var.node_transport_mode == "tailscale" ||
       length(distinct(concat(
         [0],
         [for autoscaler_nodepool in var.autoscaler_nodepools : coalesce(autoscaler_nodepool.network_id, 0)],
@@ -1967,7 +2434,19 @@ variable "autoscaler_nodepools" {
         ])
       ))) <= 1
     )
-    error_message = "Cluster autoscaler across multiple Hetzner Networks requires multinetwork_mode=\"cilium_public_overlay\" so the module can render one autoscaler Deployment per Network."
+    error_message = "Cluster autoscaler across multiple Hetzner Networks requires multinetwork_mode=\"cilium_public_overlay\" or node_transport_mode=\"tailscale\" so autoscaled nodes have a cross-network join path."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.nat_router == null ||
+      alltrue([
+        for autoscaler_nodepool in var.autoscaler_nodepools :
+        coalesce(autoscaler_nodepool.network_id, 0) == 0
+      ])
+    )
+    error_message = "node_transport_mode=\"tailscale\" can combine with nat_router only when all autoscaler nodepools are on the primary Hetzner Network. The module NAT router does not provide egress for external Hetzner Networks."
   }
 }
 
@@ -1985,6 +2464,24 @@ variable "autoscaler_enable_public_ipv6" {
   validation {
     condition     = var.autoscaler_enable_public_ipv4 || var.autoscaler_enable_public_ipv6 || var.nat_router != null || var.optional_bastion_host != null || var.control_plane_endpoint != null || var.enable_control_plane_load_balancer
     error_message = "Disabling both public IPv4 and IPv6 on autoscaler nodes requires a configured private access/join path such as nat_router, optional_bastion_host, control_plane_endpoint, or enable_control_plane_load_balancer."
+  }
+
+  validation {
+    condition = (
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.bootstrap_mode == "external" ||
+      length(var.autoscaler_nodepools) == 0 ||
+      alltrue([
+        for autoscaler_nodepool in var.autoscaler_nodepools :
+        (
+          coalesce(autoscaler_nodepool.network_id, 0) == 0 &&
+          var.nat_router != null
+        ) ||
+        var.autoscaler_enable_public_ipv4 ||
+        var.autoscaler_enable_public_ipv6
+      ])
+    )
+    error_message = "Managed Tailscale bootstrap requires autoscaler-created nodes to have internet egress via public IPv4, public IPv6, or a nat_router on the primary Hetzner Network. External-network autoscaler nodepools need public egress unless tailscale_node_transport.bootstrap_mode=\"external\" handles bootstrap outside the module."
   }
 }
 
@@ -2122,6 +2619,11 @@ variable "traefik_provider_kubernetes_gateway_enabled" {
   type        = bool
   default     = false
   description = "Should traefik enable the kubernetes gateway provider. Default is false."
+
+  validation {
+    condition     = !var.traefik_provider_kubernetes_gateway_enabled || var.ingress_controller == "traefik"
+    error_message = "traefik_provider_kubernetes_gateway_enabled requires ingress_controller = \"traefik\"."
+  }
 }
 
 variable "traefik_resource_limits" {
@@ -2381,8 +2883,8 @@ variable "system_upgrade_schedule_window" {
   validation {
     condition = var.system_upgrade_schedule_window == null ? true : (
       length(try(var.system_upgrade_schedule_window.days, [])) > 0 ||
-      coalesce(try(var.system_upgrade_schedule_window.startTime, ""), "") != "" ||
-      coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "") != ""
+      (try(var.system_upgrade_schedule_window.startTime, null) != null ? try(var.system_upgrade_schedule_window.startTime, "") : "") != "" ||
+      (try(var.system_upgrade_schedule_window.endTime, null) != null ? try(var.system_upgrade_schedule_window.endTime, "") : "") != ""
     )
     error_message = "system_upgrade_schedule_window must have at least one of 'days', 'startTime', or 'endTime' set when not null."
   }
@@ -2398,8 +2900,8 @@ variable "system_upgrade_schedule_window" {
   validation {
     condition = var.system_upgrade_schedule_window == null ? true : alltrue([
       for time_value in [
-        coalesce(try(var.system_upgrade_schedule_window.startTime, ""), ""),
-        coalesce(try(var.system_upgrade_schedule_window.endTime, ""), "")
+        try(var.system_upgrade_schedule_window.startTime, null) != null ? try(var.system_upgrade_schedule_window.startTime, "") : "",
+        try(var.system_upgrade_schedule_window.endTime, null) != null ? try(var.system_upgrade_schedule_window.endTime, "") : ""
       ] :
       time_value == "" || can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", time_value))
     ])
@@ -2408,8 +2910,8 @@ variable "system_upgrade_schedule_window" {
 
   validation {
     condition = var.system_upgrade_schedule_window == null ? true : (
-      coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "") == "" ||
-      can(regex("^[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)*$", coalesce(try(var.system_upgrade_schedule_window.timeZone, ""), "")))
+      (try(var.system_upgrade_schedule_window.timeZone, null) != null ? try(var.system_upgrade_schedule_window.timeZone, "") : "") == "" ||
+      can(regex("^[A-Za-z_]+(?:/[A-Za-z0-9_+\\-]+)*$", try(var.system_upgrade_schedule_window.timeZone, null) != null ? try(var.system_upgrade_schedule_window.timeZone, "") : ""))
     )
     error_message = "system_upgrade_schedule_window.timeZone must be a valid IANA timezone name (for example, UTC or Europe/Budapest)."
   }
@@ -2531,7 +3033,7 @@ variable "base_domain" {
 variable "enable_placement_groups" {
   type        = bool
   default     = true
-  description = "Whether to enable Hetzner spread placement groups."
+  description = "Whether to enable Hetzner spread placement groups. Hetzner spread groups support at most 10 servers per group and 50 placement groups per project; count-based static nodepools without an explicit placement_group are auto-sharded every 10 servers."
 
   validation {
     condition = !var.enable_placement_groups || alltrue([
@@ -2553,6 +3055,11 @@ variable "enable_placement_groups" {
       ]) <= 10
     ])
     error_message = "Each agent Hetzner spread placement group can contain at most 10 servers. Split nodepools across placement_group or placement_group_index values, or disable placement groups."
+  }
+
+  validation {
+    condition     = !var.enable_placement_groups || local.validation_module_created_placement_group_count <= 50
+    error_message = "Hetzner projects support at most 50 placement groups. Reduce static nodepool count, split across projects, use autoscaler nodepools for burst capacity, or set enable_placement_groups=false if you accept no placement-group spread for this cluster."
   }
 }
 
@@ -2603,6 +3110,22 @@ variable "cilium_egress_gateway_ha_enabled" {
   validation {
     condition     = !var.cilium_egress_gateway_ha_enabled || var.cilium_egress_gateway_enabled
     error_message = "cilium_egress_gateway_ha_enabled requires cilium_egress_gateway_enabled = true."
+  }
+}
+
+variable "cilium_gateway_api_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable Cilium's Gateway API controller and install the standard Gateway API CRDs. Requires Cilium with kube-proxy replacement."
+
+  validation {
+    condition     = !var.cilium_gateway_api_enabled || (var.cni_plugin == "cilium" && !var.enable_kube_proxy)
+    error_message = "cilium_gateway_api_enabled requires cni_plugin = \"cilium\" and enable_kube_proxy = false because Cilium Gateway API requires kube-proxy replacement."
+  }
+
+  validation {
+    condition     = !var.cilium_gateway_api_enabled || try(provider::semvers::compare(trimprefix(var.cilium_version, "v"), "1.17.0"), -1) >= 0
+    error_message = "cilium_gateway_api_enabled requires cilium_version to be an exact Cilium semver >= 1.17.0."
   }
 }
 
@@ -2696,7 +3219,7 @@ variable "cilium_merge_values" {
 
 variable "cilium_version" {
   type        = string
-  default     = "1.17.0"
+  default     = "1.19.3"
   description = "Version of Cilium. See https://github.com/cilium/cilium/releases for the available versions."
 }
 
@@ -3150,6 +3673,87 @@ variable "registries_config" {
   validation {
     condition     = trimspace(var.registries_config) == "" || can(yamldecode(var.registries_config))
     error_message = "registries_config must be empty or valid YAML."
+  }
+
+  validation {
+    condition     = trimspace(var.registries_config) == "" || can(keys(yamldecode(var.registries_config)))
+    error_message = "registries_config must decode to a YAML mapping."
+  }
+}
+
+variable "embedded_registry_mirror" {
+  type = object({
+    enabled                  = optional(bool, false)
+    registries               = optional(list(string), ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"])
+    disable_default_endpoint = optional(bool, false)
+  })
+  default = {
+    enabled                  = false
+    registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+    disable_default_endpoint = false
+  }
+  description = "Opt-in k3s/RKE2 embedded distributed registry mirror (Spegel). Adds empty mirror entries for selected registries and enables the embedded-registry server setting."
+
+  validation {
+    condition     = !var.embedded_registry_mirror.enabled || length(var.embedded_registry_mirror.registries) > 0
+    error_message = "embedded_registry_mirror.registries must contain at least one registry when embedded_registry_mirror.enabled = true."
+  }
+
+  validation {
+    condition = alltrue([
+      for registry in var.embedded_registry_mirror.registries :
+      trimspace(registry) == registry && registry != ""
+    ])
+    error_message = "embedded_registry_mirror.registries must not contain empty strings or leading/trailing whitespace."
+  }
+
+  validation {
+    condition = length(distinct([
+      for registry in var.embedded_registry_mirror.registries : lower(registry)
+    ])) == length(var.embedded_registry_mirror.registries)
+    error_message = "embedded_registry_mirror.registries must not contain duplicates."
+  }
+
+  validation {
+    condition = alltrue([
+      for registry in var.embedded_registry_mirror.registries :
+      registry == "*" || can(regex("^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$", registry))
+    ])
+    error_message = "embedded_registry_mirror.registries entries must be registry hostnames, optional host:port values, or the wildcard \"*\"."
+  }
+
+  validation {
+    condition     = var.embedded_registry_mirror.enabled || !var.embedded_registry_mirror.disable_default_endpoint
+    error_message = "embedded_registry_mirror.disable_default_endpoint can be true only when embedded_registry_mirror.enabled = true."
+  }
+
+  validation {
+    condition = (
+      !var.embedded_registry_mirror.enabled ||
+      var.node_transport_mode != "tailscale" ||
+      var.tailscale_node_transport.routing.advertise_node_private_routes ||
+      (
+        alltrue(flatten([
+          for agent_nodepool in var.agent_nodepools : concat(
+            [
+              agent_nodepool.count == null ||
+              agent_nodepool.count <= 0 ||
+              coalesce(agent_nodepool.network_id, 0) == 0
+            ],
+            [
+              for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+              coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
+            ]
+          )
+        ])) &&
+        alltrue([
+          for autoscaler_nodepool in var.autoscaler_nodepools :
+          autoscaler_nodepool.max_nodes <= 0 ||
+          coalesce(autoscaler_nodepool.network_id, 0) == 0
+        ])
+      )
+    )
+    error_message = "embedded_registry_mirror with Tailscale multinetwork nodepools requires tailscale_node_transport.routing.advertise_node_private_routes = true so registry peer traffic can cross Hetzner Network islands."
   }
 }
 

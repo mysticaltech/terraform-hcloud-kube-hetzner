@@ -5,6 +5,11 @@ more than one Hetzner Cloud Network. It is intentionally Cilium-only, but it is
 not production-supported until the live cross-network Cilium datapath test
 passes.
 
+For production private multinetwork scale, prefer
+`node_transport_mode = "tailscale"` and the
+[`../tailscale-node-transport/README.md`](../tailscale-node-transport/README.md)
+example.
+
 ## Boundary
 
 `multinetwork_mode = "cilium_public_overlay"` uses public node addresses for
@@ -28,6 +33,11 @@ enable_control_plane_load_balancer                   = true
 control_plane_load_balancer_enable_public_network    = true
 load_balancer_enable_public_network                  = true
 multinetwork_cilium_peer_ipv4_cidrs                  = ["0.0.0.0/0"] # tighten when possible
+
+# Alternative: set control_plane_endpoint to your own public endpoint instead
+# of using the module-managed public control-plane Load Balancer. The endpoint
+# must be reachable by every external-network node during bootstrap.
+# control_plane_endpoint = "https://api.example.com:6443"
 
 agent_nodepools = [
   {
@@ -73,6 +83,8 @@ autoscaler_nodepools = [
 - `cni_plugin` must be `cilium`.
 - Public node addresses must be enabled for the selected transport family.
 - NAT router mode is rejected.
+- A public join path is required: use either a public control-plane Load
+  Balancer or an explicit `control_plane_endpoint`.
 - Control planes stay on the primary kube-hetzner network.
 - External agent/autoscaler `network_id` values are counted against Hetzner's
   100 attached-resource-per-Network limit.

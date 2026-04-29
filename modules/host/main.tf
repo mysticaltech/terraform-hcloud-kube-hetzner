@@ -68,11 +68,18 @@ resource "hcloud_server" "server" {
     ]
   }
 
+}
+
+resource "terraform_data" "initial_readiness" {
+  triggers_replace = {
+    server_id = hcloud_server.server.id
+  }
+
   connection {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(self.ipv4_address, self.ipv6_address, try(one(self.network).ip, null))
+    host           = local.provisioner_connection_host
     port           = var.ssh_port
 
     bastion_host        = var.ssh_bastion.bastion_host
@@ -122,6 +129,28 @@ resource "hcloud_server" "server" {
       "echo 'System is fully ready!'"
     ]
   }
+}
+
+resource "terraform_data" "os_upgrade_timer" {
+  triggers_replace = {
+    server_id                = hcloud_server.server.id
+    automatically_upgrade_os = tostring(var.automatically_upgrade_os)
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.provisioner_connection_host
+    port           = var.ssh_port
+
+    bastion_host        = var.ssh_bastion.bastion_host
+    bastion_port        = var.ssh_bastion.bastion_port
+    bastion_user        = var.ssh_bastion.bastion_user
+    bastion_private_key = var.ssh_bastion.bastion_private_key
+
+    timeout = "10m"
+  }
 
   provisioner "remote-exec" {
     inline = var.automatically_upgrade_os ? [
@@ -136,6 +165,7 @@ resource "hcloud_server" "server" {
     ]
   }
 
+  depends_on = [terraform_data.initial_readiness]
 }
 
 resource "hcloud_server_network" "extra_networks" {
@@ -187,7 +217,7 @@ resource "terraform_data" "ssh_authorized_keys" {
     ]
   }
 
-  depends_on = [hcloud_server.server]
+  depends_on = [terraform_data.initial_readiness]
 }
 
 resource "terraform_data" "registries" {
@@ -218,7 +248,7 @@ resource "terraform_data" "registries" {
     inline = [var.registries_update_script]
   }
 
-  depends_on = [hcloud_server.server]
+  depends_on = [terraform_data.initial_readiness]
 }
 moved {
   from = null_resource.registries
@@ -254,7 +284,7 @@ resource "terraform_data" "kubelet_config" {
     inline = [var.kubelet_config_update_script]
   }
 
-  depends_on = [hcloud_server.server]
+  depends_on = [terraform_data.initial_readiness]
 }
 moved {
   from = null_resource.kubelet_config
@@ -290,7 +320,7 @@ resource "terraform_data" "audit_policy" {
     inline = [var.audit_policy_update_script]
   }
 
-  depends_on = [hcloud_server.server]
+  depends_on = [terraform_data.initial_readiness]
 }
 moved {
   from = null_resource.audit_policy
@@ -426,7 +456,7 @@ WantedBy=multi-user.target
     ])
   }
 
-  depends_on = [hcloud_server.server]
+  depends_on = [terraform_data.initial_readiness]
 }
 
 moved {
@@ -470,7 +500,7 @@ resource "terraform_data" "os_upgrade_toggle" {
   }
 
   depends_on = [
-    hcloud_server.server,
+    terraform_data.initial_readiness,
     terraform_data.registries
   ]
 }

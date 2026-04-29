@@ -31,19 +31,21 @@ resource "ssh_sensitive_resource" "kubeconfig" {
 }
 
 locals {
-  kubeconfig_server_address = var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : (var.enable_control_plane_load_balancer ?
-    (
-      var.control_plane_load_balancer_enable_public_network ?
-      hcloud_load_balancer.control_plane.*.ipv4[0]
-      : (
-        var.nat_router != null ?
-        hcloud_server.nat_router[0].ipv4_address
-        : hcloud_load_balancer_network.control_plane.*.ip[0]
+  kubeconfig_server_address = var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : (local.node_transport_tailscale_enabled && var.tailscale_node_transport.kubernetes.kubeconfig_endpoint == "first_control_plane_tailnet" ?
+    local.tailscale_first_control_plane_host
+    : (var.enable_control_plane_load_balancer ?
+      (
+        var.control_plane_load_balancer_enable_public_network ?
+        hcloud_load_balancer.control_plane.*.ipv4[0]
+        : (
+          var.nat_router != null ?
+          hcloud_server.nat_router[0].ipv4_address
+          : hcloud_load_balancer_network.control_plane.*.ip[0]
+        )
       )
-    )
-    :
-    (can(local.first_control_plane_ip) ? local.first_control_plane_ip : "unknown")
-  )
+      :
+      (can(local.first_control_plane_ip) ? local.first_control_plane_ip : "unknown")
+  ))
   kubeconfig_server_host = provider::assert::ipv6(local.kubeconfig_server_address) ? "[${local.kubeconfig_server_address}]" : local.kubeconfig_server_address
   kubeconfig_server      = "https://${local.kubeconfig_server_host}:${var.kubernetes_api_port}"
   kubeconfig_external = replace(

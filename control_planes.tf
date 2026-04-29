@@ -42,6 +42,7 @@ module "control_planes" {
   name                         = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}"
   append_random_suffix         = each.value.append_random_suffix
   connection_host              = ""
+  connection_host_suffix       = local.tailscale_pre_terraform_ssh_enabled ? local.tailscale_magicdns_domain : ""
   os_snapshot_id               = try(trimspace(each.value.os_snapshot_id), "") != "" ? trimspace(each.value.os_snapshot_id) : local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                           = each.value.os
   base_domain                  = var.base_domain
@@ -58,7 +59,7 @@ module "control_planes" {
   backups                      = each.value.backups
   ipv4_subnet_id               = hcloud_network_subnet.control_plane[local.use_per_nodepool_subnets ? [for i, v in var.control_plane_nodepools : i if v.name == each.value.nodepool_name][0] : 0].id
   dns_servers                  = var.dns_servers
-  registries_config            = var.registries_config
+  registries_config            = local.registries_config_effective
   registries_update_script     = local.k8s_registries_update_script
   kubelet_config               = var.kubelet_config
   kubelet_config_update_script = local.k8s_kubelet_config_update_script
@@ -67,7 +68,7 @@ module "control_planes" {
   cloudinit_write_files_common = local.cloudinit_write_files_common
   cloudinit_runcmd_common      = local.cloudinit_runcmd_common
   cloudinit_write_files_extra  = each.value.extra_write_files
-  cloudinit_runcmd_extra       = each.value.extra_runcmd
+  cloudinit_runcmd_extra       = concat(local.tailscale_cloud_init_bootstrap_enabled ? [local.tailscale_bootstrap_script_static_control_plane_by_node[each.key]] : [], each.value.extra_runcmd)
   swap_size                    = each.value.swap_size
   zram_size                    = each.value.zram_size
   keep_disk_size               = coalesce(each.value.keep_disk, var.keep_disk_control_plane_nodes)
@@ -319,10 +320,26 @@ locals {
     k => "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${v.nodepool_name}"
   }
 
+  tailscale_control_plane_magicdns_hosts = {
+    for k, v in module.control_planes :
+    k => "${v.name}.${local.tailscale_magicdns_domain}"
+  }
+
+  control_plane_initial_ips = {
+    for k, v in module.control_planes : k => coalesce(
+      lookup(var.node_connection_overrides, v.name, null),
+      lookup(var.node_connection_overrides, local.control_plane_override_base_names[k], null),
+      v.ipv4_address,
+      v.ipv6_address,
+      v.private_ipv4_address
+    )
+  }
+
   control_plane_ips = {
     for k, v in module.control_planes : k => coalesce(
       lookup(var.node_connection_overrides, v.name, null),
       lookup(var.node_connection_overrides, local.control_plane_override_base_names[k], null),
+      local.tailscale_use_tailnet_for_terraform ? local.tailscale_control_plane_magicdns_hosts[k] : null,
       v.ipv4_address,
       v.ipv6_address,
       v.private_ipv4_address
@@ -377,6 +394,8 @@ locals {
       } : lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {
       node-external-ip = local.control_plane_external_ipv4_by_node[k]
     } : {},
+    local.embedded_registry_mirror_server_config,
+    local.disable_default_registry_endpoint_config,
     var.enable_control_plane_load_balancer ? {
       tls-san = concat(
         compact([
@@ -436,6 +455,8 @@ locals {
       flannel-external-ip = true
     } : {},
     lookup(local.cni_k3s_settings, var.cni_plugin, {}),
+    local.embedded_registry_mirror_server_config,
+    local.disable_default_registry_endpoint_config,
     var.enable_control_plane_load_balancer ? {
       tls-san = concat(
         compact([
@@ -505,6 +526,12 @@ resource "terraform_data" "control_plane_config_rke2" {
     ]
   }
 
+  # Gateway API CRDs must exist before Cilium starts when Cilium Gateway API is enabled.
+  provisioner "file" {
+    content     = local.gateway_api_standard_crds_file
+    destination = "/var/lib/rancher/rke2/server/manifests/00-gateway-api-standard-crds.yaml"
+  }
+
   # Upload the CNI install file.
   provisioner "file" {
     content = templatefile(
@@ -528,7 +555,8 @@ resource "terraform_data" "control_plane_config_rke2" {
 
   depends_on = [
     terraform_data.first_control_plane_rke2,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    terraform_data.tailscale_control_planes,
   ]
 }
 moved {
@@ -576,7 +604,8 @@ resource "terraform_data" "control_plane_config" {
 
   depends_on = [
     terraform_data.first_control_plane,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    terraform_data.tailscale_control_planes,
   ]
 }
 moved {

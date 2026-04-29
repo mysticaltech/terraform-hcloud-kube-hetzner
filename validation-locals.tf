@@ -44,6 +44,24 @@ locals {
     (!local.validation_has_external_load_balancer && var.multinetwork_mode != "cilium_public_overlay")
   )
 
+  validation_tailnet_ipv4_candidate_cidrs = compact([
+    var.network_ipv4_cidr,
+    var.cluster_ipv4_cidr,
+    var.service_ipv4_cidr,
+  ])
+  validation_tailnet_ipv6_candidate_cidrs = compact([
+    var.cluster_ipv6_cidr,
+    var.service_ipv6_cidr,
+  ])
+  validation_tailnet_ipv4_cidr_starts_inside = [
+    for cidr in local.validation_tailnet_ipv4_candidate_cidrs : cidr
+    if can(cidrhost(cidr, 0)) && can(regex("^100\\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\\.", cidrhost(cidr, 0)))
+  ]
+  validation_tailnet_ipv6_cidr_starts_inside = [
+    for cidr in local.validation_tailnet_ipv6_candidate_cidrs : cidr
+    if can(cidrhost(cidr, 0)) && can(regex("^fd7a:115c:a1e0:", lower(cidrhost(cidr, 0))))
+  ]
+
   validation_control_plane_locations = concat(
     [
       for nodepool in var.control_plane_nodepools : nodepool.location
@@ -169,6 +187,7 @@ locals {
         contains(var.extra_network_ids, network_id) ||
         (
           var.multinetwork_mode != "cilium_public_overlay" &&
+          var.node_transport_mode != "tailscale" &&
           contains(local.validation_external_agent_network_ids, network_id)
         )
       ) ? local.validation_control_plane_count : 0
@@ -204,7 +223,7 @@ locals {
       ) + (
       network_id == 0 && var.enable_control_plane_load_balancer ? 1 : 0
       ) + (
-      network_id == 0 && !local.validation_has_external_load_balancer && var.multinetwork_mode != "cilium_public_overlay" ? 1 : 0
+      network_id == 0 && !local.validation_has_external_load_balancer && var.multinetwork_mode != "cilium_public_overlay" && var.node_transport_mode != "tailscale" ? 1 : 0
     )
   }
 
@@ -236,4 +255,11 @@ locals {
       ]
     )
   ])
+
+  validation_module_created_placement_group_count = (
+    local.control_plane_placement_compat_groups +
+    length(local.control_plane_groups) +
+    local.agent_placement_compat_groups +
+    length(local.agent_placement_groups)
+  )
 }

@@ -27,6 +27,13 @@ Goals:
 2) Fix root causes in kube-hetzner (not workarounds in test harness) unless explicitly required.
 3) Re-run full matrix after fixes to prove no regressions.
 4) Validate upgrade path from latest git tag to current staging for both k3s and rke2.
+5) When Tailscale credentials are available, include the Tailscale node-transport
+   scenarios: secure single-network Tailnet access, plus Flannel with multiple
+   Hetzner Networks, route auto-approval, autoscaler scale-up/down,
+   `tailscale status`, and cross-network pod traffic.
+6) Include final v3 polish scenarios when touched: Cilium Gateway API with
+   `enable_kube_proxy=false`, embedded registry mirror on k3s or RKE2, endpoint
+   output sanity, and example validation.
 
 Hard requirements:
 - Use /Users/karim/.ssh/id_ed25519 with IdentitiesOnly=yes for all SSH.
@@ -34,6 +41,15 @@ Hard requirements:
 - If RKE2/K3s apply hangs, SSH during apply and inspect journalctl/cloud-init immediately.
 - If destroy hangs, run cleanup and delete stuck autoscaled servers via hcloud.
 - Keep changes minimal and production-safe; run Terraform and OpenTofu validation before each rerun.
+- For Tailscale node transport, verify single-network clusters work without
+  route approval when route advertisement is disabled; for multinetwork, verify
+  node-private routes are approved and SNAT is disabled for advertised routes.
+  Do not mistake external overlay SSH access for supported Kubernetes node
+  transport.
+- For Cilium Gateway API, verify GatewayClass exists, Gateway is accepted, and
+  HTTPRoute serves through the Hetzner LoadBalancer. For embedded registry
+  mirror, verify `registries.yaml`, `embedded-registry: true`, peer ports, and
+  image-pull behavior.
 
 Deliverables:
 - Final scenario matrix results with log paths.

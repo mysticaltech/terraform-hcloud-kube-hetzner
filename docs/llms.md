@@ -11,9 +11,13 @@ Before diving into the specifics of the configuration file, it's crucial to unde
 * **Declarative Configuration:** You *declare* the desired state of your infrastructure, and Terraform, with the help of the module, figures out how to achieve that state.
 * **Idempotency:** Applying the same Terraform configuration multiple times should result in the same state, without unintended side effects (though some module operations might have nuances).
 * **Plan-Time Module Contract:** The module uses Terraform/OpenTofu input validations to reject invalid configurations during `terraform plan`. Pure input invariants belong there: required secrets, supported regions/locations, CIDR syntax and IP-family pairing, nodepool name/count/quorum rules, Hetzner network/subnet/placement-group limits, autoscaler boundaries, Cilium-only feature gates, load balancer dependencies, firewall source formats, Robot/vSwitch/NAT requirements, YAML snippets, audit settings, and attached volume definitions. Provider- or runtime-dependent assertions should remain in preconditions, postconditions, or checks.
-* **Cilium Multinetwork Preview Mode:** `multinetwork_mode = "cilium_public_overlay"` is a lab-only v3 preview for spanning multiple Hetzner Cloud Networks. It requires `enable_experimental_cilium_public_overlay = true`, `cni_plugin = "cilium"`, public node addresses for `multinetwork_transport_ip_family` (`ipv4`, `ipv6`, or `dualstack`), and a public control-plane endpoint or public control-plane load balancer. The module forces Cilium tunnel mode with WireGuard/node encryption, opens Cilium peer ports, disables Hetzner CCM route reconciliation, avoids control-plane fanout to every external agent network, uses public load-balancer targets, and renders one cluster-autoscaler Deployment per effective `network_id`. This path is not production-supported until live cross-network Cilium datapath validation passes. Flannel/Calico private multinetwork scale, private-only multinetwork scale, and Robot/vSwitch route exposure as a Cloud-only scale solution remain unsupported.
-* **Hetzner Limits To Enforce:** Keep each Hetzner Network at or below 100 attached resources, each server at or below 3 attached Networks, and each spread Placement Group at or below 10 servers. Autoscaler `max_nodes`, NAT routers, Terraform-managed load balancers, static nodes, `extra_network_ids`, and external nodepool `network_id` values must be included in validation/counting.
-* **v3 Support Levels:** k3s on Leap Micro is the stable default. RKE2 on Leap Micro, OpenTofu, and Cilium dual-stack are supported. Cilium public-overlay multinetwork is an experimental preview, not a production-supported v3 promise yet. MicroOS is legacy/upgrade support. Tailscale/ZeroTier/WARP are supported external overlay patterns through generic hooks. Robot/vSwitch, private-only, Longhorn-heavy, and existing-network upgrades are advanced/special-case paths that deserve blue/green consideration. Flannel/Calico multinetwork scale is unsupported.
+* **Topology Chooser:** Start with `docs/v3-topology-recommendations.md` when choosing between dev, HA, private-only NAT, single-network Tailscale, +100 Tailscale multinetwork, 10k reference, RKE2, Cilium dual-stack, Cilium Gateway API, Robot/vSwitch, and embedded registry mirror patterns. Do not steer users toward a Talos pivot, a public-network/IP-query-server scale story, or production Cilium public-overlay multinetwork claims.
+* **Tailscale Node Transport:** `node_transport_mode = "tailscale"` is the supported opt-in v3 path for secure single-network clusters and private multinetwork scale-out. It bootstraps Tailscale, uses MagicDNS for Terraform/kubeconfig access, can advertise each node's Hetzner private `/32` route into the tailnet, accepts Tailnet routes on every node, disables Tailscale subnet-route SNAT so Kubernetes/CNI traffic keeps real Hetzner node source IPs, and keeps Kubernetes node IPs on Hetzner private addresses so Hetzner CCM/CSI/LB behavior stays provider-native. Single-primary-network clusters may set `tailscale_node_transport.routing.advertise_node_private_routes = false`; external `network_id` nodepools require it to stay true and require Tailnet route auto-approval. Flannel VXLAN is the first supported CNI. Cilium requires `tailscale_node_transport.enable_experimental_cilium = true`; Calico is rejected for this transport until tested. The module NAT router is only a primary-network egress path; external-network Tailscale nodepools need public egress or an operator-owned external bootstrap path. Large-scale examples keep public API/SSH/web closed while nodes retain public IPv4/IPv6 for Tailscale bootstrap/direct UDP/41641; a no-public-IP external Network topology requires private egress plus externally managed Tailscale bootstrap.
+* **Cilium Gateway API:** `cilium_gateway_api_enabled = true` is supported opt-in when `cni_plugin = "cilium"` and `enable_kube_proxy = false`. The module installs standard Gateway API CRDs for the selected Cilium line, enables `gatewayAPI.enabled`, and turns on cert-manager Gateway API support when any Gateway provider is active. This is different from Traefik's Kubernetes Gateway provider.
+* **Embedded Registry Mirror:** `embedded_registry_mirror.enabled = true` enables the k3s/RKE2 embedded Spegel mirror for trusted clusters. The module adds empty mirror entries to the effective `registries.yaml` while preserving user `registries_config`. Warn users that nodes are equal-trust registry peers: credentials can be indirectly shared, tags can be poisoned, and critical images should use digests. Tailscale multinetwork plus the embedded mirror requires `tailscale_node_transport.routing.advertise_node_private_routes = true`.
+* **Cilium Multinetwork Preview Mode:** `multinetwork_mode = "cilium_public_overlay"` is a lab-only v3 preview for spanning multiple Hetzner Cloud Networks. It requires `enable_experimental_cilium_public_overlay = true`, `cni_plugin = "cilium"`, public node addresses for `multinetwork_transport_ip_family` (`ipv4`, `ipv6`, or `dualstack`), and a public control-plane endpoint or public control-plane load balancer. The module forces Cilium tunnel mode with WireGuard/node encryption, opens Cilium peer ports, disables Hetzner CCM route reconciliation, avoids control-plane fanout to every external agent network, uses public load-balancer targets, and renders one cluster-autoscaler Deployment per effective `network_id`. This path is not production-supported until live cross-network Cilium datapath validation passes. Raw Flannel/Calico private multinetwork scale and Robot/vSwitch route exposure as a Cloud-only scale solution remain unsupported.
+* **Hetzner Limits To Enforce:** Keep each Hetzner Network at or below 100 attached resources, each server at or below 3 attached Networks, each spread Placement Group at or below 10 servers, and each project at or below 50 Placement Groups. Autoscaler `max_nodes`, NAT routers, Terraform-managed load balancers, static nodes, `extra_network_ids`, and external nodepool `network_id` values must be included in validation/counting.
+* **v3 Support Levels:** k3s on Leap Micro is the stable default. RKE2 on Leap Micro, OpenTofu, Cilium dual-stack, Cilium Gateway API, and embedded registry mirror are supported opt-in where their validation rules pass. Tailscale node transport is supported opt-in for secure single-network clusters and Flannel-first private multinetwork scale-out. Cilium public-overlay multinetwork is an experimental preview, not a production-supported v3 promise yet. MicroOS is legacy/upgrade support. Tailscale/ZeroTier/WARP remain supported external overlay patterns through generic hooks when they are only for operator access or post-bootstrap features. Robot/vSwitch, private-only, Longhorn-heavy, and existing-network upgrades are advanced/special-case paths that deserve blue/green consideration. Raw Flannel/Calico multinetwork scale without Tailscale/routed transport is unsupported.
 * **v3 Upgrade Rule:** Before applying a v3 plan, state must be backed up, removed v2 inputs must be gone, inverted booleans must be reviewed, validation must pass, and every network/subnet/load-balancer/server/primary-IP/placement-group/volume replacement must be intentional.
 
 This guide will walk through the provided Terraform configuration, explaining the purpose, implications, and interdependencies of each setting.
@@ -353,7 +357,8 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
 
-      # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
+      # Fine-grained control over placement groups. Leave unset to auto-shard count-based nodepools every 10 servers.
+      # Explicit placement_group values must stay at 10 servers or fewer, and the project cap is 50 placement groups:
       # placement_group = "default"
 
       # Enable automatic backups via Hetzner (default: false)
@@ -432,10 +437,10 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
       * This is for fine-grained resource reservation for Kubernetes system components (`kube-reserved`) and OS system components (`system-reserved`), ensuring they have enough resources and don't get starved by user pods.
       * **Note:** There are also global `global_kubelet_args`, `control_plane_kubelet_args`, etc., defined later. These nodepool-specific `kubelet_args` likely supplement or override those for this pool.
     * **`placement_group` (String, Optional):**
-      * Default: The module might create a default placement group or assign nodes to one.
+      * Default: The module creates and assigns spread placement groups when `enable_placement_groups = true`.
       * Purpose: Hetzner Placement Groups ensure that servers within the same group are located on different physical host systems (spread strategy). This improves fault tolerance against hardware failures on a single host.
       * Value: Name of the placement group. If you specify the same name for multiple nodes/nodepools, they'll try to be in that group.
-      * Limit: Hetzner placement groups have limits (e.g., 10 servers per spread placement group). The module might manage creating multiple groups if a nodepool `count` exceeds this.
+      * Limit: Hetzner spread placement groups support 10 servers per group and 50 groups per project. Count-based nodepools without explicit `placement_group` are auto-sharded every 10 servers; explicit named groups must be split manually.
     * **`backups` (Boolean, Optional):**
       * Default: `false`.
       * If `true`, enables Hetzner's automated server backup service for nodes in this pool. This incurs additional cost per server.
@@ -786,11 +791,11 @@ The example shows three control plane nodepools, each with one node, in differen
       * Hetzner Cloud server labels applied by the autoscaler when it creates servers. These are separate from Kubernetes node labels.
     * **`network_id` (Number, Optional):**
       * Default: omitted/null (the primary kube-hetzner Network).
-      * In experimental `multinetwork_mode = "cilium_public_overlay"`, autoscaler nodepools can use external Hetzner Network IDs. The module renders one autoscaler Deployment per effective network so each gets the correct `HCLOUD_NETWORK`.
+      * With `node_transport_mode = "tailscale"` or experimental `multinetwork_mode = "cilium_public_overlay"`, autoscaler nodepools can use external Hetzner Network IDs. The module renders one autoscaler Deployment per effective network so each gets the correct `HCLOUD_NETWORK`.
     * **`subnet_ip_range` (String, Optional):**
       * Optional private subnet CIDR inside the selected `network_id`. This maps to Hetzner Cluster Autoscaler's `subnetIPRange`.
     * **`join_endpoint_type` (String, Optional):**
-      * `private` or `public`; in `cilium_public_overlay` the module forces public joins because nodes may live on separate Hetzner private Network islands.
+      * `private` or `public`; in `cilium_public_overlay` the module forces public joins because nodes may live on separate Hetzner private Network islands. In Tailscale mode the module uses the private control-plane endpoint over Tailnet subnet routes.
     * **`taints` (List of Maps, Optional):**
       * Kubernetes taints to apply to nodes provisioned by the autoscaler in this pool.
       * **Format:** Each element in the list is a map with `key`, `value`, and `effect` (e.g., `NoSchedule`, `NoExecute`, `PreferNoSchedule`).
@@ -1612,6 +1617,22 @@ Excellent! Let's continue our meticulous dissection.
   * **Reference:** The k3s private registry documentation is key.
 
 ```terraform
+  # embedded_registry_mirror = {
+  #   enabled                  = true
+  #   registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+  #   disable_default_endpoint = false
+  # }
+```
+
+* **`embedded_registry_mirror` (Object, Optional):**
+  * **Default:** Disabled, with default registry list `["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]`.
+  * **Purpose:** Enables the k3s/RKE2 embedded distributed registry mirror and adds empty mirror entries for the selected registries to the effective `registries.yaml`.
+  * **Merge Rule:** Existing `registries_config` entries are preserved. User mirror entries and endpoints win over module-provided empty defaults.
+  * **Disable Default Endpoint:** `disable_default_endpoint = true` sets `disable-default-registry-endpoint` so configured registries pull only from explicit mirrors and/or the embedded mirror.
+  * **Security:** Use only on trusted clusters. The mirror assumes equal node trust, may share images pulled with credentials, and can be tag-poisoned by a node that can place images in containerd. Prefer digests for critical workloads.
+  * **Tailscale Multinetwork:** External `network_id` nodepools require `tailscale_node_transport.routing.advertise_node_private_routes = true` so embedded mirror peer traffic can cross Hetzner Network shards.
+
+```terraform
   # Additional environment variables for the host OS on which k3s runs. See for example https://docs.k3s.io/advanced#configuring-an-http-proxy .
   # additional_kubernetes_install_environment = {
   #   "CONTAINERD_HTTP_PROXY" : "http://your.proxy:port",
@@ -1887,11 +1908,11 @@ Excellent! Let's continue our meticulous dissection.
 ```terraform
   # You can choose the version of Cilium that you want. By default we keep the version up to date and configure Cilium with compatible settings according to the version.
   # See https://github.com/cilium/cilium/releases for the available versions.
-  # cilium_version = "1.17.0"
+  # cilium_version = "1.19.3"
 ```
 
 * **`cilium_version` (String, Optional, relevant if `cni_plugin = "cilium"`):**
-  * **Default:** `1.17.0`.
+  * **Default:** `1.19.3`.
   * **Purpose:** Allows pinning the Cilium installation to a specific version.
   * **Benefit:** Version stability, access to specific features/fixes.
   * **Compatibility:** The module's default Cilium configurations (if `cilium_values` is not used) are likely tailored to be compatible with the Cilium version it defaults to or the one you specify. Major changes in Cilium versions can alter Helm chart values or feature availability.
@@ -1932,6 +1953,19 @@ Excellent! Let's continue our meticulous dissection.
     * Applying common network policies or monitoring to all egress traffic.
   * **Requirements:** Must be used with `cni_plugin = "cilium"` and `enable_kube_proxy = false`; Cilium Egress Gateway requires kube-proxy replacement.
   * **Integration:** Often used with the "egress" `agent_nodepool` example shown earlier, which had `floating_ip = true`. The floating IP(s) on the egress nodes become the source IP(s) for the SNAT'd traffic.
+
+```terraform
+  # Enable Cilium's native Gateway API controller.
+  # Requires cni_plugin = "cilium" and enable_kube_proxy = false.
+  # cilium_gateway_api_enabled = true
+```
+
+* **`cilium_gateway_api_enabled` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Enables Cilium's native Gateway API controller by installing the standard Gateway API CRDs for the selected Cilium line and setting `gatewayAPI.enabled: true` in Cilium values.
+  * **Requirements:** `cni_plugin = "cilium"`, `enable_kube_proxy = false`, and an exact `cilium_version` supported by the module's Gateway API CRD mapping.
+  * **Cert-Manager:** When this or Traefik Gateway provider support is enabled, cert-manager Gateway API support is enabled as well.
+  * **Example:** See `examples/cilium-gateway-api`.
 
 ```terraform
   # Enables Hubble Observability to collect and visualize network traffic. Default: false
@@ -2031,8 +2065,10 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Purpose:** Controls whether the module attempts to use Hetzner Placement Groups for your cluster nodes.
     * `true`: The module creates one or more placement groups with the `spread` strategy and assigns nodes to them.
     * `false`: Servers are provisioned without explicit placement group assignment, relying on Hetzner's default allocation.
+  * **Limits:** Hetzner spread placement groups support at most 10 servers per group and 50 placement groups per project. Count-based static nodepools without an explicit `placement_group` are auto-sharded every 10 servers. Explicit named placement groups must be split by the user before they exceed 10 servers.
+  * **Large-Scale Note:** Autoscaler-created nodes are not assigned placement groups by kube-hetzner today. A 10,000-node design should use autoscaler/network shards and treat physical spread as a separate project/cluster capacity design, not as 1,000 static placement groups in one Hetzner project.
   * **Recommendation:** "We advise to not touch that setting, unless you have a specific purpose." Using placement groups is generally a good practice for HA. You might disable it if you are hitting Hetzner limits on placement groups per project, or for very specific testing scenarios.
-  * **Interaction with Nodepool `placement_group`:** If a nodepool definition has its own `placement_group = "group_name"` attribute, that would likely take precedence for that specific nodepool, allowing for more granular control even if global placement groups are enabled.
+  * **Interaction with Nodepool `placement_group`:** If a nodepool definition has its own `placement_group = "group_name"` attribute, that takes precedence for that specific nodepool, but it also disables auto-sharding for that nodepool, so it must stay at 10 nodes or fewer.
 
 ```terraform
   # By default, incoming ICMP ping is blocked.
@@ -2169,7 +2205,8 @@ Locked and loaded! Let's continue the detailed exploration.
   # Optional map of node name => SSH host override.
   # Useful when an external overlay network (Tailscale, ZeroTier, Cloudflare WARP, etc.)
   # is managed outside this module and Terraform should connect through overlay IPs.
-  # kube-hetzner does not manage the overlay, tailnet, ACLs, or auth-key lifecycle.
+  # For official Tailscale cluster node transport, use node_transport_mode = "tailscale"
+  # instead of this manual override pattern.
   # If you bootstrap overlay clients with preinstall_exec, use short-lived one-use keys
   # and assume commands/user-data may be visible in Terraform state or cloud-init logs.
   # node_connection_overrides = {
@@ -2183,8 +2220,8 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Purpose:** Overrides the SSH host used by Terraform provisioners per node.
   * **Key Format:** Node name exactly as created by the module (including cluster prefix when `use_cluster_name_in_node_name = true`).
   * **Use Case:** External connectivity layers where node management should happen over overlay addresses instead of public IPs.
-  * **Tailscale Boundary:** Tailscale is supported as an external overlay pattern, not as a first-class `enable_tailscale` core input. kube-hetzner intentionally does not manage tailnets, ACLs, auth keys, MagicDNS, route approvals, subnet routers, Tailscale Services, or the Tailscale Kubernetes Operator.
-  * **Recommended Tailscale Flow:** Bootstrap or install Tailscale outside the core module, pass Tailnet IPs or hostnames through `node_connection_overrides`, use `control_plane_endpoint` for a stable kube API endpoint when needed, and only tighten `firewall_ssh_source` / `firewall_kube_api_source` after overlay access is proven.
+  * **Tailscale Boundary:** Use `node_transport_mode = "tailscale"` when Tailscale should be the official Kubernetes node transport. Use `node_connection_overrides` only for a user-owned external overlay that provides operator SSH/provisioning access.
+  * **Recommended External Tailscale Flow:** Bootstrap or install Tailscale outside the core module, pass Tailnet IPs or hostnames through `node_connection_overrides`, use `control_plane_endpoint` for a stable kube API endpoint when needed, and only tighten `firewall_ssh_source` / `firewall_kube_api_source` after overlay access is proven.
   * **Post-Bootstrap Operator:** If the cluster needs Tailscale Services, workload ingress/egress, subnet routers, or kube API proxying, deploy the Tailscale Kubernetes Operator after the cluster is healthy using Helm, ArgoCD, or `user_kustomizations`. Keep OAuth credentials and tailnet policy lifecycle outside kube-hetzner.
 
 ```terraform
@@ -3306,6 +3343,25 @@ These variables are part of the current v3 module contract and should be conside
 * **`extra_robot_nodes` (List Object, Optional):**
   * **Default:** `[]`.
   * **Purpose:** Configures existing Hetzner Robot servers as additional agents through vSwitch networking.
+
+* **`node_transport_mode` (String, Optional):**
+  * **Default:** `"hetzner_private"`.
+  * **Purpose:** Selects the Kubernetes node transport. Use `"tailscale"` for secure single-network clusters that should use Tailnet access for Terraform/kubeconfig/SSH, or for supported private multinetwork clusters where Tailscale carries node-to-node traffic between Hetzner private Networks.
+  * **Requirements:** Tailscale mode requires `tailscale_node_transport.magicdns_domain`, restricted or closed public API/SSH firewall sources, no public module-managed control-plane Load Balancer, non-overlapping Tailnet/cluster/service/network CIDRs, and `multinetwork_mode = "disabled"`.
+
+* **`tailscale_node_transport` (Object, Optional):**
+  * **Default:** `{}`.
+  * **Purpose:** Configures Tailscale bootstrap, tags, route advertisement, Terraform SSH host selection, CNI MTU, and experimental gates for `node_transport_mode = "tailscale"`. Single-network clusters may set `routing.advertise_node_private_routes = false`; external `network_id` nodepools require it to remain true.
+  * **Key Rules:** Flannel VXLAN is the first supported CNI, `flannel_backend = "host-gw"` is rejected, autoscaler nodepools require `bootstrap_mode = "cloud_init"`, and the module disables subnet-route SNAT when advertising node-private routes so Kubernetes/CNI traffic keeps real node source IPs.
+
+* **`tailscale_auth_key` / `tailscale_control_plane_auth_key` / `tailscale_agent_auth_key` / `tailscale_autoscaler_auth_key` (String, Optional, Sensitive):**
+  * **Default:** `null`.
+  * **Purpose:** Provide shared or role-specific Tailscale auth keys for `tailscale_node_transport.auth.mode = "auth_key"`.
+  * **Autoscaler Note:** Prefer a reusable, pre-approved, tagged, ephemeral key for `tailscale_autoscaler_auth_key`.
+
+* **`tailscale_oauth_client_secret` (String, Optional, Sensitive):**
+  * **Default:** `null`.
+  * **Purpose:** Provides the OAuth client secret for `tailscale_node_transport.auth.mode = "oauth_client_secret"`. The module appends role-specific OAuth auth-key parameters so static nodes default to durable devices and autoscaler nodes default to ephemeral devices.
 
 * **`enable_experimental_cilium_public_overlay` (Boolean, Optional):**
   * **Default:** `false`.

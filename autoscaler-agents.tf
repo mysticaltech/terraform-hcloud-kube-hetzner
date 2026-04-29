@@ -195,6 +195,7 @@ data "cloudinit_config" "autoscaler_config" {
             node-taint    = compact(concat(local.default_agent_taints, [for taint in var.autoscaler_nodepools[count.index].taints : "${taint.key}=${tostring(taint.value)}:${taint.effect}"]))
             selinux       = var.enable_selinux
           },
+          local.disable_default_registry_endpoint_config,
           var.agent_nodes_custom_config,
           local.prefer_bundled_bin_config,
           !var.enable_selinux
@@ -214,6 +215,7 @@ data "cloudinit_config" "autoscaler_config" {
         multinetwork_public_overlay_enabled = local.multinetwork_overlay_enabled
         multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
         multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled
+        tailscale_bootstrap_script          = local.tailscale_cloud_init_bootstrap_enabled ? local.tailscale_bootstrap_script_autoscaler_by_index[count.index] : ""
       }
     )
   }
@@ -249,6 +251,7 @@ data "cloudinit_config" "autoscaler_config_rke2" {
             node-taint  = compact(concat(local.default_agent_taints, [for taint in var.autoscaler_nodepools[count.index].taints : "${taint.key}=${tostring(taint.value)}:${taint.effect}"]))
             selinux     = var.enable_selinux
           },
+          local.disable_default_registry_endpoint_config,
           var.agent_nodes_custom_config,
           local.prefer_bundled_bin_config,
           !var.enable_selinux
@@ -265,6 +268,7 @@ data "cloudinit_config" "autoscaler_config_rke2" {
         multinetwork_public_overlay_enabled = local.multinetwork_overlay_enabled
         multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
         multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled
+        tailscale_bootstrap_script          = local.tailscale_cloud_init_bootstrap_enabled ? local.tailscale_bootstrap_script_autoscaler_by_index[count.index] : ""
       }
     )
   }
@@ -278,14 +282,14 @@ data "hcloud_servers" "autoscaled_nodes" {
 resource "terraform_data" "autoscaled_nodes_registries" {
   for_each = local.autoscaled_nodes
   triggers_replace = {
-    registries = var.registries_config
+    registries = local.registries_config_effective
   }
 
   connection {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
+    host           = local.tailscale_use_tailnet_for_terraform ? "${each.value.name}.${local.tailscale_magicdns_domain}" : coalesce(each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
     port           = var.ssh_port
 
     bastion_host        = local.ssh_bastion.bastion_host
@@ -296,7 +300,7 @@ resource "terraform_data" "autoscaled_nodes_registries" {
   }
 
   provisioner "file" {
-    content     = var.registries_config
+    content     = local.registries_config_effective
     destination = "/tmp/registries.yaml"
   }
 
@@ -319,7 +323,7 @@ resource "terraform_data" "autoscaled_nodes_kubelet_config" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = coalesce(each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
+    host           = local.tailscale_use_tailnet_for_terraform ? "${each.value.name}.${local.tailscale_magicdns_domain}" : coalesce(each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
     port           = var.ssh_port
 
     bastion_host        = local.ssh_bastion.bastion_host

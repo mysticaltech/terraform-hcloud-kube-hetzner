@@ -42,6 +42,7 @@ module "agents" {
   name                         = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
   append_random_suffix         = each.value.append_random_suffix
   connection_host              = ""
+  connection_host_suffix       = local.tailscale_pre_terraform_ssh_enabled ? local.tailscale_magicdns_domain : ""
   os_snapshot_id               = try(trimspace(each.value.os_snapshot_id), "") != "" ? trimspace(each.value.os_snapshot_id) : local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                           = each.value.os
   base_domain                  = var.base_domain
@@ -58,7 +59,7 @@ module "agents" {
   backups                      = each.value.backups
   ipv4_subnet_id               = local.use_per_nodepool_subnets ? hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id : hcloud_network_subnet.agent[0].id
   dns_servers                  = var.dns_servers
-  registries_config            = var.registries_config
+  registries_config            = local.registries_config_effective
   registries_update_script     = local.k8s_registries_update_script
   cloudinit_write_files_common = local.cloudinit_write_files_common
   kubelet_config               = var.kubelet_config
@@ -67,7 +68,7 @@ module "agents" {
   audit_policy_update_script   = ""
   cloudinit_runcmd_common      = local.cloudinit_runcmd_common
   cloudinit_write_files_extra  = each.value.extra_write_files
-  cloudinit_runcmd_extra       = each.value.extra_runcmd
+  cloudinit_runcmd_extra       = concat(local.tailscale_cloud_init_bootstrap_enabled ? [local.tailscale_bootstrap_script_static_agent_by_node[each.key]] : [], each.value.extra_runcmd)
   swap_size                    = each.value.swap_size
   zram_size                    = each.value.zram_size
   keep_disk_size               = coalesce(each.value.keep_disk, var.keep_disk_agent_nodes)
@@ -146,6 +147,7 @@ locals {
       node-external-ip    = local.agent_external_ip_by_node[k]
       flannel-external-ip = true
     } : {},
+    local.disable_default_registry_endpoint_config,
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
     # Force selinux=false if enable_selinux = false.
@@ -176,6 +178,7 @@ locals {
       } : lookup(local.agent_external_ip_by_node, k, null) != null ? {
       node-external-ip = local.agent_external_ip_by_node[k]
     } : {},
+    local.disable_default_registry_endpoint_config,
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
     # Force selinux=false if enable_selinux = false.
@@ -184,10 +187,26 @@ locals {
     : (v.selinux == true ? { selinux = true } : {})
   ) }
 
+  tailscale_agent_magicdns_hosts = {
+    for k, v in module.agents :
+    k => "${v.name}.${local.tailscale_magicdns_domain}"
+  }
+
+  agent_initial_ips = {
+    for k, v in module.agents : k => coalesce(
+      lookup(var.node_connection_overrides, v.name, null),
+      lookup(var.node_connection_overrides, local.agent_override_base_names[k], null),
+      v.ipv4_address,
+      v.ipv6_address,
+      v.private_ipv4_address
+    )
+  }
+
   agent_ips = {
     for k, v in module.agents : k => coalesce(
       lookup(var.node_connection_overrides, v.name, null),
       lookup(var.node_connection_overrides, local.agent_override_base_names[k], null),
+      local.tailscale_use_tailnet_for_terraform ? local.tailscale_agent_magicdns_hosts[k] : null,
       v.ipv4_address,
       v.ipv6_address,
       v.private_ipv4_address
@@ -243,6 +262,10 @@ resource "terraform_data" "agent_config" {
   provisioner "remote-exec" {
     inline = [local.k8s_config_update_script]
   }
+
+  depends_on = [
+    terraform_data.tailscale_agents,
+  ]
 }
 moved {
   from = null_resource.agent_config
@@ -306,6 +329,7 @@ resource "terraform_data" "agents" {
   depends_on = [
     terraform_data.first_control_plane,
     terraform_data.control_planes_rke2,
+    terraform_data.tailscale_agents,
     terraform_data.agent_config,
     hcloud_load_balancer_service.control_plane,
     hcloud_load_balancer_service.control_plane_rke2_supervisor,

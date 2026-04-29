@@ -49,6 +49,16 @@ data "http" "system_upgrade_controller_crd" {
   }
 }
 
+data "http" "gateway_api_standard_crds" {
+  for_each = local.gateway_api_crds_enabled ? toset(local.gateway_api_standard_crd_names) : toset([])
+
+  url = "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/${local.gateway_api_crds_version}/config/crd/standard/gateway.networking.k8s.io_${each.key}.yaml"
+
+  request_headers = {
+    Accept = "text/plain"
+  }
+}
+
 data "http" "calico_release" {
   count = var.calico_version == null && var.cni_plugin == "calico" ? 1 : 0
   url   = "https://api.github.com/repos/projectcalico/calico/releases/latest"

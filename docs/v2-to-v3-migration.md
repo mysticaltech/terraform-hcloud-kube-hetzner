@@ -64,12 +64,21 @@ Complete this before applying a v3 plan:
 | OpenTofu | Supported | Requires OpenTofu `>= 1.10.1`; run `tofu plan` before applying with OpenTofu. |
 | Flannel or Calico single-network clusters | Supported | Keep all nodes on one reachable private network. |
 | Cilium dual-stack | Supported | Preferred advanced CNI path. |
+| Cilium Gateway API | Supported opt-in | Add after the base migration with `cilium_gateway_api_enabled = true`, `cni_plugin = "cilium"`, and `enable_kube_proxy = false`. |
+| Embedded registry mirror | Supported opt-in | Add after the base migration for trusted clusters; review equal node trust, credential sharing, and tag-poisoning risks. |
+| Tailscale node transport | Supported opt-in | Use `node_transport_mode = "tailscale"` for secure Tailnet access in single-network clusters or Flannel-first private multinetwork scale-out. |
 | Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; do not use for production upgrades yet. |
-| Flannel/Calico multinetwork scale | Unsupported | Separate Hetzner Networks are L3 islands; use one private Network or an external routed/VPN fabric. |
-| Tailscale/ZeroTier/WARP | Supported external pattern | Use `preinstall_exec`, `node_connection_overrides`, `control_plane_endpoint`, and optional firewall tightening; kube-hetzner does not manage the provider lifecycle. |
+| Raw Flannel/Calico multinetwork scale | Unsupported | Separate Hetzner Networks are L3 islands; use Tailscale node transport, one private Network, or a separately managed routed/VPN fabric. |
+| Tailscale/ZeroTier/WARP operator access | Supported external pattern | Use generic hooks when the overlay is only for operator access or post-bootstrap features. |
 | Robot/vSwitch | Advanced/special-case | Validate route exposure and migration plans manually. |
 | Private-only clusters | Advanced/special-case | Prove SSH and join paths before applying. |
 | Longhorn with attached volumes | Supported with caution | Review replacements and first-boot relabel/mount timing carefully. |
+
+For new or redesigned clusters, use the chooser in
+[`docs/v3-topology-recommendations.md`](v3-topology-recommendations.md). For
+in-place upgrades, keep the first v3 apply boring: fix renamed inputs and prove
+the plan first, then add Cilium Gateway API, embedded registry mirror, or new
+Tailscale multinetwork shards in a separate reviewed plan.
 
 ## Minimum versions
 
@@ -356,12 +365,12 @@ rg -n 'cni_plugin|multinetwork_mode|multinetwork_transport_ip_family|network_id|
 | --- | --- | --- |
 | Private-only nodes | SSH and Kubernetes join paths can be stranded if bastion, NAT, firewall, or endpoint settings disagree. | Prove access before applying; prefer blue/green if unsure. |
 | Existing Hetzner Networks | Out-of-band routes/subnets can conflict with v3 validation and attachment accounting. | Use `existing_network = { id = ... }`; review subnets and route exposure. |
-| Multiple Hetzner Networks | Networks are separate L3 islands and servers can attach to at most three Networks. | Treat `multinetwork_mode = "cilium_public_overlay"` as a lab-only preview until live datapath validation passes. |
+| Multiple Hetzner Networks | Networks are separate L3 islands and servers can attach to at most three Networks. | Use `node_transport_mode = "tailscale"` for the supported private path, or treat `multinetwork_mode = "cilium_public_overlay"` as a lab-only preview. |
 | Robot/vSwitch | Route exposure can be provider-managed or manually managed depending on ownership. | Validate `expose_routes_to_vswitch` and existing Network ownership. |
 | NAT router from old v2 clusters | Pre-v2.19 primary IP state can show replacement. | Import existing primary IPs if they must be preserved. |
-| Autoscaler with external networks | Cluster Autoscaler needs per-network `HCLOUD_NETWORK` behavior. | Use external autoscaler `network_id` only with the experimental Cilium public-overlay preview. |
+| Autoscaler with external networks | Cluster Autoscaler needs per-network `HCLOUD_NETWORK` behavior and a cross-network join path. | Use external autoscaler `network_id` with Tailscale node transport or the experimental Cilium public-overlay preview. |
 | Longhorn or attached volumes | Replacements or mount changes can affect stateful workloads. | Back up data and review every volume action. |
-| External overlays such as Tailscale | Auth keys, ACLs, route approvals, DNS, and operator lifecycle live outside kube-hetzner. | Use generic hooks and keep provider lifecycle external. |
+| External overlays such as Tailscale | Auth keys, ACLs, route approvals, DNS, and operator lifecycle live outside kube-hetzner unless using the narrow Tailscale node-transport contract. | Use `node_transport_mode = "tailscale"` for cluster transport; use generic hooks for operator access only. |
 
 ### NAT router primary IPs from old v2 clusters
 
@@ -386,9 +395,28 @@ existing Network manually or set:
 expose_routes_to_vswitch = false
 ```
 
-### Multinetwork scale
+### Tailscale access and multinetwork scale
 
-v3 includes a lab-only large multinetwork Cloud preview through:
+v3 includes a supported Tailscale node-transport path:
+
+```hcl
+node_transport_mode = "tailscale"
+```
+
+For single-network clusters, this gives Terraform, kubeconfig, and operator SSH
+a private Tailnet path while public Kubernetes API/SSH firewall rules can stay
+closed. Set `tailscale_node_transport.routing.advertise_node_private_routes =
+false` when every node remains on the primary Hetzner Network.
+
+For multinetwork scale-out, keep
+`tailscale_node_transport.routing.advertise_node_private_routes = true`. This
+keeps Kubernetes node IPs on Hetzner private addresses, advertises each node's
+Hetzner private `/32` route through Tailscale with subnet-route SNAT disabled,
+and requires Tailnet ACL route auto-approval for the configured node tags.
+Introduce multinetwork scale in a separate audited plan after the base v2-to-v3
+upgrade unless you are intentionally doing blue/green.
+
+v3 also includes a lab-only Cilium public-overlay preview through:
 
 ```hcl
 enable_experimental_cilium_public_overlay = true
@@ -400,8 +428,9 @@ This mode uses public node addresses plus Cilium WireGuard/tunnel overlay. It is
 not a Flannel or Calico private-network feature, and it must not be used for
 production upgrades until the live Cilium datapath test passes. External Network
 IDs may be set on agent nodepools; autoscaler nodepools may also set external
-Network IDs only in this mode, where kube-hetzner renders one autoscaler
-Deployment per effective Network. Primary Network nodepools omit `network_id`.
+Network IDs with Tailscale node transport or the Cilium public-overlay preview,
+where kube-hetzner renders one autoscaler Deployment per effective Network.
+Primary Network nodepools omit `network_id`.
 
 ### Placement groups
 

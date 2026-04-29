@@ -29,8 +29,8 @@ data "hcloud_network" "k3s" {
 }
 
 data "hcloud_network" "additional_nodepool_networks" {
-  for_each = local.external_nodepool_network_ids
-  id       = tonumber(each.key)
+  for_each = local.nodepool_network_refs
+  id       = each.value == 0 ? data.hcloud_network.k3s.id : each.value
 }
 
 

@@ -15,6 +15,12 @@ variable "connection_host" {
   default     = ""
 }
 
+variable "connection_host_suffix" {
+  description = "Optional DNS suffix appended to the final server name for Terraform provisioners, for example a Tailscale MagicDNS tailnet name."
+  type        = string
+  default     = ""
+}
+
 variable "node_connection_overrides" {
   description = "Optional SSH host overrides keyed by node name (final or base name)."
   type        = map(string)

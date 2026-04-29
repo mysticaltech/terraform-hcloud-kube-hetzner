@@ -114,10 +114,28 @@ Only apply after reviewing all planned resource actions.
 | MicroOS | Legacy/upgrade support | Existing clusters remain supported; new nodepools default to Leap Micro. |
 | OpenTofu | Supported | Validate with `tofu init`, `tofu validate`, and `tofu plan` before applying. |
 | Cilium dual-stack | Supported | Preferred advanced CNI path. |
+| Cilium Gateway API | Supported opt-in | `cilium_gateway_api_enabled = true` installs standard Gateway API CRDs and enables Cilium Gateway API. Requires Cilium with kube-proxy replacement. |
+| Tailscale node transport | Supported opt-in | `node_transport_mode = "tailscale"` provides secure Tailnet access for single-network clusters and private route transport for multinetwork scale while Kubernetes keeps Hetzner node IPs. |
+| Embedded registry mirror | Supported opt-in | Enables k3s/RKE2's embedded Spegel mirror for trusted larger clusters. |
 | Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; not production-supported until live datapath validation passes. |
-| Flannel/Calico multinetwork scale | Unsupported | Use one private Hetzner Network or an external routed/VPN fabric. |
-| Tailscale/ZeroTier/WARP | Supported external pattern | Use generic hooks; kube-hetzner does not manage provider lifecycle. |
+| Flannel/Cilium multinetwork scale over Hetzner Networks | Supported through Tailscale transport | Flannel is the first supported CNI; Cilium is gated as experimental until live datapath coverage promotes it. |
+| Tailscale/ZeroTier/WARP operator access | Supported external pattern | Use generic hooks when you only want Terraform/operator access and do not want kube-hetzner to manage node transport. |
 | Robot/vSwitch coupling | Advanced/special-case | Prefer blue/green migration and review route exposure carefully. |
+
+### Which Topology Should I Use?
+
+| Need | Recommended v3 topology |
+| --- | --- |
+| Small dev cluster | Single control plane, one agent pool, no ingress unless needed. |
+| Normal HA | 3 control planes, 2+ agents, one primary Hetzner Network, public API LB restricted to your source CIDRs or an explicit secure endpoint. |
+| Private-only | `nat_router` plus private control-plane LB on the primary Network. |
+| Secure operator/API access | `node_transport_mode = "tailscale"` with public API/SSH firewall sources closed. |
+| More than 100 Cloud nodes | Tailscale node transport plus external `network_id` shards, one Hetzner Network per 100-node budget. |
+| Very large reference | Autoscaler-first Tailscale multinetwork; see the 200-node and 10k-node examples. |
+| Cilium Gateway API | Cilium, `enable_kube_proxy = false`, `cilium_gateway_api_enabled = true`. |
+| Heavy image-pull pressure | `embedded_registry_mirror.enabled = true` on trusted clusters. |
+
+Full guide: [`docs/v3-topology-recommendations.md`](docs/v3-topology-recommendations.md).
 
 ### v3 Readiness Checklist
 
@@ -148,6 +166,7 @@ Before applying a v3 upgrade, confirm:
 ### 🌐 Networking & CNI
 - [x] **CNI flexibility** — Flannel, Calico, or Cilium
 - [x] **Cilium XDP** — Hardware-level load balancing
+- [x] **Cilium Gateway API** — Native Gateway API controller support
 - [x] **WireGuard encryption** — Optional encrypted overlay
 - [x] **Dual-stack** — Full IPv4 & IPv6 support
 - [x] **Custom subnets** — Define CIDR blocks per nodepool
@@ -165,6 +184,7 @@ Before applying a v3 upgrade, confirm:
 - [x] **HA by default** — 3 control-planes + 2 agents across AZs
 - [x] **Super-HA** — Span multiple Hetzner locations
 - [x] **Cluster autoscaler** — Automatic node scaling
+- [x] **Embedded registry mirror** — Opt-in k3s/RKE2 Spegel mirror for trusted large clusters
 - [x] **Single-node mode** — Perfect for development
 
 ### 💾 Storage
@@ -522,8 +542,10 @@ Use [Kustomize](https://kustomize.io) for additional deployments:
 Repository examples:
 
 - [`examples/argocd`](examples/argocd/) — configure Kubernetes/Helm providers from `kubeconfig_data` and install ArgoCD.
+- [`examples/tailscale-node-transport`](examples/tailscale-node-transport/) — opt-in Tailscale node transport for secure single-network clusters and private multinetwork scale-out.
+- [`examples/cilium-gateway-api`](examples/cilium-gateway-api/) — Cilium Gateway API, Gateway, HTTPRoute, and cert-manager HTTP-01.
 - [`examples/cilium-multinetwork`](examples/cilium-multinetwork/) — experimental Cilium-only public-overlay preview across multiple Hetzner Cloud Networks.
-- [`examples/external-overlay-tailscale`](examples/external-overlay-tailscale/) — external Tailscale overlay access with `node_connection_overrides`.
+- [`examples/external-overlay-tailscale`](examples/external-overlay-tailscale/) — user-owned Tailscale operator access with `node_connection_overrides`.
 - [`examples/kustomization_user_deploy`](examples/kustomization_user_deploy/) — ordered `user_kustomizations` sets.
 - [`examples/tls`](examples/tls/) — basic Ingress TLS resources for Traefik and cert-manager.
 
@@ -646,6 +668,53 @@ spec:
 ```
 
 [Full Egress Gateway docs](https://docs.cilium.io/en/stable/network/egress-gateway/)
+</details>
+
+<details>
+<summary><strong>Cilium Gateway API</strong></summary>
+
+Cilium can own Gateway API directly:
+
+```tf
+cni_plugin                 = "cilium"
+enable_kube_proxy         = false
+cilium_gateway_api_enabled = true
+```
+
+When enabled, kube-hetzner installs the standard Gateway API CRDs for the
+selected Cilium line, enables `gatewayAPI.enabled` in Cilium values, and enables
+cert-manager Gateway API support. This is separate from Traefik's Kubernetes
+Gateway provider.
+
+Use [`examples/cilium-gateway-api`](examples/cilium-gateway-api/) for a working
+GatewayClass/Gateway/HTTPRoute/cert-manager HTTP-01 starting point.
+
+</details>
+
+<details>
+<summary><strong>Embedded Registry Mirror</strong></summary>
+
+k3s and RKE2 can use their embedded Spegel registry mirror to share images
+between trusted cluster nodes:
+
+```tf
+embedded_registry_mirror = {
+  enabled                  = true
+  registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+  disable_default_endpoint = false
+}
+```
+
+kube-hetzner sets `embedded-registry: true` on server nodes and merges empty
+mirror entries into the effective `registries.yaml`. Existing
+`registries_config` entries and endpoints are preserved.
+
+This is opt-in because the mirror assumes equal node trust. Images pulled with
+credentials on one node may be shared with other nodes, and tags can be poisoned
+by a node that can place images in containerd. Use digest-pinned images for
+critical workloads. In Tailscale multinetwork clusters, advertised node-private
+routes are required so the mirror can reach peers across Network shards.
+
 </details>
 
 <details>
@@ -1026,22 +1095,86 @@ module "kube-hetzner" {
 </details>
 
 <details>
-<summary><strong>Multinetwork (agent scale-out)</strong></summary>
+<summary><strong>Tailscale node transport</strong></summary>
 
-For clusters that need more than one Hetzner Cloud Network, v3 includes an
-experimental Cilium public overlay preview. It is intentionally gated because
-fresh live release testing still found a cross-network Cilium datapath gap. Do
-not use it for production clusters or release claims until the live E2E passes.
+Tailscale node transport is useful even before a cluster outgrows one Hetzner
+Network. In a normal single-network cluster it gives Terraform, kubeconfig, and
+operator SSH a private Tailnet path, so you can close public Kubernetes API and
+SSH firewall rules without introducing a separate bastion workflow. Kubernetes
+still keeps Hetzner private node IPs, so Hetzner CCM, CSI, and Load Balancers
+continue to see provider-owned addresses instead of Tailnet `100.64.0.0/10`
+addresses.
+
+For clusters that need more than one Hetzner Cloud Network, the same transport
+becomes the production v3 scale-out path. Hetzner Networks still cap attached
+resources per Network and do not route separate Networks together. Tailscale
+fills that gap by advertising each node's own Hetzner private `/32` route into
+the Tailnet and accepting those routes on every node.
+
+Tailscale mode does not require exposing Kubernetes itself to the web. The
+recommended large-cluster shape keeps public Kubernetes API and SSH firewall
+rules closed, disables managed public ingress unless you explicitly need it,
+and uses the Tailnet for operator/API/node transport. Nodes may still have
+public IPv4/IPv6 enabled so they can bootstrap Tailscale and form direct
+WireGuard paths; the public firewall opens Tailscale UDP/41641, not Kubernetes
+API, SSH, or HTTP/S. A truly no-public-IP multinetwork topology needs private
+egress and externally managed Tailscale bootstrap for every external Network;
+the module NAT router covers only the primary kube-hetzner Network.
+
+Minimal secure single-network shape:
 
 ```tf
-cni_plugin = "cilium"
+node_transport_mode = "tailscale"
 
-enable_experimental_cilium_public_overlay = true
-multinetwork_mode                         = "cilium_public_overlay"
-multinetwork_transport_ip_family          = "ipv4" # ipv4 | ipv6 | dualstack
+tailscale_auth_key = var.tailscale_auth_key
 
-enable_control_plane_load_balancer                = true
-control_plane_load_balancer_enable_public_network = true
+tailscale_node_transport = {
+  # cloud_init brings Tailscale up before Terraform starts using SSH.
+  bootstrap_mode  = "cloud_init"
+  magicdns_domain = "example-tailnet.ts.net"
+  auth = {
+    mode = "auth_key"
+  }
+  routing = {
+    # Single-network clusters already have Hetzner private reachability between
+    # nodes, so route approval is optional. Leave this true for multinetwork.
+    advertise_node_private_routes = false
+  }
+}
+
+# Tailscale mode deliberately rejects public world-open API/SSH defaults.
+firewall_kube_api_source = null
+firewall_ssh_source      = null
+```
+
+Multinetwork scale-out adds external `network_id` values and requires approved
+node-private routes:
+
+```tf
+node_transport_mode = "tailscale"
+
+# Use a reusable shared key, or role-specific keys when autoscaler nodes should
+# use a reusable ephemeral key while static nodes use durable tagged keys.
+tailscale_auth_key = var.tailscale_auth_key
+# tailscale_control_plane_auth_key = var.tailscale_control_plane_auth_key
+# tailscale_agent_auth_key         = var.tailscale_agent_auth_key
+# tailscale_autoscaler_auth_key    = var.tailscale_autoscaler_auth_key
+
+tailscale_node_transport = {
+  bootstrap_mode  = "cloud_init" # required when autoscaler_nodepools are used
+  magicdns_domain = "example-tailnet.ts.net"
+  auth = {
+    mode = "auth_key"
+    # Tagged nodes are recommended for production ACLs and route auto-approval,
+    # but tags must be owned/permitted in your Tailnet policy before use.
+    # advertise_tags_control_plane = ["tag:kube-hetzner-control-plane"]
+    # advertise_tags_agent         = ["tag:kube-hetzner-agent"]
+    # advertise_tags_autoscaler    = ["tag:kube-hetzner-autoscaler"]
+  }
+  routing = {
+    advertise_node_private_routes = true
+  }
+}
 
 agent_nodepools = [
   {
@@ -1051,7 +1184,7 @@ agent_nodepools = [
     labels      = []
     taints      = []
     count       = 50
-    # network_id omitted/null means the primary kube-hetzner network
+    # network_id omitted/null means the primary kube-hetzner network.
   },
   {
     name        = "agent-small-b"
@@ -1071,7 +1204,6 @@ autoscaler_nodepools = [
     location    = "nbg1"
     min_nodes   = 0
     max_nodes   = 50
-    # network_id omitted/null means the primary kube-hetzner network
   },
   {
     name        = "autoscaled-b"
@@ -1084,28 +1216,73 @@ autoscaler_nodepools = [
 ]
 ```
 
-The module validates the important Hetzner and Kubernetes constraints during
-`terraform plan`, but this mode is still a lab-only preview:
+Large-scale reference layouts live in
+[`examples/tailscale-node-transport`](./examples/tailscale-node-transport/):
 
-- `cilium_public_overlay` requires `cni_plugin = "cilium"` and public node
-  addresses for the selected transport family.
-- `enable_experimental_cilium_public_overlay = true` is required so users do not
-  accidentally deploy the preview path.
+- [`large-scale-200.tf.example`](./examples/tailscale-node-transport/large-scale-200.tf.example)
+  shows 200 total nodes across two Hetzner Networks while keeping each Network
+  at exactly 100 attachments.
+- [`massive-10000-nodes.tf.example`](./examples/tailscale-node-transport/massive-10000-nodes.tf.example)
+  shows the reference topology for 10,000 total nodes: 3 control planes, 7
+  static system agents, 90 autoscaled primary workers, and 99 external
+  100-node autoscaler shards. This is a quota/design reference, not a casual
+  default; it requires Hetzner capacity approvals, Tailnet policy/device
+  capacity, and production Kubernetes scale planning.
+
+The important constraints are enforced during `terraform plan`:
+
+- `node_transport_mode = "tailscale"` is mutually exclusive with
+  `multinetwork_mode = "cilium_public_overlay"`.
 - Control planes always stay on the primary kube-hetzner network and no longer
   accept `network_id`.
-- Agent and autoscaler nodepools use the primary kube-hetzner network when
-  `network_id` is omitted or null.
-- Control planes are not auto-attached to every external agent network in this
-  mode, avoiding Hetzner's 3-Networks-per-server limit.
-- Each Hetzner Network is counted against the 100 attached-resource limit,
-  including static nodes, autoscaler `max_nodes`, load balancers, NAT routers,
-  and `extra_network_ids`.
-- Cluster autoscaler is split into one Deployment per effective Network so each
-  Deployment gets the correct `HCLOUD_NETWORK`.
-- Managed load balancers target public node IPs in this mode. Private-only
-  multinetwork scale remains out of scope until a routed/VPN fabric is modeled.
-- Outside this mode, `network_id` is a bounded static-agent compatibility path,
-  not the large-cluster scale-out path.
+- Static agents and autoscaler nodepools may use `network_id` to spread across
+  existing Hetzner private Networks.
+- Control planes are not auto-attached to every external agent Network, avoiding
+  Hetzner's 3-Networks-per-server limit.
+- The module can advertise each node's Hetzner private `/32` route through
+  Tailscale, accepts Tailnet routes on nodes, and disables Tailscale
+  subnet-route SNAT so Kubernetes/CNI traffic keeps the real Hetzner node
+  source IP.
+- Single-network clusters may set
+  `tailscale_node_transport.routing.advertise_node_private_routes = false` to
+  avoid Tailnet route approvals. External `network_id` nodepools require the
+  default `true`.
+- For multinetwork clusters, Tailnet ACLs must auto-approve node-private routes
+  for the users, groups, or node tags you use, or the cluster will wait for
+  manual route approval. Tags are optional in `auth_key` mode, but they are the
+  cleanest production ACL boundary once `tagOwners` and `autoApprovers` are
+  configured.
+- With `auth.mode = "auth_key"`, use a reusable `tailscale_auth_key` for one
+  shared key, or role-specific keys (`tailscale_control_plane_auth_key`,
+  `tailscale_agent_auth_key`, `tailscale_autoscaler_auth_key`). A single-use
+  key only registers the first node. Prefer a reusable, pre-approved, tagged,
+  ephemeral key for autoscaler nodes.
+- With `auth.mode = "oauth_client_secret"`, the module passes role-specific
+  OAuth auth-key parameters: static nodes default to durable devices and
+  autoscaler-created nodes default to ephemeral devices.
+- Tailscale mode rejects world-open `firewall_kube_api_source` and
+  `firewall_ssh_source`; use `null` for no public API/SSH rule or restrict to
+  explicit CIDRs.
+- Public module-managed control-plane Load Balancers are rejected in Tailscale
+  mode. Private control-plane Load Balancers remain available for single-network
+  HA/API patterns; kubeconfig still defaults to the first control plane's
+  Tailnet MagicDNS endpoint unless you set an explicit endpoint.
+- `autoscaler_nodepools` require `tailscale_node_transport.bootstrap_mode =
+  "cloud_init"` because autoscaler-created nodes cannot be configured by
+  Terraform remote-exec before joining.
+- The module NAT router can be combined with Tailscale only for
+  single-primary-network private egress. It does not provide egress for
+  external Hetzner Networks, so multinetwork Tailscale nodepools need their own
+  public IPv4/IPv6 egress. Do not set `nat_router` for external-network
+  Tailscale topologies in this release.
+- Managed Hetzner private Load Balancers work for single-primary-network
+  Tailscale clusters. They still cannot span external nodepool Networks; when
+  using `network_id` scale-out, use public LB targets, Klipper, no/custom
+  ingress, or an external load balancer.
+
+The older `multinetwork_mode = "cilium_public_overlay"` path remains as a
+gated lab preview for Cilium-only public transport experiments. Prefer
+Tailscale node transport for real private multinetwork clusters.
 </details>
 
 <details>
@@ -1128,8 +1305,12 @@ placement_group_index = 1
 ```
 
 Count-based nodepools without an explicit `placement_group` are automatically
-sharded into spread groups of 10 servers. If you set an explicit
-`placement_group`, split groups manually:
+sharded into spread groups of 10 servers. Hetzner projects also cap placement
+groups at 50 total, so very large static clusters must either disable placement
+groups, split across projects/clusters, or use autoscaler nodepools for burst
+capacity. kube-hetzner does not currently assign Hetzner Placement Groups to
+autoscaler-created nodes. If you set an explicit `placement_group`, split
+groups manually:
 ```tf
 agent_nodepools = [
   {
@@ -1246,11 +1427,17 @@ nat_router = {
 <details>
 <summary><strong>External overlay access (Tailscale/ZeroTier/WARP)</strong></summary>
 
-Tailscale is a supported external overlay pattern, not a managed
-kube-hetzner subsystem. There is intentionally no `enable_tailscale` input:
-kube-hetzner does not manage tailnets, ACLs, auth keys, MagicDNS, subnet
-routers, Tailscale Services, or overlay DNS. Use your overlay setup in an
-outer module or out-of-band bootstrap, then pass resulting endpoints back into
+Use `node_transport_mode = "tailscale"` when Tailscale should be the official
+Kubernetes node transport for a single-network or multinetwork cluster. This
+external-overlay pattern is different: it is for operator access, custom
+control-plane endpoints, or post-bootstrap Tailscale Kubernetes Operator
+features that you manage outside kube-hetzner.
+
+There is still no broad `enable_tailscale` switch. kube-hetzner manages only
+the narrow node-transport contract above. It does not manage tailnet ACLs,
+route approvals, Tailscale Services, workload ingress/egress policy, or the
+Tailscale Kubernetes Operator lifecycle. Use your overlay setup in an outer
+module or out-of-band bootstrap, then pass resulting endpoints back into
 kube-hetzner.
 
 The supported kube-hetzner primitives are:
@@ -1291,7 +1478,10 @@ Typical workflow:
    Helm, ArgoCD, or `user_kustomizations` if you want Tailscale Services,
    workload ingress/egress, subnet routers, or kube API proxying.
 
-See [`examples/external-overlay-tailscale/README.md`](examples/external-overlay-tailscale/README.md) for a concrete outer-module pattern.
+For cluster node transport, prefer
+[`examples/tailscale-node-transport/README.md`](examples/tailscale-node-transport/README.md).
+For user-owned operator access, see
+[`examples/external-overlay-tailscale/README.md`](examples/external-overlay-tailscale/README.md).
 </details>
 
 <details>

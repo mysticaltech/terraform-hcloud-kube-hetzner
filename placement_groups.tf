@@ -59,28 +59,28 @@ locals {
 }
 
 resource "hcloud_placement_group" "control_plane" {
-  count  = local.control_plane_placement_compat_groups
+  count  = var.enable_placement_groups ? local.control_plane_placement_compat_groups : 0
   name   = "${var.cluster_name}-control-plane-${count.index + 1}"
   labels = local.labels
   type   = "spread"
 }
 
 resource "hcloud_placement_group" "control_plane_named" {
-  for_each = local.control_plane_groups
+  for_each = var.enable_placement_groups ? local.control_plane_groups : toset([])
   name     = "${var.cluster_name}-control-plane-${each.key}"
   labels   = local.labels
   type     = "spread"
 }
 
 resource "hcloud_placement_group" "agent" {
-  count  = local.agent_placement_compat_groups
+  count  = var.enable_placement_groups ? local.agent_placement_compat_groups : 0
   name   = "${var.cluster_name}-agent-${count.index + 1}"
   labels = local.labels
   type   = "spread"
 }
 
 resource "hcloud_placement_group" "agent_named" {
-  for_each = local.agent_placement_groups
+  for_each = var.enable_placement_groups ? local.agent_placement_groups : toset([])
   name     = "${var.cluster_name}-agent-${each.key}"
   labels   = local.labels
   type     = "spread"

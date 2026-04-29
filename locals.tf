@@ -14,6 +14,52 @@ locals {
   # if given as a variable, we want to use the given token. This is needed to restore the cluster
   cluster_token = var.cluster_token == null ? random_password.k3s_token.result : var.cluster_token
 
+  node_transport_tailscale_enabled = var.node_transport_mode == "tailscale"
+  tailscale_magicdns_domain        = trim(var.tailscale_node_transport.magicdns_domain != null ? var.tailscale_node_transport.magicdns_domain : "", ".")
+  tailscale_use_tailnet_for_terraform = (
+    local.node_transport_tailscale_enabled &&
+    var.tailscale_node_transport.ssh.use_tailnet_for_terraform
+  )
+  tailscale_pre_terraform_ssh_enabled = (
+    local.tailscale_use_tailnet_for_terraform &&
+    contains(["cloud_init", "external"], var.tailscale_node_transport.bootstrap_mode)
+  )
+  tailscale_remote_exec_bootstrap_enabled = (
+    local.node_transport_tailscale_enabled &&
+    var.tailscale_node_transport.bootstrap_mode == "remote_exec"
+  )
+  tailscale_cloud_init_bootstrap_enabled = (
+    local.node_transport_tailscale_enabled &&
+    var.tailscale_node_transport.bootstrap_mode == "cloud_init"
+  )
+  tailscale_managed_bootstrap_enabled = (
+    local.tailscale_remote_exec_bootstrap_enabled ||
+    local.tailscale_cloud_init_bootstrap_enabled
+  )
+  tailscale_auth_mode                        = var.tailscale_node_transport.auth.mode
+  tailscale_oauth_static_auth_parameters     = "?ephemeral=${var.tailscale_node_transport.auth.oauth_static_nodes_ephemeral}&preauthorized=${var.tailscale_node_transport.auth.oauth_preauthorized}"
+  tailscale_oauth_autoscaler_auth_parameters = "?ephemeral=${var.tailscale_node_transport.auth.oauth_autoscaler_ephemeral}&preauthorized=${var.tailscale_node_transport.auth.oauth_preauthorized}"
+  tailscale_auth_value_control_plane = (
+    local.tailscale_auth_mode == "auth_key" ? try(coalesce(var.tailscale_control_plane_auth_key, var.tailscale_auth_key), "") :
+    local.tailscale_auth_mode == "oauth_client_secret" ? "${try(coalesce(var.tailscale_oauth_client_secret), "")}${local.tailscale_oauth_static_auth_parameters}" :
+    ""
+  )
+  tailscale_auth_value_agent = (
+    local.tailscale_auth_mode == "auth_key" ? try(coalesce(var.tailscale_agent_auth_key, var.tailscale_auth_key), "") :
+    local.tailscale_auth_mode == "oauth_client_secret" ? "${try(coalesce(var.tailscale_oauth_client_secret), "")}${local.tailscale_oauth_static_auth_parameters}" :
+    ""
+  )
+  tailscale_auth_value_autoscaler = (
+    local.tailscale_auth_mode == "auth_key" ? try(coalesce(var.tailscale_autoscaler_auth_key, var.tailscale_auth_key), "") :
+    local.tailscale_auth_mode == "oauth_client_secret" ? "${try(coalesce(var.tailscale_oauth_client_secret), "")}${local.tailscale_oauth_autoscaler_auth_parameters}" :
+    ""
+  )
+  tailscale_auth_flag                    = local.tailscale_auth_mode == "external" ? "" : "--auth-key"
+  tailscale_accept_routes                = "true"
+  tailscale_advertise_node_private_route = local.node_transport_tailscale_enabled && var.tailscale_node_transport.routing.advertise_node_private_routes ? "true" : "false"
+  tailscale_enable_ssh                   = var.tailscale_node_transport.ssh.enable_tailscale_ssh ? "true" : "false"
+  tailscale_advertise_additional_routes  = var.tailscale_node_transport.routing.advertise_additional_routes
+
   kubernetes_distribution        = var.kubernetes_distribution
   secrets_encryption_config_file = local.kubernetes_distribution == "rke2" ? "/etc/rancher/rke2/encryption-config.yaml" : "/etc/rancher/k3s/encryption-config.yaml"
   secrets_encryption_config = var.enable_secrets_encryption ? yamlencode({
@@ -39,15 +85,22 @@ locals {
 
   # k3s endpoint used for agent registration, respects control_plane_endpoint override
   multinetwork_overlay_enabled        = var.multinetwork_mode == "cilium_public_overlay"
+  cross_network_transport_enabled     = local.multinetwork_overlay_enabled || local.node_transport_tailscale_enabled
   multinetwork_transport_ipv4_enabled = contains(["ipv4", "dualstack"], var.multinetwork_transport_ip_family)
   multinetwork_transport_ipv6_enabled = contains(["ipv6", "dualstack"], var.multinetwork_transport_ip_family)
   multinetwork_cilium_peer_source_cidrs = compact(concat(
     local.multinetwork_transport_ipv4_enabled ? var.multinetwork_cilium_peer_ipv4_cidrs : [],
     local.multinetwork_transport_ipv6_enabled ? var.multinetwork_cilium_peer_ipv6_cidrs : []
   ))
-  cilium_routing_mode_effective = local.multinetwork_overlay_enabled ? "tunnel" : var.cilium_routing_mode
-  cilium_wireguard_effective    = local.multinetwork_overlay_enabled || var.enable_cni_wireguard_encryption
-  cilium_mtu_effective          = local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450)
+  gateway_api_crds_version            = try(provider::semvers::compare(trimprefix(var.cilium_version, "v"), "1.19.0"), 1) >= 0 ? "v1.4.1" : "v1.2.0"
+  gateway_api_crds_enabled            = var.cilium_gateway_api_enabled || var.traefik_provider_kubernetes_gateway_enabled
+  gateway_api_standard_crd_names      = ["gatewayclasses", "gateways", "httproutes", "referencegrants", "grpcroutes"]
+  gateway_api_standard_crds_manifest  = local.gateway_api_crds_enabled ? join("\n---\n", [for name in local.gateway_api_standard_crd_names : data.http.gateway_api_standard_crds[name].response_body]) : ""
+  gateway_api_standard_crds_file      = local.gateway_api_crds_enabled ? local.gateway_api_standard_crds_manifest : "# Gateway API CRDs disabled by kube-hetzner\n"
+  gateway_api_standard_crds_resources = local.gateway_api_crds_enabled ? ["gateway-api-standard-crds.yaml"] : []
+  cilium_routing_mode_effective       = local.cross_network_transport_enabled ? "tunnel" : var.cilium_routing_mode
+  cilium_wireguard_effective          = local.multinetwork_overlay_enabled || var.enable_cni_wireguard_encryption
+  cilium_mtu_effective                = local.node_transport_tailscale_enabled ? var.tailscale_node_transport.kubernetes.cni_mtu : (local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450))
 
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
   control_plane_private_host  = var.enable_control_plane_load_balancer ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -61,9 +114,13 @@ locals {
   control_plane_public_host_formatted = local.control_plane_public_host != null && provider::assert::ipv6(local.control_plane_public_host) ? "[${local.control_plane_public_host}]" : local.control_plane_public_host
   control_plane_private_endpoint      = "https://${local.control_plane_private_host}:${var.kubernetes_api_port}"
   control_plane_public_endpoint       = var.control_plane_endpoint != null ? var.control_plane_endpoint : "https://${local.control_plane_public_host_formatted}:${var.kubernetes_api_port}"
+  tailscale_first_control_plane_host  = local.node_transport_tailscale_enabled ? "${module.control_planes[keys(module.control_planes)[0]].name}.${local.tailscale_magicdns_domain}" : null
+  tailscale_control_plane_join_host   = local.node_transport_tailscale_enabled ? module.control_planes[keys(module.control_planes)[0]].private_ipv4_address : null
+  tailscale_k3s_join_endpoint         = local.node_transport_tailscale_enabled ? "https://${local.tailscale_control_plane_join_host}:${var.kubernetes_api_port}" : null
+  tailscale_rke2_join_endpoint        = local.node_transport_tailscale_enabled ? "https://${local.tailscale_control_plane_join_host}:9345" : null
 
   # k3s endpoint used for agent registration.
-  k3s_endpoint = local.multinetwork_overlay_enabled ? local.control_plane_public_endpoint : local.control_plane_private_endpoint
+  k3s_endpoint = local.node_transport_tailscale_enabled ? local.tailscale_k3s_join_endpoint : (local.multinetwork_overlay_enabled ? local.control_plane_public_endpoint : local.control_plane_private_endpoint)
 
   rke2_private_join_endpoint = "https://${local.control_plane_private_host}:9345"
   rke2_public_join_endpoint = (
@@ -71,7 +128,7 @@ locals {
     ? "https://${local.control_plane_public_host_formatted}:9345"
     : "https://${local.control_plane_public_host_formatted}:9345"
   )
-  rke2_join_endpoint = local.multinetwork_overlay_enabled ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
+  rke2_join_endpoint = local.node_transport_tailscale_enabled ? local.tailscale_rke2_join_endpoint : (local.multinetwork_overlay_enabled ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint)
 
   ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : jsondecode(data.http.hetzner_ccm_release[0].response_body).tag_name
   csi_version    = length(data.http.hetzner_csi_release) == 0 ? var.hetzner_csi_version : jsondecode(data.http.hetzner_csi_release[0].response_body).tag_name
@@ -85,6 +142,30 @@ locals {
 
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
+
+  registries_config_user = trimspace(var.registries_config) == "" ? {} : yamldecode(var.registries_config)
+  embedded_registry_mirror_registries = var.embedded_registry_mirror.enabled ? [
+    for registry in var.embedded_registry_mirror.registries : registry
+  ] : []
+  embedded_registry_mirror_mirrors = {
+    for registry in local.embedded_registry_mirror_registries : registry => {}
+  }
+  registries_config_effective_map = var.embedded_registry_mirror.enabled ? merge(
+    local.registries_config_user,
+    {
+      mirrors = merge(
+        local.embedded_registry_mirror_mirrors,
+        coalesce(try(local.registries_config_user.mirrors, null), {})
+      )
+    }
+  ) : local.registries_config_user
+  registries_config_effective = length(keys(local.registries_config_effective_map)) == 0 ? "" : yamlencode(local.registries_config_effective_map)
+  embedded_registry_mirror_server_config = var.embedded_registry_mirror.enabled ? {
+    "embedded-registry" = true
+  } : {}
+  disable_default_registry_endpoint_config = var.embedded_registry_mirror.enabled && var.embedded_registry_mirror.disable_default_endpoint ? {
+    "disable-default-registry-endpoint" = true
+  } : {}
 
   # Bit size of the "network_ipv4_cidr".
   network_size = 32 - split("/", var.network_ipv4_cidr)[1]
@@ -149,6 +230,235 @@ locals {
   fi
   EOF
   EOT
+
+  tailscale_bootstrap_script_template = <<-EOT
+  set -euo pipefail
+
+  TS_VERSION='${var.tailscale_node_transport.version}'
+  TS_AUTH_MODE='${local.tailscale_auth_mode}'
+  TS_AUTH_FLAG='${local.tailscale_auth_flag}'
+  TS_AUTH_VALUE_B64='__KH_TAILSCALE_AUTH_VALUE_B64__'
+  TS_AUTH_VALUE="$(printf '%s' "$TS_AUTH_VALUE_B64" | base64 -d)"
+  TS_HOSTNAME='__KH_TAILSCALE_HOSTNAME__'
+  TS_ADVERTISE_TAGS='__KH_TAILSCALE_TAGS__'
+  TS_ACCEPT_ROUTES='${local.tailscale_accept_routes}'
+  TS_ADVERTISE_ROUTES='__KH_TAILSCALE_ADVERTISE_ROUTES__'
+  TS_ADVERTISE_NODE_PRIVATE_ROUTE='__KH_TAILSCALE_ADVERTISE_NODE_PRIVATE_ROUTE__'
+  TS_PRIVATE_ROUTE_PROBE='__KH_TAILSCALE_PRIVATE_ROUTE_PROBE__'
+  TS_ENABLE_SSH='${local.tailscale_enable_ssh}'
+  TS_TMPDIR=""
+  TS_AUTH_FILE=""
+
+  cleanup_tailscale_bootstrap() {
+    if [ -n "$TS_AUTH_FILE" ]; then
+      rm -f "$TS_AUTH_FILE"
+    fi
+    if [ -n "$TS_TMPDIR" ]; then
+      rm -rf "$TS_TMPDIR"
+    fi
+  }
+  trap cleanup_tailscale_bootstrap EXIT
+
+  install_tailscale_static() {
+    if command -v tailscale >/dev/null 2>&1 && command -v tailscaled >/dev/null 2>&1; then
+      return 0
+    fi
+
+    case "$(uname -m)" in
+      x86_64|amd64) TS_ARCH="amd64" ;;
+      aarch64|arm64) TS_ARCH="arm64" ;;
+      *) echo "Unsupported Tailscale architecture: $(uname -m)" >&2; exit 1 ;;
+    esac
+
+    if [ "$TS_VERSION" = "latest" ]; then
+      TS_URL="https://pkgs.tailscale.com/stable/tailscale_latest_$${TS_ARCH}.tgz"
+    else
+      TS_URL="https://pkgs.tailscale.com/stable/tailscale_$${TS_VERSION}_$${TS_ARCH}.tgz"
+    fi
+
+    TS_TMPDIR="$(mktemp -d)"
+    curl -fsSL "$TS_URL" -o "$TS_TMPDIR/tailscale.tgz"
+    tar -xzf "$TS_TMPDIR/tailscale.tgz" -C "$TS_TMPDIR"
+    TS_DIR="$(find "$TS_TMPDIR" -maxdepth 1 -type d -name 'tailscale_*' | head -n 1)"
+    if [ -z "$TS_DIR" ]; then
+      echo "Unable to find extracted Tailscale directory" >&2
+      exit 1
+    fi
+
+    install -m 0755 "$TS_DIR/tailscale" /usr/local/bin/tailscale
+    install -m 0755 "$TS_DIR/tailscaled" /usr/local/sbin/tailscaled
+    mkdir -p /var/lib/tailscale
+
+    cat >/etc/systemd/system/tailscaled.service <<'EOF'
+  [Unit]
+  Description=Tailscale node agent
+  Documentation=https://tailscale.com/kb/
+  Wants=network-online.target
+  After=network-online.target
+
+  [Service]
+  Type=notify
+  ExecStartPre=/sbin/modprobe tun
+  ExecStart=/usr/local/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock --port=41641
+  ExecStopPost=/usr/local/bin/tailscaled --cleanup
+  Restart=on-failure
+  RuntimeDirectory=tailscale
+  RuntimeDirectoryMode=0755
+  StateDirectory=tailscale
+  StateDirectoryMode=0700
+
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+
+    systemctl daemon-reload
+    systemctl enable --now tailscaled
+  }
+
+  tailscale_is_running() {
+    tailscale status --json 2>/dev/null | grep -q '"BackendState"[[:space:]]*:[[:space:]]*"Running"'
+  }
+
+  install_tailscale_static
+  timeout 120 bash -c 'until systemctl is-active --quiet tailscaled; do sleep 2; done'
+
+  if [ "$TS_ADVERTISE_NODE_PRIVATE_ROUTE" = "true" ]; then
+    TS_NODE_PRIVATE_IP="$(ip -4 route get "$TS_PRIVATE_ROUTE_PROBE" 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
+    if [ -z "$TS_NODE_PRIVATE_IP" ]; then
+      echo "Unable to discover private IPv4 used to reach $TS_PRIVATE_ROUTE_PROBE for Tailscale route advertisement" >&2
+      exit 1
+    fi
+    TS_NODE_PRIVATE_ROUTE="$TS_NODE_PRIVATE_IP/32"
+    if [ -n "$TS_ADVERTISE_ROUTES" ]; then
+      TS_ADVERTISE_ROUTES="$TS_NODE_PRIVATE_ROUTE,$TS_ADVERTISE_ROUTES"
+    else
+      TS_ADVERTISE_ROUTES="$TS_NODE_PRIVATE_ROUTE"
+    fi
+  fi
+
+  if [ -n "$TS_ADVERTISE_ROUTES" ]; then
+    cat >/etc/sysctl.d/99-kube-hetzner-tailscale-router.conf <<'EOF'
+  net.ipv4.ip_forward = 1
+  net.ipv6.conf.all.forwarding = 1
+  EOF
+    sysctl --system >/dev/null
+  fi
+
+  TS_RUNNING="false"
+  if tailscale_is_running; then
+    TS_RUNNING="true"
+  fi
+
+  if [ "$TS_RUNNING" != "true" ]; then
+    if [ "$TS_AUTH_MODE" = "external" ]; then
+      echo "Tailscale auth.mode=external but node is not already logged in" >&2
+      exit 1
+    fi
+    if [ -z "$TS_AUTH_VALUE" ]; then
+      echo "Missing Tailscale auth value for $TS_AUTH_MODE" >&2
+      exit 1
+    fi
+  fi
+
+  UP_ARGS=(
+    "--reset"
+    "--hostname=$TS_HOSTNAME"
+    "--accept-routes=$TS_ACCEPT_ROUTES"
+    "--accept-dns=false"
+  )
+  if [ "$TS_AUTH_MODE" != "external" ] && [ -n "$TS_AUTH_VALUE" ]; then
+    TS_AUTH_FILE="$(mktemp /run/kube-hetzner-tailscale-auth.XXXXXX)"
+    chmod 0600 "$TS_AUTH_FILE"
+    printf '%s' "$TS_AUTH_VALUE" > "$TS_AUTH_FILE"
+    UP_ARGS+=("$TS_AUTH_FLAG=file:$TS_AUTH_FILE")
+  fi
+  if [ -n "$TS_ADVERTISE_TAGS" ]; then
+    UP_ARGS+=("--advertise-tags=$TS_ADVERTISE_TAGS")
+  fi
+  if [ -n "$TS_ADVERTISE_ROUTES" ]; then
+    UP_ARGS+=("--advertise-routes=$TS_ADVERTISE_ROUTES")
+    UP_ARGS+=("--snat-subnet-routes=false")
+  fi
+  if [ "$TS_ENABLE_SSH" = "true" ]; then
+    UP_ARGS+=("--ssh")
+  fi
+  tailscale up "$${UP_ARGS[@]}"
+
+  timeout 180 bash -c 'until tailscale ip -4 >/dev/null 2>&1; do sleep 2; done'
+  EOT
+
+  tailscale_bootstrap_script_static_control_plane_by_node = {
+    for node_key, _ in local.control_plane_nodes :
+    node_key => replace(
+      replace(
+        replace(
+          replace(
+            replace(
+              replace(local.tailscale_bootstrap_script_template, "__KH_TAILSCALE_TAGS__", join(",", var.tailscale_node_transport.auth.advertise_tags_control_plane)),
+              "__KH_TAILSCALE_AUTH_VALUE_B64__",
+              base64encode(local.tailscale_auth_value_control_plane)
+            ),
+            "__KH_TAILSCALE_ADVERTISE_ROUTES__",
+            join(",", local.tailscale_advertise_additional_routes)
+          ),
+          "__KH_TAILSCALE_ADVERTISE_NODE_PRIVATE_ROUTE__",
+          local.tailscale_advertise_node_private_route
+        ),
+        "__KH_TAILSCALE_PRIVATE_ROUTE_PROBE__",
+        local.network_gw_ipv4_by_network_id[local.control_plane_primary_network_id_by_node[node_key]]
+      ),
+      "TS_HOSTNAME='__KH_TAILSCALE_HOSTNAME__'",
+      "TS_HOSTNAME=\"$(hostname -s)\""
+    )
+  }
+  tailscale_bootstrap_script_static_agent_by_node = {
+    for node_key, _ in local.agent_nodes :
+    node_key => replace(
+      replace(
+        replace(
+          replace(
+            replace(
+              replace(local.tailscale_bootstrap_script_template, "__KH_TAILSCALE_TAGS__", join(",", var.tailscale_node_transport.auth.advertise_tags_agent)),
+              "__KH_TAILSCALE_AUTH_VALUE_B64__",
+              base64encode(local.tailscale_auth_value_agent)
+            ),
+            "__KH_TAILSCALE_ADVERTISE_ROUTES__",
+            join(",", local.tailscale_advertise_additional_routes)
+          ),
+          "__KH_TAILSCALE_ADVERTISE_NODE_PRIVATE_ROUTE__",
+          local.tailscale_advertise_node_private_route
+        ),
+        "__KH_TAILSCALE_PRIVATE_ROUTE_PROBE__",
+        local.network_gw_ipv4_by_network_id[local.agent_primary_network_id_by_node[node_key]]
+      ),
+      "TS_HOSTNAME='__KH_TAILSCALE_HOSTNAME__'",
+      "TS_HOSTNAME=\"$(hostname -s)\""
+    )
+  }
+  tailscale_bootstrap_script_autoscaler_by_index = {
+    for index, nodepool in var.autoscaler_nodepools :
+    index => replace(
+      replace(
+        replace(
+          replace(
+            replace(
+              replace(local.tailscale_bootstrap_script_template, "__KH_TAILSCALE_TAGS__", join(",", var.tailscale_node_transport.auth.advertise_tags_autoscaler)),
+              "__KH_TAILSCALE_AUTH_VALUE_B64__",
+              base64encode(local.tailscale_auth_value_autoscaler)
+            ),
+            "__KH_TAILSCALE_ADVERTISE_ROUTES__",
+            join(",", local.tailscale_advertise_additional_routes)
+          ),
+          "__KH_TAILSCALE_ADVERTISE_NODE_PRIVATE_ROUTE__",
+          local.tailscale_advertise_node_private_route
+        ),
+        "__KH_TAILSCALE_PRIVATE_ROUTE_PROBE__",
+        local.network_gw_ipv4_by_network_id[coalesce(nodepool.network_id, 0) == 0 ? data.hcloud_network.k3s.id : nodepool.network_id]
+      ),
+      "TS_HOSTNAME='__KH_TAILSCALE_HOSTNAME__'",
+      "TS_HOSTNAME=\"$(curl -fsS --max-time 2 http://169.254.169.254/hetzner/v1/metadata/hostname 2>/dev/null || hostname -s)\""
+    )
+  }
 
   private_default_route_repair_script = join("\n", [
     "# Ensure persistent private-network default route (Hetzner DHCP change Aug 11, 2025)",
@@ -338,6 +648,7 @@ EOT
         "system-upgrade-controller-crd.yaml"
       ],
       ["hcloud-ccm-helm.yaml"],
+      local.gateway_api_standard_crds_resources,
       var.enable_load_balancer_monitoring ? ["load_balancer_monitoring.yaml"] : [],
       var.enable_hetzner_csi ? ["hcloud-csi.yaml"] : [],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
@@ -858,30 +1169,35 @@ EOT
     [for _, node in local.agent_nodes : node.network_id],
   ))
 
-  external_nodepool_network_ids = toset(distinct([
-    for network_id in concat(
-      [for _, node in local.control_plane_nodes : node.network_id],
-      [for _, node in local.agent_nodes : node.network_id],
-      [for nodepool in var.autoscaler_nodepools : coalesce(nodepool.network_id, 0)],
-    ) :
-    tostring(network_id)
-    if network_id != 0
-  ]))
+  nodepool_network_refs = merge(
+    {
+      for node_key, node in local.control_plane_nodes :
+      "control-plane:${node_key}" => node.network_id
+    },
+    {
+      for node_key, node in local.agent_nodes :
+      "agent:${node_key}" => node.network_id
+    },
+    {
+      for index, nodepool in var.autoscaler_nodepools :
+      "autoscaler:${index}" => coalesce(nodepool.network_id, 0)
+    }
+  )
 
   network_gw_ipv4_by_network_id = merge(
     { (data.hcloud_network.k3s.id) = cidrhost(data.hcloud_network.k3s.ip_range, 1) },
-    {
-      for network_id, network in data.hcloud_network.additional_nodepool_networks :
-      tonumber(network_id) => cidrhost(network.ip_range, 1)
-    }
+    [
+      for _, network in data.hcloud_network.additional_nodepool_networks :
+      { (network.id) = cidrhost(network.ip_range, 1) }
+    ]...
   )
 
   network_ipv4_cidr_by_network_id = merge(
     { (data.hcloud_network.k3s.id) = data.hcloud_network.k3s.ip_range },
-    {
-      for network_id, network in data.hcloud_network.additional_nodepool_networks :
-      tonumber(network_id) => network.ip_range
-    }
+    [
+      for _, network in data.hcloud_network.additional_nodepool_networks :
+      { (network.id) = network.ip_range }
+    ]...
   )
 
   k8s_install_network_env_by_control_plane = {
@@ -909,7 +1225,7 @@ EOT
   control_plane_effective_extra_network_ids_by_node = {
     for node_key, node in local.control_plane_nodes :
     node_key => distinct([
-      for network_id in concat(var.extra_network_ids, local.multinetwork_overlay_enabled ? [] : local.external_agent_network_ids) :
+      for network_id in concat(var.extra_network_ids, local.cross_network_transport_enabled ? [] : local.external_agent_network_ids) :
       network_id
       if network_id != 0 && network_id != node.network_id
     ])
@@ -952,12 +1268,12 @@ EOT
 
   k3s_agent_join_endpoint_by_node = {
     for node_key, _ in local.agent_nodes :
-    node_key => local.agent_effective_join_endpoint_type_by_node[node_key] == "public" ? local.control_plane_public_endpoint : local.control_plane_private_endpoint
+    node_key => local.node_transport_tailscale_enabled ? local.tailscale_k3s_join_endpoint : (local.agent_effective_join_endpoint_type_by_node[node_key] == "public" ? local.control_plane_public_endpoint : local.control_plane_private_endpoint)
   }
 
   rke2_agent_join_endpoint_by_node = {
     for node_key, _ in local.agent_nodes :
-    node_key => local.agent_effective_join_endpoint_type_by_node[node_key] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
+    node_key => local.node_transport_tailscale_enabled ? local.tailscale_rke2_join_endpoint : (local.agent_effective_join_endpoint_type_by_node[node_key] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint)
   }
 
   public_join_endpoint_enabled = anytrue(concat(
@@ -973,6 +1289,22 @@ EOT
         direction       = "out"
         protocol        = "tcp"
         port            = tostring(var.kubernetes_api_port)
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      }
+    ] : [],
+    local.node_transport_tailscale_enabled ? [
+      {
+        description     = "Allow Outbound Tailscale Direct WireGuard"
+        direction       = "out"
+        protocol        = "udp"
+        port            = "41641"
+        destination_ips = ["0.0.0.0/0", "::/0"]
+      },
+      {
+        description     = "Allow Outbound Tailscale STUN"
+        direction       = "out"
+        protocol        = "udp"
+        port            = "3478"
         destination_ips = ["0.0.0.0/0", "::/0"]
       }
     ] : [],
@@ -1091,12 +1423,12 @@ EOT
 
   k3s_autoscaler_join_endpoint_by_index = {
     for index, _ in var.autoscaler_nodepools :
-    index => local.autoscaler_effective_join_endpoint_type_by_index[index] == "public" ? local.control_plane_public_endpoint : local.control_plane_private_endpoint
+    index => local.node_transport_tailscale_enabled ? local.tailscale_k3s_join_endpoint : (local.autoscaler_effective_join_endpoint_type_by_index[index] == "public" ? local.control_plane_public_endpoint : local.control_plane_private_endpoint)
   }
 
   rke2_autoscaler_join_endpoint_by_index = {
     for index, _ in var.autoscaler_nodepools :
-    index => local.autoscaler_effective_join_endpoint_type_by_index[index] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint
+    index => local.node_transport_tailscale_enabled ? local.tailscale_rke2_join_endpoint : (local.autoscaler_effective_join_endpoint_type_by_index[index] == "public" ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint)
   }
 
   ssh_bastion = coalesce(
@@ -1247,8 +1579,8 @@ for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.ena
 done
 EOT
 
-  hetzner_ccm_networking_enabled       = local.cluster_has_ipv4
-  hetzner_ccm_route_cluster_cidr       = coalesce(local.cluster_ipv4_cidr_effective, "")
+  hetzner_ccm_networking_enabled       = local.cluster_has_ipv4 && !local.cross_network_transport_enabled
+  hetzner_ccm_route_cluster_cidr       = local.cluster_ipv4_cidr_effective != null ? local.cluster_ipv4_cidr_effective : ""
   hetzner_ccm_instances_address_family = local.cluster_has_ipv6 ? (local.cluster_has_ipv4 ? "dualstack" : "ipv6") : "ipv4"
 
   # Keep the legacy single-network value available for templates that still
@@ -1363,6 +1695,15 @@ EOT
         source_ips  = var.cluster_autoscaler_metrics_firewall_source
       }
     ],
+    local.node_transport_tailscale_enabled ? [
+      {
+        description = "Allow Incoming Tailscale Direct WireGuard"
+        direction   = "in"
+        protocol    = "udp"
+        port        = "41641"
+        source_ips  = ["0.0.0.0/0", "::/0"]
+      }
+    ] : [],
     local.multinetwork_overlay_enabled ? [
       {
         description = "Allow Cilium WireGuard public overlay peer traffic"
@@ -1538,8 +1879,8 @@ kubeProxyReplacementHealthzBindAddr: "0.0.0.0:10256"
 k8sServiceHost: "127.0.0.1"
 k8sServicePort: "${local.kubernetes_distribution == "rke2" ? tostring(var.kubernetes_api_port) : "6444"}"
 
-# Set Tunnel Mode or Native Routing Mode. Multinetwork public overlay forces tunnel mode.
-routingMode: "${local.cilium_routing_mode_effective}"
+  # Set Tunnel Mode or Native Routing Mode. Cross-network transports force tunnel mode.
+  routingMode: "${local.cilium_routing_mode_effective}"
 %{if local.cilium_routing_mode_effective == "native"~}
 %{if local.cluster_has_ipv4~}
 # Set the native routable CIDR
@@ -1587,6 +1928,10 @@ encryption:
   # Enable node encryption for node-to-node traffic
   nodeEncryption: true
   type: wireguard
+%{endif~}
+%{if var.cilium_gateway_api_enabled}
+gatewayAPI:
+  enabled: true
 %{endif~}
 %{if var.cilium_egress_gateway_enabled}
 egressGateway:
@@ -1723,7 +2068,7 @@ controller:
 %{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
 %{endif~}
-      "load-balancer.hetzner.cloud/use-private-ip": "${!local.multinetwork_overlay_enabled}"
+      "load-balancer.hetzner.cloud/use-private-ip": "${!local.cross_network_transport_enabled}"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${!var.load_balancer_enable_public_network}"
       "load-balancer.hetzner.cloud/ipv6-disabled": "${!var.load_balancer_enable_ipv6}"
@@ -1765,12 +2110,12 @@ env:
   HCLOUD_LOAD_BALANCERS_LOCATION:
     value: "${var.load_balancer_location}"
   HCLOUD_LOAD_BALANCERS_USE_PRIVATE_IP:
-    value: "${!local.multinetwork_overlay_enabled}"
+    value: "${!local.cross_network_transport_enabled}"
   HCLOUD_LOAD_BALANCERS_ENABLED:
     value: "${!local.using_klipper_lb}"
   HCLOUD_LOAD_BALANCERS_DISABLE_PRIVATE_INGRESS:
     value: "true"
-%{if local.use_robot_ccm || local.multinetwork_overlay_enabled~}
+%{if local.use_robot_ccm || local.cross_network_transport_enabled~}
   HCLOUD_NETWORK_ROUTES_ENABLED:
     value: "false"
 %{endif~}
@@ -1780,7 +2125,7 @@ env:
 %{endif~}
 # Use host network to avoid circular dependency with CNI
 hostNetwork: true
-%{if local.multinetwork_overlay_enabled~}
+%{if local.cross_network_transport_enabled~}
 
 # In public-overlay preview mode, external-network agents are not attached to
 # the primary Hetzner Network. Pin CCM to control planes so its HCLOUD_NETWORK
@@ -1838,7 +2183,7 @@ controller:
 %{else~}
       "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
 %{endif~}
-      "load-balancer.hetzner.cloud/use-private-ip": "${!local.multinetwork_overlay_enabled}"
+      "load-balancer.hetzner.cloud/use-private-ip": "${!local.cross_network_transport_enabled}"
       "load-balancer.hetzner.cloud/disable-private-ingress": "true"
       "load-balancer.hetzner.cloud/disable-public-network": "${!var.load_balancer_enable_public_network}"
       "load-balancer.hetzner.cloud/ipv6-disabled": "${!var.load_balancer_enable_ipv6}"
@@ -1872,7 +2217,7 @@ service:
 %{else~}
     "load-balancer.hetzner.cloud/name": "${local.load_balancer_name}"
 %{endif~}
-    "load-balancer.hetzner.cloud/use-private-ip": "${!local.multinetwork_overlay_enabled}"
+    "load-balancer.hetzner.cloud/use-private-ip": "${!local.cross_network_transport_enabled}"
     "load-balancer.hetzner.cloud/disable-private-ingress": "true"
     "load-balancer.hetzner.cloud/disable-public-network": "${!var.load_balancer_enable_public_network}"
     "load-balancer.hetzner.cloud/ipv6-disabled": "${!var.load_balancer_enable_ipv6}"
@@ -2012,7 +2357,7 @@ cert_manager_values_default = <<EOT
 crds:
   enabled: true
   keep: true
-%{if var.traefik_provider_kubernetes_gateway_enabled~}
+%{if local.gateway_api_crds_enabled~}
 config:
   apiVersion: controller.config.cert-manager.io/v1alpha1
   kind: ControllerConfiguration
@@ -2556,8 +2901,8 @@ cloudinit_write_files_common = <<EOT
   content: ${base64encode(file("${path.module}/templates/k8s-custom-policies.te"))}
 
 # Create the distribution-specific registries file before Kubernetes starts.
-%{if var.registries_config != ""}
-- content: ${base64encode(var.registries_config)}
+%{if local.registries_config_effective != ""}
+- content: ${base64encode(local.registries_config_effective)}
   encoding: base64
   path: ${local.registries_config_file}
 %{endif}

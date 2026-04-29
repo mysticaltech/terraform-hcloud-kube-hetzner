@@ -24,6 +24,9 @@ Ensure documentation is synchronized across all key files when variables or feat
 | `kube.tf.example` | Working example configuration | HIGH |
 | `README.md` | Project overview and quick start | MEDIUM |
 | `docs/terraform.md` | Auto-generated terraform docs | AUTO |
+| `docs/v3-topology-recommendations.md` | Topology chooser and release-shaping guidance | MEDIUM |
+| `examples/*/README.md` | Feature-specific operator examples | MEDIUM |
+| `.claude/skills/*/SKILL.md` | Agent/operator workflows | MEDIUM |
 
 ## Workflow
 
@@ -115,6 +118,7 @@ For each undocumented variable:
 | Agents | agent_*, autoscaler_* |
 | Load Balancer | lb_*, traefik_*, nginx_* |
 | CNI | cni_*, cilium_*, calico_* |
+| Node Transport | node_transport_mode, tailscale_* |
 | Storage | longhorn_* |
 | Security | firewall_*, audit_* |
 | Advanced | Additional/misc options |
@@ -140,6 +144,38 @@ Update README.md if:
 - Significant capability change
 
 Features section should match actual capabilities.
+
+For Tailscale changes, keep these surfaces in sync:
+- `README.md` support table and Multinetwork section
+- `kube.tf.example` Tailscale node-transport comments
+- `docs/llms.md` support levels and variable notes
+- `docs/v3-topology-recommendations.md`
+- `examples/tailscale-node-transport/README.md`
+- `examples/external-overlay-tailscale/README.md`
+- `.claude/skills/kh-assistant/SKILL.md`
+- `.claude/skills/migrate-v2-to-v3/SKILL.md`
+
+For Cilium Gateway API changes, keep these surfaces in sync:
+- `variables.tf` validation for `cilium_gateway_api_enabled`
+- `locals.tf` Cilium values and Gateway API CRD version mapping
+- `README.md`
+- `kube.tf.example`
+- `docs/llms.md`
+- `docs/v3-topology-recommendations.md`
+- `examples/cilium-gateway-api/README.md`
+- `.claude/skills/kh-assistant/SKILL.md`
+- `.claude/skills/test-changes/SKILL.md`
+
+For embedded registry mirror changes, keep these surfaces in sync:
+- `variables.tf` validation for `embedded_registry_mirror`
+- `locals.tf` effective `registries.yaml` merge behavior
+- host/control-plane/agent/autoscaler config rendering
+- `README.md`
+- `kube.tf.example`
+- `docs/llms.md`
+- `docs/v3-topology-recommendations.md`
+- `.claude/skills/kh-assistant/SKILL.md`
+- `.claude/skills/test-changes/SKILL.md`
 
 ## Step 7: Verify Consistency
 
@@ -182,6 +218,9 @@ gemini --model gemini-3.1-pro-preview -p \
 ```bash
 # Regenerate terraform docs
 terraform-docs markdown . > docs/terraform.md
+
+# Validate v3 topology/Gateway/registry surfaces
+uv run scripts/validate_v3_final_polish_examples.py
 
 # Search for variable across all docs
 rg -n "variable_name" docs/ kube.tf.example README.md

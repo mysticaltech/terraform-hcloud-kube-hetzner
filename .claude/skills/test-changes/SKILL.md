@@ -116,6 +116,44 @@ perl -0pi -e 's#source = "kube-hetzner/kube-hetzner/hcloud"#source = "/Volumes/M
 
 **Must pass before proceeding.**
 
+## Step 6.5: Validate Large Tailscale Examples
+
+```bash
+cd /Volumes/MysticalTech/Code/kube-hetzner
+uv run scripts/validate_tailscale_large_scale_examples.py
+```
+
+**Must pass when Tailscale node transport, multinetwork, autoscaler, placement
+group, or example docs change.** This checks the +100-node and
+10,000-total-node reference topology math without creating real 10k
+infrastructure.
+
+## Step 6.6: Validate v3 Final-Polish Surfaces
+
+```bash
+cd /Volumes/MysticalTech/Code/kube-hetzner
+uv run scripts/validate_v3_final_polish_examples.py
+```
+
+**Must pass when topology docs, `cilium_gateway_api_enabled`,
+`embedded_registry_mirror`, endpoint outputs, examples, or skills change.**
+This keeps the v3 topology chooser, Gateway API example, registry mirror
+snippets, and validation gates in sync.
+
+## Step 6.7: Run v3 Blast-Radius Plan Matrix
+
+```bash
+cd /Volumes/MysticalTech/Code/kube-hetzner
+uv run scripts/smoke_v3_plan_matrix.py
+```
+
+**Must pass when Cilium Gateway API, embedded registry mirror, Tailscale node
+transport, multinetwork validation, or endpoint-mode logic changes.** This
+creates disposable Terraform roots and never applies, but it needs a real HCloud
+token so successful plans can read provider data sources. Set
+`SMOKE_HCLOUD_EXTERNAL_NETWORK_ID` if no existing HCloud Network is available
+for the external-network Tailscale plan smoke.
+
 ## Step 7: Initialize Test Environment
 
 ```bash
@@ -166,6 +204,10 @@ If `terraform plan` shows ANY resource destruction on existing infrastructure:
 - [ ] `terraform validate` passes
 - [ ] OpenTofu temp-copy validation passes
 - [ ] `kube.tf.example` parses against the local checkout
+- [ ] `uv run scripts/validate_tailscale_large_scale_examples.py` passes when large-scale/Tailscale/networking examples are touched
+- [ ] `uv run scripts/validate_v3_final_polish_examples.py` passes when Gateway API/registry/topology docs are touched
+- [ ] `uv run scripts/smoke_v3_plan_matrix.py` passes when Gateway API/registry/Tailscale plan behavior is touched
+- [ ] Tailscale node-transport static cases pass/fail as expected when variables/networking are touched
 - [ ] `terraform plan` shows expected changes only
 - [ ] No resource destruction
 - [ ] No unexpected side effects
@@ -187,6 +229,10 @@ rm -rf "$tmpdir" && \
 tmpdir="$(mktemp -d)" && cp kube.tf.example "$tmpdir/main.tf" && \
 perl -0pi -e 's#source = "kube-hetzner/kube-hetzner/hcloud"#source = "/Volumes/MysticalTech/Code/kube-hetzner"#' "$tmpdir/main.tf" && \
 (cd "$tmpdir" && terraform fmt -check main.tf && terraform init -backend=false && terraform validate) && \
+rm -rf "$tmpdir" && \
+uv run scripts/validate_tailscale_large_scale_examples.py && \
+uv run scripts/validate_v3_final_polish_examples.py && \
+uv run scripts/smoke_v3_plan_matrix.py && \
 cd /Users/karim/Code/kube-test && \
 terraform init -upgrade && \
 terraform plan
