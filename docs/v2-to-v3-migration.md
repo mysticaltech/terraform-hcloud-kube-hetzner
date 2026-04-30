@@ -69,7 +69,8 @@ Complete this before applying a v3 plan:
 | Tailscale node transport | Supported opt-in | Use `node_transport_mode = "tailscale"` for secure Tailnet access in single-network clusters or Flannel-first private multinetwork scale-out. |
 | Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; do not use for production upgrades yet. |
 | Raw Flannel/Calico multinetwork scale | Unsupported | Separate Hetzner Networks are L3 islands; use Tailscale node transport, one private Network, or a separately managed routed/VPN fabric. |
-| Tailscale/ZeroTier/WARP operator access | Supported external pattern | Use generic hooks when the overlay is only for operator access or post-bootstrap features. |
+| Cloudflare Access/Tunnel operator/app access | Documented external pattern | Manage Cloudflare resources outside kube-hetzner; do not use Cloudflare Mesh/WARP as v3 node transport. |
+| User-owned Tailscale/ZeroTier/WireGuard/WARP access | Supported external pattern | Use generic hooks when the overlay is only for operator access or post-bootstrap features. |
 | Robot/vSwitch | Advanced/special-case | Validate route exposure and migration plans manually. |
 | Private-only clusters | Advanced/special-case | Prove SSH and join paths before applying. |
 | Longhorn with attached volumes | Supported with caution | Review replacements and first-boot relabel/mount timing carefully. |
@@ -77,8 +78,9 @@ Complete this before applying a v3 plan:
 For new or redesigned clusters, use the chooser in
 [`docs/v3-topology-recommendations.md`](v3-topology-recommendations.md). For
 in-place upgrades, keep the first v3 apply boring: fix renamed inputs and prove
-the plan first, then add Cilium Gateway API, embedded registry mirror, or new
-Tailscale multinetwork shards in a separate reviewed plan.
+the plan first, then add Cilium Gateway API, embedded registry mirror, new
+Tailscale multinetwork shards, or external Cloudflare Access/Tunnel routing in
+a separate reviewed plan.
 
 ## Minimum versions
 

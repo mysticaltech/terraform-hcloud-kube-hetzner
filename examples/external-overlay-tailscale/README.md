@@ -10,6 +10,11 @@ access or for multiple Hetzner Networks, use `node_transport_mode = "tailscale"`
 instead and start from
 [`../tailscale-node-transport/README.md`](../tailscale-node-transport/README.md).
 
+For Cloudflare Zero Trust Access/Tunnel, use the separate
+[`../external-overlay-cloudflare-access/README.md`](../external-overlay-cloudflare-access/README.md)
+boundary. Cloudflare can protect selected operator or application endpoints,
+but Cloudflare Mesh/WARP is not a supported kube-hetzner node transport in v3.
+
 ## Goals
 
 - Optionally install the Tailscale client on nodes via `preinstall_exec`.

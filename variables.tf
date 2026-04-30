@@ -953,7 +953,7 @@ variable "nat_router" {
 variable "use_private_nat_router_bastion" {
   type        = bool
   default     = false
-  description = "Use the NAT router's private IP as the SSH bastion instead of its public IP. Requires the operator to have network-level access to the private network (e.g. via Tailscale, Cloudflare Tunnel, WireGuard VPN, etc)."
+  description = "Use the NAT router's private IP as the SSH bastion instead of its public IP. Requires the operator to have network-level access to the private network (for example Tailscale, Cloudflare Tunnel, WireGuard VPN, etc). Cloudflare here is an external access path, not kube-hetzner-managed node transport."
 
   validation {
     condition     = !var.use_private_nat_router_bastion || var.nat_router != null
@@ -1313,7 +1313,7 @@ variable "control_plane_nodepools" {
     append_random_suffix  = optional(bool, true)
     swap_size             = optional(string, "")
     zram_size             = optional(string, "")
-    kubelet_args          = optional(list(string), ["kube-reserved=cpu=250m,memory=1200Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+    kubelet_args          = optional(list(string), ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
     selinux               = optional(bool, true)
     placement_group_index = optional(number, 0)
     placement_group       = optional(string, null)
@@ -1348,7 +1348,7 @@ variable "control_plane_nodepools" {
       append_random_suffix  = optional(bool)
       swap_size             = optional(string, "")
       zram_size             = optional(string, "")
-      kubelet_args          = optional(list(string), ["kube-reserved=cpu=250m,memory=1200Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
+      kubelet_args          = optional(list(string), ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
       selinux               = optional(bool, true)
       placement_group_index = optional(number, null)
       placement_group       = optional(string, null)
@@ -4025,7 +4025,7 @@ variable "control_plane_endpoint" {
 variable "node_connection_overrides" {
   type        = map(string)
   default     = {}
-  description = "Optional map of node name => SSH host override. Use this to route Terraform SSH/provisioning through external overlay networks managed outside this module (for example Tailscale, ZeroTier, or Cloudflare WARP)."
+  description = "Optional map of node name => SSH host override. Use this to route Terraform SSH/provisioning through external access or overlay networks managed outside this module (for example ZeroTier, WireGuard, or Cloudflare Tunnel/WARP). For kube-hetzner-managed Tailscale node transport, use node_transport_mode=\"tailscale\". Cloudflare Access/Tunnel is external access only; Cloudflare Mesh/WARP is not a supported v3 node transport."
 
   validation {
     condition = alltrue([

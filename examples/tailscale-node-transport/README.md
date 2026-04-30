@@ -13,6 +13,12 @@ node transport. It is useful in two shapes:
 while Kubernetes keeps Hetzner private node IPs. Tailscale is the encrypted L3
 transport and access path; it is not the CNI.
 
+Cloudflare Zero Trust can still be useful beside this pattern as an external
+Access/Tunnel layer for human-facing endpoints. Keep the responsibility split
+clean: Tailscale carries kube-hetzner node transport; Cloudflare protects
+selected API, SSH, Rancher, Grafana, or ingress hostnames outside this module.
+Cloudflare Mesh/WARP is not a supported kube-hetzner node transport in v3.
+
 ## When to Use This
 
 - You want to close public API and SSH firewall rules but still let Terraform

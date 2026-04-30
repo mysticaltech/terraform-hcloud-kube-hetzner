@@ -40,6 +40,7 @@ def main() -> int:
     topology = read("docs/v3-topology-recommendations.md")
     changelog = read("CHANGELOG.md")
     smoke_matrix = read("scripts/smoke_v3_plan_matrix.py")
+    cloudflare_example = read("examples/external-overlay-cloudflare-access/README.md")
 
     require(errors, 'variable "cilium_gateway_api_enabled"' in variables, "variables.tf must define cilium_gateway_api_enabled")
     require(errors, 'cni_plugin == "cilium" && !var.enable_kube_proxy' in variables, "Cilium Gateway API must validate Cilium plus kube-proxy replacement")
@@ -47,6 +48,7 @@ def main() -> int:
     require(errors, 'variable "embedded_registry_mirror"' in variables, "variables.tf must define embedded_registry_mirror")
     require(errors, "embedded_registry_mirror.registries must not contain duplicates" in variables, "embedded registry mirror must reject duplicate registries")
     require(errors, "advertise_node_private_routes = true" in variables, "embedded registry mirror must enforce Tailscale route advertisement for multinetwork")
+    require(errors, 'contains(["hetzner_private", "tailscale"], var.node_transport_mode)' in variables, "node_transport_mode must stay limited to Hetzner private or Tailscale")
 
     require(errors, "gatewayAPI:" in locals_tf and "enabled: true" in locals_tf, "locals.tf must enable Cilium gatewayAPI when requested")
     require(errors, "gateway_api_crds_version" in locals_tf and "v1.4.1" in locals_tf and "v1.2.0" in locals_tf, "locals.tf must map Gateway API CRD version by Cilium line")
@@ -82,6 +84,7 @@ def main() -> int:
         "examples/cilium-gateway-api/extra-manifests/echo.yaml.tpl",
         "examples/cilium-gateway-api/extra-manifests/gateway.yaml.tpl",
         "examples/cilium-gateway-api/extra-manifests/http-route.yaml.tpl",
+        "examples/external-overlay-cloudflare-access/README.md",
     ]:
         require(errors, (ROOT / rel).exists(), f"missing {rel}")
 
@@ -114,9 +117,22 @@ def main() -> int:
             require(errors, needle in body, f"{doc_name} must mention {needle}")
 
     require(errors, "examples/cilium-gateway-api" in README, "README must link the Cilium Gateway API example")
+    require(errors, "examples/external-overlay-cloudflare-access" in README, "README must link the Cloudflare external access example")
     require(errors, "docs/v3-topology-recommendations.md" in README, "README must link v3 topology recommendations")
     require(errors, "no public-network/IP-query-server" in topology or "public-network/IP-query-server" in topology, "topology docs must reject public-network/IP-query-server scale story")
     require(errors, "Talos" in topology, "topology docs must explain the no-Talos-pivot boundary")
+    for doc_name, body in {
+        "README.md": README,
+        "kube.tf.example": kube_example,
+        "docs/llms.md": llms,
+        "docs/v3-topology-recommendations.md": topology,
+        "examples/external-overlay-cloudflare-access/README.md": cloudflare_example,
+        "CHANGELOG.md": changelog,
+    }.items():
+        require(errors, "Cloudflare Access/Tunnel" in body, f"{doc_name} must document Cloudflare Access/Tunnel as the supported external pattern")
+        require(errors, "Cloudflare Mesh/WARP" in body, f"{doc_name} must state Cloudflare Mesh/WARP is not supported node transport")
+    require(errors, "No Cloudflare Terraform provider" in cloudflare_example, "Cloudflare example must avoid module-managed provider requirements")
+    require(errors, "Do not set `control_plane_endpoint`" in cloudflare_example, "Cloudflare example must warn about Access-protected control_plane_endpoint")
 
     for rel in [
         ".claude/skills/kh-assistant/SKILL.md",

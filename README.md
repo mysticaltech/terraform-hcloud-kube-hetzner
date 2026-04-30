@@ -119,7 +119,8 @@ Only apply after reviewing all planned resource actions.
 | Embedded registry mirror | Supported opt-in | Enables k3s/RKE2's embedded Spegel mirror for trusted larger clusters. |
 | Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; not production-supported until live datapath validation passes. |
 | Flannel/Cilium multinetwork scale over Hetzner Networks | Supported through Tailscale transport | Flannel is the first supported CNI; Cilium is gated as experimental until live datapath coverage promotes it. |
-| Tailscale/ZeroTier/WARP operator access | Supported external pattern | Use generic hooks when you only want Terraform/operator access and do not want kube-hetzner to manage node transport. |
+| Cloudflare Zero Trust Access/Tunnel | Documented external access pattern | Use user-managed Cloudflare Access/Tunnel for operator, SSH, Rancher, or ingress access. kube-hetzner does not manage Cloudflare resources or support Cloudflare Mesh/WARP as node transport in v3. |
+| User-owned Tailscale/ZeroTier/WireGuard/WARP access | Supported external pattern | Use generic hooks when you only want Terraform/operator access and do not want kube-hetzner to manage node transport. |
 | Robot/vSwitch coupling | Advanced/special-case | Prefer blue/green migration and review route exposure carefully. |
 
 ### Which Topology Should I Use?
@@ -130,6 +131,7 @@ Only apply after reviewing all planned resource actions.
 | Normal HA | 3 control planes, 2+ agents, one primary Hetzner Network, public API LB restricted to your source CIDRs or an explicit secure endpoint. |
 | Private-only | `nat_router` plus private control-plane LB on the primary Network. |
 | Secure operator/API access | `node_transport_mode = "tailscale"` with public API/SSH firewall sources closed. |
+| Cloudflare-protected operator/app access | Keep Tailscale or Hetzner private transport underneath; put user-managed Cloudflare Access/Tunnel in front of kube API, SSH, Rancher, or ingress endpoints. |
 | More than 100 Cloud nodes | Tailscale node transport plus external `network_id` shards, one Hetzner Network per 100-node budget. |
 | Very large reference | Autoscaler-first Tailscale multinetwork; see the 200-node and 10k-node examples. |
 | Cilium Gateway API | Cilium, `enable_kube_proxy = false`, `cilium_gateway_api_enabled = true`. |
@@ -551,6 +553,7 @@ Repository examples:
 - [`examples/cilium-gateway-api`](examples/cilium-gateway-api/) — Cilium Gateway API, Gateway, HTTPRoute, and cert-manager HTTP-01.
 - [`examples/cilium-multinetwork`](examples/cilium-multinetwork/) — experimental Cilium-only public-overlay preview across multiple Hetzner Cloud Networks.
 - [`examples/external-overlay-tailscale`](examples/external-overlay-tailscale/) — user-owned Tailscale operator access with `node_connection_overrides`.
+- [`examples/external-overlay-cloudflare-access`](examples/external-overlay-cloudflare-access/) — user-managed Cloudflare Zero Trust Access/Tunnel boundary for kube API, SSH, Rancher, and ingress.
 - [`examples/kustomization_user_deploy`](examples/kustomization_user_deploy/) — ordered `user_kustomizations` sets.
 - [`examples/tls`](examples/tls/) — basic Ingress TLS resources for Traefik and cert-manager.
 
@@ -1431,7 +1434,7 @@ nat_router = {
 </details>
 
 <details>
-<summary><strong>External overlay access (Tailscale/ZeroTier/WARP)</strong></summary>
+<summary><strong>External user-owned overlays (Tailscale/ZeroTier/WireGuard/WARP)</strong></summary>
 
 Use `node_transport_mode = "tailscale"` when Tailscale should be the official
 Kubernetes node transport for a single-network or multinetwork cluster. This
@@ -1445,6 +1448,11 @@ route approvals, Tailscale Services, workload ingress/egress policy, or the
 Tailscale Kubernetes Operator lifecycle. Use your overlay setup in an outer
 module or out-of-band bootstrap, then pass resulting endpoints back into
 kube-hetzner.
+
+Cloudflare Zero Trust is documented separately because it is usually an
+Access/Tunnel edge rather than a node-to-node transport. Do not use Cloudflare
+Mesh/WARP as an officially supported kube-hetzner node transport in v3; use
+Tailscale for that contract.
 
 The supported kube-hetzner primitives are:
 
@@ -1486,8 +1494,43 @@ Typical workflow:
 
 For cluster node transport, prefer
 [`examples/tailscale-node-transport/README.md`](examples/tailscale-node-transport/README.md).
-For user-owned operator access, see
+For user-owned Tailscale operator access, see
 [`examples/external-overlay-tailscale/README.md`](examples/external-overlay-tailscale/README.md).
+For Cloudflare Access/Tunnel operator and app access, see
+[`examples/external-overlay-cloudflare-access/README.md`](examples/external-overlay-cloudflare-access/README.md).
+</details>
+
+<details>
+<summary><strong>Cloudflare Zero Trust Access/Tunnel (external)</strong></summary>
+
+Cloudflare Zero Trust is useful in v3 as an operator and application access
+layer. Keep the cluster transport underneath simple:
+
+- Use `node_transport_mode = "tailscale"` for supported secure node transport,
+  especially single-network hardening and multinetwork scale-out.
+- Use Cloudflare Access/Tunnel for the Kubernetes API, SSH, Rancher, Grafana,
+  or ingress hostnames that you choose to publish through Cloudflare.
+- Manage Cloudflare accounts, policies, tunnels, DNS records, WARP enrollment,
+  and service tokens outside kube-hetzner.
+
+This module deliberately does not add a Cloudflare provider, Cloudflare token
+variables, Cloudflare Mesh bootstrap, or `node_transport_mode = "cloudflare"`.
+Cloudflare Mesh is still beta in Cloudflare's own docs, and using it as
+Kubernetes node transport would create a large support surface that v3 does not
+need.
+
+For kubeconfig access through Cloudflare Access, prefer a local helper path such
+as `cloudflared access tcp` or a WARP/private-route design owned outside this
+module. Do not point `control_plane_endpoint` at an Access-protected hostname
+unless every joining control-plane and agent node can reach and authenticate to
+that endpoint; `control_plane_endpoint` is also used for node joins.
+
+For SSH, use Cloudflare's own Access SSH patterns, or expose reachable overlay
+addresses through `node_connection_overrides` only after you have proven that
+Terraform can connect through them.
+
+Full example:
+[`examples/external-overlay-cloudflare-access/README.md`](examples/external-overlay-cloudflare-access/README.md).
 </details>
 
 <details>

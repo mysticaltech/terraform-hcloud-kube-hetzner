@@ -237,10 +237,16 @@ access/post-bootstrap features.
 
 Also verify the final v3 topology polish surfaces stay aligned:
 `docs/v3-topology-recommendations.md`, `examples/cilium-gateway-api`,
-`cilium_gateway_api_enabled`, `embedded_registry_mirror`, endpoint outputs,
+`examples/external-overlay-cloudflare-access`, `cilium_gateway_api_enabled`,
+`embedded_registry_mirror`, endpoint outputs,
 public join endpoint IPv6/no-public-host guards, OpenTofu/null-resource gates,
 and the large-scale Tailscale examples must all match `variables.tf`,
 `locals.tf`, `kube.tf.example`, and `docs/llms.md`.
+
+For Cloudflare, keep the release support boundary sharp: Access/Tunnel is a
+documented external access pattern for operator/app endpoints; kube-hetzner does
+not manage Cloudflare provider resources, and Cloudflare Mesh/WARP is not a v3
+node-transport support promise.
 
 ### Release Notes Template
 
@@ -389,6 +395,7 @@ Files that may need version updates:
 - [ ] `docs/terraform.md` regenerated
 - [ ] Project skills checked for stale v2 names
 - [ ] Tailscale node-transport README/example/skill guidance matches variables.tf
+- [ ] Cloudflare Access/Tunnel docs/examples say external-only, and no Cloudflare Mesh/WARP node-transport promise exists
 - [ ] v3 topology chooser, Cilium Gateway API, embedded registry mirror, and endpoint outputs are documented
 - [ ] `uv run scripts/validate_v3_final_polish_examples.py` passed
 - [ ] `uv run scripts/smoke_v3_plan_matrix.py` passed for Gateway API, registry mirror, public join endpoint guards, k3s/RKE2 Tailscale multinetwork constraints, and single-Gateway-controller validation

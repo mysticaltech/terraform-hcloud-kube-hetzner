@@ -152,8 +152,15 @@ For Tailscale changes, keep these surfaces in sync:
 - `docs/v3-topology-recommendations.md`
 - `examples/tailscale-node-transport/README.md`
 - `examples/external-overlay-tailscale/README.md`
+- `examples/external-overlay-cloudflare-access/README.md` when access-boundary wording changes
 - `.claude/skills/kh-assistant/SKILL.md`
 - `.claude/skills/migrate-v2-to-v3/SKILL.md`
+
+For Cloudflare Zero Trust wording, keep the boundary consistent:
+- Cloudflare Access/Tunnel is a documented external operator/app access pattern.
+- kube-hetzner does not add Cloudflare provider inputs or manage Cloudflare resources.
+- Cloudflare Mesh/WARP is not supported kube-hetzner node transport in v3.
+- Tailscale remains the supported managed node transport for secure multinetwork scale.
 
 For Cilium Gateway API changes, keep these surfaces in sync:
 - `variables.tf` validation for `cilium_gateway_api_enabled`

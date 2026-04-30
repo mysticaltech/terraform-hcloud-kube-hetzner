@@ -1,9 +1,11 @@
 # v3 Topology Recommendations
 
 v3 keeps kube-hetzner's shape: Terraform/OpenTofu, Hetzner Cloud, Leap Micro,
-k3s/RKE2, and optional Tailscale node transport. The goal is not to pivot to
-Talos, Cluster API, or public-node discovery. The goal is to make the right
-Hetzner topology obvious before `terraform plan`.
+k3s/RKE2, and optional Tailscale node transport. Cloudflare Zero Trust can be a
+useful external Access/Tunnel layer for operators and apps, but not a managed
+node transport in this module. The goal is not to pivot to Talos, Cluster API,
+public-node discovery, or multi-vendor Zero Trust orchestration. The goal is to
+make the right Hetzner topology obvious before `terraform plan`.
 
 ## Quick Chooser
 
@@ -13,6 +15,7 @@ Hetzner topology obvious before `terraform plan`.
 | Normal production HA | 3 control planes, 2+ agents, primary Hetzner Network, public control-plane LB or explicit secure `control_plane_endpoint` | Simple HA with predictable Terraform state and Hetzner private networking | External Network shards before you hit the single-Network attachment budget |
 | Private-only NAT cluster | `nat_router` with private nodes and a private control-plane LB | Reduces public node exposure while keeping a simple private topology | External `network_id` shards; the module NAT router only covers the primary Network |
 | Single-network Tailscale | `node_transport_mode = "tailscale"`, keep all nodepools on the primary Network, `firewall_kube_api_source = null`, `firewall_ssh_source = null` | Tailnet operator access and kubeconfig without public API/SSH rules | Disabling public IPs unless you already provide private egress and external Tailscale bootstrap |
+| Cloudflare Access/Tunnel | User-managed Cloudflare Tunnel, Access policy, and DNS in front of kube API, SSH, Rancher, Grafana, or ingress hostnames | Strong operator/app access control without adding Cloudflare provider state to kube-hetzner | Treating Cloudflare Mesh/WARP as kube-hetzner node transport |
 | +100 Tailscale multinetwork | `node_transport_mode = "tailscale"`, one Hetzner Network per shard, `network_subnet_mode = "per_nodepool"`, route auto-approval in Tailnet policy | Hetzner Networks cap attached resources and do not route between Networks; Tailscale becomes the secure node transport | Cilium public overlay for production, or private Hetzner LBs that target nodes across disconnected Networks |
 | 10k reference | Autoscaler-first Tailscale multinetwork, 100 nodes per Network shard, many external Network IDs, explicit quota planning | Terraform state stays smaller and each Network shard stays inside Hetzner's limits | One huge static Terraform server list, one project with too few placement groups, or a single Network |
 | RKE2 | `kubernetes_distribution = "rke2"` on Leap Micro, with exact version pinning for conservative production | Heavier distribution, useful when RKE2 behavior is required | Assuming every k3s-only addon behavior maps 1:1; test the preset |
@@ -31,6 +34,9 @@ Hetzner topology obvious before `terraform plan`.
   production node transport.
 - Do not claim Cilium public overlay as the production multinetwork story.
   It remains an experimental preview until live datapath coverage promotes it.
+- Do not add Cloudflare Mesh/WARP as a production node-transport story in v3.
+  Use Cloudflare Access/Tunnel externally for selected endpoints; use Tailscale
+  when kube-hetzner should manage secure node transport.
 - Do not use Hetzner private Load Balancers as if they span unrelated external
   Networks. They do not make separate Hetzner Networks mutually reachable.
 - Do not use a single Hetzner Network for more than its attachment limit. Split
@@ -62,11 +68,18 @@ Common endpoint modes:
 | Private LB plus NAT | nodes are private and a NAT router forwards selected access | You want a private primary-Network topology without Tailscale |
 | Explicit endpoint | `control_plane_endpoint` points at your own LB, DNS, proxy, or overlay endpoint | You own endpoint security outside kube-hetzner |
 | Tailscale MagicDNS | kubeconfig points at the first control plane's Tailnet hostname | You want API/SSH through Tailnet and closed public Kubernetes rules |
+| Cloudflare Access/Tunnel | A user-managed Cloudflare Tunnel or Access helper protects kube API, SSH, or app hostnames | Human/operator or app access should be Cloudflare-gated while node transport remains Hetzner private or Tailscale |
 
 Public join endpoints must resolve to a real API host. v3 accepts IPv4-only,
 IPv6-only, and dual-stack public joins, but it rejects private-only control
 planes unless `control_plane_endpoint` or a public control-plane Load Balancer
 provides the public API host.
+
+Do not point `control_plane_endpoint` at a Cloudflare Access-protected hostname
+unless every joining control-plane and agent node can reach and authenticate to
+that endpoint. For human kubeconfig access through Cloudflare, prefer a local
+helper such as `cloudflared access tcp` or a WARP/private-route design managed
+outside this module.
 
 ## Tailscale Multinetwork Rules
 
@@ -98,6 +111,22 @@ Public IPs are still useful for Tailscale bootstrap, package installs, and
 direct WireGuard paths. Closing public Kubernetes API/SSH rules is the security
 boundary; removing public IPs entirely requires external per-Network egress and
 Tailscale bootstrap.
+
+## Cloudflare Zero Trust Boundary
+
+Cloudflare Zero Trust belongs in v3 as an external access pattern:
+
+- Protect kube API, SSH, Rancher, Grafana, or ingress hostnames with
+  Cloudflare Access/Tunnel that you manage outside kube-hetzner.
+- Keep Cloudflare account resources, tunnel tokens, Access policies, DNS
+  records, WARP enrollment, and service tokens in an outer Terraform root or
+  Cloudflare-owned workflow.
+- Use `node_transport_mode = "tailscale"` when kube-hetzner should manage
+  secure node transport. Cloudflare Mesh/WARP is not a supported
+  kube-hetzner-managed node transport in v3.
+
+The example boundary lives in
+[`examples/external-overlay-cloudflare-access`](../examples/external-overlay-cloudflare-access/).
 
 ## Cilium Gateway API
 

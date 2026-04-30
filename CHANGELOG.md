@@ -116,6 +116,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 - **iSCSI Daemon Defaults** - `iscsid` is now enabled on all nodes by default, and the `enable_iscsid` input was removed.
 - **Cilium Default Version** - Updated the default Cilium version to `1.19.3` so v3 defaults align with the current Gateway API-supported Cilium line.
 - **Primary IP Provider Cleanup** - Removed now-unused `assignee_type = "server"` attributes from hcloud Primary IP resources and raised the hcloud provider minimum to `1.62.0`.
+- **Cloudflare Zero Trust Support Boundary** - Documented Cloudflare Access/Tunnel as a user-managed external access pattern for kube API, SSH, Rancher, and ingress, while explicitly keeping Cloudflare Mesh/WARP out of the v3 node-transport support contract. Use Tailscale for supported secure node transport.
 - **Release Attribution Robustness** - Release workflow now maps commits to associated PR authors (including squash merges) when generating contributor credits, so original implementers are preserved.
 
 ---

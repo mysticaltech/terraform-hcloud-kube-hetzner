@@ -142,6 +142,11 @@ module "kube-hetzner" {
   # - keep node public IPv4/IPv6 enabled for Tailscale bootstrap and direct UDP/41641 WireGuard paths
   # - use externally managed Tailscale bootstrap and per-network private egress if you require no public IPs at all
   #
+  # Cloudflare Zero Trust note:
+  # - Cloudflare Access/Tunnel is a user-managed external access layer for kube API, SSH, Rancher, or ingress
+  # - Cloudflare Mesh/WARP is not a supported kube-hetzner node transport in v3
+  # - combine Cloudflare Access/Tunnel with Tailscale when you want Cloudflare-gated human/app access plus supported secure node transport
+  #
   # node_transport_mode = "tailscale"
   # tailscale_auth_key  = var.tailscale_auth_key
   # # Shared auth keys must be reusable. Optional role-specific keys are useful when
@@ -824,10 +829,15 @@ module "kube-hetzner" {
   # control_plane_endpoint = "https://my-external-lb:6443"
 
   # Optional map of node name => SSH host override.
-  # Useful when an external overlay network (Tailscale, ZeroTier, Cloudflare WARP, etc.)
-  # is managed outside this module and you want Terraform to connect through overlay IPs.
+  # Useful when an external access/overlay network (ZeroTier, WireGuard,
+  # Cloudflare Tunnel/WARP, etc.) is managed outside this module and you want
+  # Terraform to connect through those reachable hosts.
   # For official Tailscale cluster node transport, use node_transport_mode = "tailscale"
   # instead of this manual override pattern.
+  # Cloudflare Access/Tunnel can protect operator/app endpoints externally, but
+  # Cloudflare Mesh/WARP is not a supported kube-hetzner node transport in v3.
+  # Do not set control_plane_endpoint to an Access-protected hostname unless
+  # every joining control-plane and agent node can reach and authenticate to it.
   # If you bootstrap overlay clients with preinstall_exec, use short-lived one-use keys
   # and assume commands/user-data may be visible in Terraform state or cloud-init logs.
   # After Kubernetes is healthy, install the Tailscale Kubernetes Operator separately

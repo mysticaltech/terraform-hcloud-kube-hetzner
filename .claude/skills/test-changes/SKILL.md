@@ -141,9 +141,10 @@ uv run scripts/validate_v3_final_polish_examples.py
 ```
 
 **Must pass when topology docs, `cilium_gateway_api_enabled`,
-`embedded_registry_mirror`, endpoint outputs, examples, or skills change.**
+`embedded_registry_mirror`, endpoint outputs, Cloudflare/Tailscale examples, or
+skills change.**
 This keeps the v3 topology chooser, Gateway API example, registry mirror
-snippets, and validation gates in sync.
+snippets, Cloudflare external-access boundary, and validation gates in sync.
 
 ## Step 6.7: Run v3 Blast-Radius Plan Matrix
 
@@ -211,7 +212,7 @@ If `terraform plan` shows ANY resource destruction on existing infrastructure:
 - [ ] OpenTofu temp-copy validation passes
 - [ ] `kube.tf.example` parses against the local checkout
 - [ ] `uv run scripts/validate_tailscale_large_scale_examples.py` passes when large-scale/Tailscale/networking examples are touched
-- [ ] `uv run scripts/validate_v3_final_polish_examples.py` passes when Gateway API/registry/topology docs are touched
+- [ ] `uv run scripts/validate_v3_final_polish_examples.py` passes when Gateway API/registry/topology/Cloudflare boundary docs are touched
 - [ ] `uv run scripts/smoke_v3_plan_matrix.py` passes when Gateway API/registry/Tailscale plan behavior is touched
 - [ ] Tailscale node-transport static cases pass/fail as expected when variables/networking are touched
 - [ ] `terraform plan` shows expected changes only

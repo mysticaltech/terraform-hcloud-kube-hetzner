@@ -99,6 +99,7 @@ grep 'variable "<name>"' variables.tf
 | Using old version | Always check latest release first |
 | Raw Hetzner private multinetwork for >100 nodes | Use `node_transport_mode = "tailscale"` or the experimental Cilium public overlay; Hetzner private Networks do not route to each other |
 | Treating external Tailscale hooks as node transport | Use `node_transport_mode = "tailscale"` for cluster transport; use `node_connection_overrides` only for user-owned operator access |
+| Treating Cloudflare Mesh/WARP as supported node transport | Use Tailscale for kube-hetzner-managed secure node transport; Cloudflare Access/Tunnel is external operator/app access only |
 | Assuming one Hetzner Network can exceed 100 nodes | Shard across multiple Hetzner Networks and count all attachments, including control planes, static agents, autoscaler `max_nodes`, NAT routers, and load balancers |
 | Promising static 10k placement spread in one project | Hetzner spread groups are 10 servers each and 50 groups per project; use autoscaler/network shards or split across projects/clusters |
 | Confusing Cilium Gateway API with Traefik Gateway provider | Use `cilium_gateway_api_enabled` for Cilium, `traefik_provider_kubernetes_gateway_enabled` for Traefik |
@@ -113,6 +114,7 @@ grep 'variable "<name>"' variables.tf
 | Normal HA | 3 control planes, 2+ agents, one primary Hetzner Network |
 | Private-only | NAT router and private control-plane LB on the primary Network |
 | Secure API/SSH | `node_transport_mode = "tailscale"` and close public API/SSH firewall sources |
+| Cloudflare-protected operator/app access | User-managed Cloudflare Access/Tunnel in front of kube API, SSH, Rancher, Grafana, or ingress; keep node transport as Hetzner private or Tailscale |
 | +100 Cloud nodes | Tailscale node transport plus one external Hetzner Network shard per 100-node budget |
 | 10k reference | Autoscaler-first Tailscale multinetwork; point to `examples/tailscale-node-transport/massive-10000-nodes.tf.example` |
 | Cilium Gateway API | Cilium, `enable_kube_proxy = false`, `cilium_gateway_api_enabled = true` |
@@ -281,6 +283,7 @@ Core rules:
 - Remove control-plane `network_id`; control planes stay on the primary Network.
 - For secure Tailnet access or private multinetwork scale, prefer `node_transport_mode = "tailscale"`. For v2-to-v3 upgrades, introduce large multinetwork scale in a separate audited plan after the base upgrade. Tailscale mode keeps Kubernetes node IPs on Hetzner private addresses and can advertise node-private `/32` routes with Tailscale subnet-route SNAT disabled.
 - Do not suggest Calico with Tailscale node transport yet. Flannel is first supported; Cilium is still explicitly experimental in this transport mode.
+- For Cloudflare, recommend only the external Access/Tunnel pattern for kube API, SSH, Rancher, Grafana, or ingress. Do not suggest Cloudflare Mesh/WARP as kube-hetzner node transport and do not invent Cloudflare provider inputs.
 - Run `terraform fmt -recursive`, `terraform init -upgrade`, `terraform validate`, and `terraform plan -out=v3-upgrade.tfplan`.
 - Do not apply when the plan has unexplained replacements or destroys.
 
@@ -465,6 +468,24 @@ Rules to mention:
 - The 200-node static example is `3 control planes + 97 primary agents + 100 agents on one external Network`; both Networks are exactly at Hetzner's 100-attachment limit and placement groups auto-shard to 21 groups.
 - The 10,000-total-node reference is `3 control planes + 7 static system agents + 90 primary autoscaled workers + 99 external Networks * 100 autoscaled workers`. It is a quota/design reference, not a casual default.
 - The recommended large-cluster exposure model closes public Kubernetes API and SSH, uses no public managed web ingress unless explicitly requested, and relies on Tailnet access. Nodes may still keep public IPv4/IPv6 for Tailscale bootstrap and direct UDP/41641 WireGuard paths; true no-public-IP multinetwork needs private egress plus external Tailscale bootstrap for every external Network.
+
+### Cloudflare Zero Trust External Access
+
+Use this when a user wants Cloudflare policy in front of operator or
+human-facing endpoints. Do not present Cloudflare as a kube-hetzner-managed node
+transport.
+
+Rules:
+- Cloudflare Access/Tunnel can protect kube API, SSH, Rancher, Grafana, or ingress hostnames.
+- Cloudflare account resources, DNS records, tunnels, Access policies, WARP enrollment, and service tokens are managed outside kube-hetzner.
+- No `node_transport_mode = "cloudflare"` exists, and Cloudflare Mesh/WARP is not supported node transport in v3.
+- For kubeconfig through Access, suggest `cloudflared access tcp` or user-owned WARP/private routing.
+- Do not set `control_plane_endpoint` to a Cloudflare Access hostname unless every joining node can reach and authenticate to it.
+- For secure node transport or +100 node multinetwork, use `node_transport_mode = "tailscale"`.
+
+Reference docs:
+- `examples/external-overlay-cloudflare-access/README.md`
+- `docs/v3-topology-recommendations.md`
 
 ### Cilium with Hubble Observability
 

@@ -167,10 +167,14 @@ terraform show -json v3-upgrade.tfplan \
 - External agent/autoscaler Network IDs must be positive Hetzner Network IDs.
   Omit/null means the primary Network.
 - Do not add new optional v3 features such as `cilium_gateway_api_enabled`,
-  `embedded_registry_mirror`, or new Tailscale multinetwork shards during the
-  same first in-place v2-to-v3 apply unless the operator explicitly accepts a
-  blue/green/topology-change migration. Upgrade cleanly first, then add those
-  features in a separate reviewed plan.
+  `embedded_registry_mirror`, new Tailscale multinetwork shards, or external
+  Cloudflare Access/Tunnel routing during the same first in-place v2-to-v3
+  apply unless the operator explicitly accepts a blue/green/topology-change
+  migration. Upgrade cleanly first, then add those features in a separate
+  reviewed plan.
+- Cloudflare Access/Tunnel is an external access pattern only. Do not invent
+  Cloudflare provider inputs, and do not recommend Cloudflare Mesh/WARP as
+  kube-hetzner node transport during a migration.
 - If adding Cilium Gateway API after migration, require `cni_plugin = "cilium"`
   and `enable_kube_proxy = false`.
 - If adding embedded registry mirror after migration, warn that nodes are
