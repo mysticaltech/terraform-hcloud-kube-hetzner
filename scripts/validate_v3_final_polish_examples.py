@@ -28,6 +28,8 @@ def main() -> int:
     errors: list[str] = []
 
     variables = read("variables.tf")
+    validation_contract = read("validation-contract.tf")
+    module_contract = variables + "\n" + validation_contract
     locals_tf = read("locals.tf")
     init_tf = read("init.tf")
     control_planes = read("control_planes.tf")
@@ -43,11 +45,11 @@ def main() -> int:
     cloudflare_example = read("examples/external-overlay-cloudflare-access/README.md")
 
     require(errors, 'variable "cilium_gateway_api_enabled"' in variables, "variables.tf must define cilium_gateway_api_enabled")
-    require(errors, 'cni_plugin == "cilium" && !var.enable_kube_proxy' in variables, "Cilium Gateway API must validate Cilium plus kube-proxy replacement")
+    require(errors, 'cni_plugin == "cilium" && !var.enable_kube_proxy' in module_contract, "Cilium Gateway API must validate Cilium plus kube-proxy replacement")
     require(errors, "1.19.3" in variables, "variables.tf should default Cilium to the current v3 Gateway-capable line")
     require(errors, 'variable "embedded_registry_mirror"' in variables, "variables.tf must define embedded_registry_mirror")
     require(errors, "embedded_registry_mirror.registries must not contain duplicates" in variables, "embedded registry mirror must reject duplicate registries")
-    require(errors, "advertise_node_private_routes = true" in variables, "embedded registry mirror must enforce Tailscale route advertisement for multinetwork")
+    require(errors, "advertise_node_private_routes = true" in module_contract, "embedded registry mirror must enforce Tailscale route advertisement for multinetwork")
     require(errors, 'contains(["hetzner_private", "tailscale"], var.node_transport_mode)' in variables, "node_transport_mode must stay limited to Hetzner private or Tailscale")
 
     require(errors, "gatewayAPI:" in locals_tf and "enabled: true" in locals_tf, "locals.tf must enable Cilium gatewayAPI when requested")
@@ -56,7 +58,7 @@ def main() -> int:
     require(errors, '"embedded-registry" = true' in locals_tf, "locals.tf must set embedded-registry on server config")
     require(errors, '"disable-default-registry-endpoint" = true' in locals_tf, "locals.tf must support disabling default registry endpoints")
     require(errors, "public_endpoint_ipv6_candidate" in locals_tf, "locals.tf must decouple public join endpoint address family from Cilium multinetwork transport")
-    require(errors, "public Kubernetes join endpoint without control_plane_endpoint" in variables, "variables.tf must reject public join endpoints without a public API host")
+    require(errors, "public Kubernetes join endpoint without control_plane_endpoint" in module_contract, "module contract must reject public join endpoints without a public API host")
 
     require(errors, "gateway_api_standard_crds_manifest" in init_tf, "init.tf must include Gateway API CRDs in addon hash/rendering")
     require(errors, "00-gateway-api-standard-crds.yaml" in init_tf, "init.tf must preload Gateway API CRDs for RKE2 first bootstrap")
@@ -151,7 +153,12 @@ def main() -> int:
         "tests/README.md",
     ]:
         require(errors, "smoke_v3_plan_matrix.py" in read(rel), f"{rel} must mention smoke_v3_plan_matrix.py")
-    for needle in ["run_init_with_retry", "public-join-ipv6-only-valid", "public-join-private-control-plane-invalid"]:
+    for needle in [
+        "run_init_with_retry",
+        "public-join-ipv6-only-valid",
+        "public-join-private-control-plane-invalid",
+        "tailscale-same-root-network-valid",
+    ]:
         require(errors, needle in smoke_matrix, f"scripts/smoke_v3_plan_matrix.py must include {needle}")
 
     live_null_resource = []

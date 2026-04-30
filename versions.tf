@@ -13,6 +13,22 @@ terraform {
       source  = "hashicorp/http"
       version = ">= 3.5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.8.1"
+    }
+    cloudinit = {
+      source  = "hashicorp/cloudinit"
+      version = ">= 2.3.7"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 3.1.0"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = ">= 3.1.1"
+    }
     ssh = {
       source  = "loafoe/ssh"
       version = "2.7.0"

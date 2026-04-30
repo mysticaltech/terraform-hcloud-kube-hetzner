@@ -84,7 +84,7 @@ terraform init -backend=false
 
 ```bash
 cd /Volumes/MysticalTech/Code/kube-hetzner
-terraform validate
+terraform validate -no-color
 ```
 
 **Must pass before proceeding.**
@@ -95,14 +95,17 @@ terraform validate
 cd /Volumes/MysticalTech/Code/kube-hetzner
 tmpdir="$(mktemp -d)"
 rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
-(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+(cd "$tmpdir" && tofu init -backend=false -input=false && tofu validate -no-color)
 rm -rf "$tmpdir"
 ```
 
 **Must pass before proceeding.** OpenTofu is officially supported and should
-catch the same module-contract validation errors as Terraform. Use a temporary
-copy when validating both CLIs so OpenTofu cannot rewrite the ignored
-`.terraform.lock.hcl` or local plugin cache in the main Terraform checkout.
+catch the same module-contract validation errors as Terraform during plan. Use
+a temporary copy when validating both CLIs so OpenTofu cannot rewrite the
+ignored `.terraform.lock.hcl` or local plugin cache in the main Terraform
+checkout. Cross-variable contract failures are enforced by
+`terraform_data.validation_contract`, so invalid-combination tests should assert
+`terraform plan`, not only `terraform validate`.
 
 ## Step 6: Validate `kube.tf.example` Parseability
 

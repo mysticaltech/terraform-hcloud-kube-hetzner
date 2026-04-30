@@ -116,12 +116,17 @@ Use `MIGRATION.md` for the complete map. Critical transformations:
 ```bash
 terraform fmt -recursive
 terraform init -upgrade
-terraform validate
+terraform validate -no-color
 tmpdir="$(mktemp -d)"
 rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
-(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+(cd "$tmpdir" && tofu init -backend=false -input=false && tofu validate -no-color)
 rm -rf "$tmpdir"
 ```
+
+`terraform validate` checks that the module loads. v3 cross-variable migration
+guards are enforced by `terraform_data.validation_contract`, so the saved
+`terraform plan` is the required proof for invalid combinations and replacement
+risk.
 
 If validation fails, read the variable and validation block in `variables.tf`
 before changing config.

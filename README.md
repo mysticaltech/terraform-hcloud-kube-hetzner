@@ -267,7 +267,7 @@ OpenTofu is officially supported. Pull requests are validated in CI with both Te
 
 ### Plan-Time Validation
 
-Kube-Hetzner uses Terraform/OpenTofu input validation as the module contract. Run `terraform plan` or `tofu plan` before every apply; invalid combinations fail before resources are created.
+Kube-Hetzner uses Terraform/OpenTofu validations as the module contract: self-contained input validation blocks plus the hard `terraform_data.validation_contract` precondition surface for cross-variable rules. Run `terraform plan` or `tofu plan` before every apply; invalid combinations fail before resources are created.
 
 The validation layer checks pure configuration invariants: non-empty tokens and SSH keys, supported regions and locations, CIDR syntax and IP-family pairs, nodepool name/count rules, odd control-plane quorum, Hetzner network/subnet/placement-group limits, multi-network join requirements, autoscaler boundaries, Cilium-only options, load balancer dependencies, firewall source formats, Robot/vSwitch/NAT requirements, audit settings, YAML snippets, and attached volume definitions.
 
@@ -276,7 +276,7 @@ When validating the module itself with both CLIs in the same checkout, run OpenT
 ```bash
 tmpdir="$(mktemp -d)"
 rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
-(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+(cd "$tmpdir" && tofu init -backend=false -input=false && tofu validate -no-color)
 rm -rf "$tmpdir"
 ```
 

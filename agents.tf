@@ -434,7 +434,8 @@ resource "terraform_data" "configure_longhorn_volume" {
   }
 
   depends_on = [
-    hcloud_volume.longhorn_volume
+    hcloud_volume.longhorn_volume,
+    terraform_data.tailscale_agents
   ]
 }
 moved {
@@ -531,7 +532,8 @@ resource "terraform_data" "configure_attached_agent_volume" {
   }
 
   depends_on = [
-    hcloud_volume.attached_agent_volume
+    hcloud_volume.attached_agent_volume,
+    terraform_data.tailscale_agents
   ]
 }
 

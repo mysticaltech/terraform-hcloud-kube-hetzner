@@ -38,13 +38,27 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
-    name: Validate terraform configuration
+    name: Validate Terraform ${{ matrix.terraform-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        terraform-version:
+          - 1.10.5
+          - 1.14.9
+          - 1.15.0
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: terraform validate
-        uses: dflook/terraform-validate@v2.2.3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ matrix.terraform-version }}
+
+      - name: terraform init and validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate -no-color
 
   opentofu-validate:
     runs-on: ubuntu-latest
@@ -55,11 +69,13 @@ jobs:
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.11.6
 
       - name: tofu init and validate
         run: |
-          tofu init -backend=false
-          tofu validate
+          tofu init -backend=false -input=false
+          tofu validate -no-color
 
   fmt-check:
     runs-on: ubuntu-latest

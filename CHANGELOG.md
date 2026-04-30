@@ -63,10 +63,12 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🐛 Bug Fixes
 
+- **Terraform 1.15 Validation Compatibility** - Moved cross-variable and local-dependent module contract checks from input-variable validation blocks into a hard `terraform_data.validation_contract` precondition surface, preserving plan-time failures while allowing Terraform 1.15.0 to initialize and validate the module.
+- **Tailscale Volume Provisioning Ordering** - Agent Longhorn and attached-volume configuration now waits for Tailscale agent bootstrap before using Tailnet MagicDNS SSH targets.
 - **Tailscale Auth-Key Ergonomics** - `auth_key` mode no longer advertises kube-hetzner tags by default, so simple pre-auth keys work without Tailnet `tagOwners`; tagged nodes remain an explicit opt-in and OAuth mode now validates that tag-scoped auth is configured.
 - **Tailscale Single-Network Ergonomics** - Tailscale mode now cleanly supports ordinary single-network clusters: node-private route advertisement can be disabled when no external `network_id` nodepools are used, private control-plane Load Balancers are allowed, and private managed ingress Load Balancers are rejected only for external-network scale-out.
 - **Placement Group Disable/Limit Semantics** - `enable_placement_groups = false` now stops creating unused placement-group resources, and plan-time validation enforces Hetzner's 50-placement-group project limit before large static topologies hit provider errors.
-- **Same-Root External Networks** - Nodepool `network_id` values can now come from Hetzner Network resources created in the same Terraform root because network lookups are keyed by stable node/autoscaler identities instead of apply-time network IDs.
+- **Same-Root Tailscale External Networks** - In Tailscale transport mode, nodepool `network_id` values can come from Hetzner Network resources created in the same Terraform root because control planes no longer need apply-time fanout attachments to every external agent Network.
 - **Cloud-Init Health-Checker Race** - Host and autoscaler cloud-init now masks Leap Micro/MicroOS `health-checker.service` before `cloud-final` to prevent a systemd ordering-cycle race that can skip first-boot Kubernetes bootstrap on autoscaled nodes.
 - **Cilium Multinetwork Bootstrap** - Public-overlay clusters now allow restricted outbound Kubernetes API traffic and keep Hetzner CCM network-aware while route reconciliation stays disabled, so control planes can remain on their private node identity and external-network agents can join over the public overlay.
 - **Cilium Default Bootstrap** - Cilium now enables eBPF masquerading only when kube-proxy replacement is enabled, matching Cilium's BPF NodePort dependency and preventing default Cilium clusters from CrashLooping on startup.
@@ -113,6 +115,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🔧 Changes
 
+- **Explicit Provider Constraints** - Pinned the previously implicit Kubernetes, Helm, Random, and CloudInit provider requirements and expanded CI validation across Terraform 1.10.5, 1.14.9, 1.15.0, and OpenTofu 1.11.6.
 - **iSCSI Daemon Defaults** - `iscsid` is now enabled on all nodes by default, and the `enable_iscsid` input was removed.
 - **Cilium Default Version** - Updated the default Cilium version to `1.19.3` so v3 defaults align with the current Gateway API-supported Cilium line.
 - **Primary IP Provider Cleanup** - Removed now-unused `assignee_type = "server"` attributes from hcloud Primary IP resources and raised the hcloud provider minimum to `1.62.0`.

@@ -214,16 +214,21 @@ Before tagging a v3 release, run the local readiness gates:
 ```bash
 terraform fmt -recursive
 terraform-docs markdown . > docs/terraform.md
-terraform init -backend=false
-terraform validate
+terraform init -backend=false -input=false
+terraform validate -no-color
 tmpdir="$(mktemp -d)"
 rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
-(cd "$tmpdir" && tofu init -backend=false && tofu validate)
+(cd "$tmpdir" && tofu init -backend=false -input=false && tofu validate -no-color)
 rm -rf "$tmpdir"
 uv run scripts/validate_tailscale_large_scale_examples.py
 uv run scripts/validate_v3_final_polish_examples.py
 uv run scripts/smoke_v3_plan_matrix.py
 ```
+
+Cross-variable and local-dependent module contract failures are hard
+`terraform_data.validation_contract` preconditions, so invalid-combination
+release gates must assert `terraform plan`; `terraform validate` only proves
+the module loads.
 
 Also verify `README.md`, `kube.tf.example`, `docs/llms.md`, and `.claude/skills/*/SKILL.md` do not contain removed v2 input names except in explicit migration sections.
 

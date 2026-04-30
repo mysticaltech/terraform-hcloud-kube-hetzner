@@ -36,6 +36,7 @@ class Scenario:
     extra_module_hcl: str
     expect_success: bool
     expect_output: tuple[str, ...] = ()
+    root_hcl: str = ""
     control_plane_nodepools_hcl: str | None = None
     agent_nodepools_hcl: str | None = None
     skip_reason: str | None = None
@@ -104,6 +105,8 @@ def base_hcl(module_source: Path, scenario: Scenario) -> str:
         provider "hcloud" {{
           token = var.hcloud_token
         }}
+
+        {textwrap.indent(scenario.root_hcl.strip(), "")}
 
         module "kube_hetzner" {{
           source = "{module_source.as_posix()}"
@@ -392,6 +395,45 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
             ]
             """ % external_network_hcl,
             skip_reason=external_network_skip,
+        ),
+        Scenario(
+            name="tailscale-same-root-network-valid",
+            root_hcl="""
+            resource "hcloud_network" "same_root_external" {
+              name     = "${var.cluster_name}-same-root-external"
+              ip_range = "10.254.0.0/16"
+            }
+            """,
+            extra_module_hcl="""
+            cni_plugin                = "flannel"
+            node_transport_mode       = "tailscale"
+            firewall_kube_api_source  = null
+            firewall_ssh_source       = null
+            tailscale_auth_key        = var.tailscale_auth_key
+
+            tailscale_node_transport = {
+              bootstrap_mode  = "cloud_init"
+              magicdns_domain = "example-tailnet.ts.net"
+              routing = {
+                advertise_node_private_routes = true
+              }
+            }
+            """,
+            expect_success=True,
+            expect_output=("hcloud_network.same_root_external", "additional_nodepool_networks"),
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name        = "agent"
+                server_type = "cx23"
+                location    = "nbg1"
+                labels      = []
+                taints      = []
+                count       = 1
+                network_id  = hcloud_network.same_root_external.id
+              }
+            ]
+            """,
         ),
         Scenario(
             name="rke2-tailscale-registry-multinetwork-valid",
