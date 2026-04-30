@@ -63,6 +63,8 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🐛 Bug Fixes
 
+- **External Manifest Fetch Resilience** - Added retry blocks to GitHub and public-IP HTTP data sources so transient TLS handshake timeouts do not fail plans, applies, or destroys.
+- **Autoscaler CA Root Loading** - Removed the `/etc/ssl/certs` hostPath mount from Cluster Autoscaler so RKE2/Leap Micro clusters use the image's bundled CA roots instead of hitting host certificate directory permission failures.
 - **Terraform 1.15 Validation Compatibility** - Moved cross-variable and local-dependent module contract checks from input-variable validation blocks into a hard `terraform_data.validation_contract` precondition surface, preserving plan-time failures while allowing Terraform 1.15.0 to initialize and validate the module.
 - **Tailscale Volume Provisioning Ordering** - Agent Longhorn and attached-volume configuration now waits for Tailscale agent bootstrap before using Tailnet MagicDNS SSH targets.
 - **Tailscale Auth-Key Ergonomics** - `auth_key` mode no longer advertises kube-hetzner tags by default, so simple pre-auth keys work without Tailnet `tagOwners`; tagged nodes remain an explicit opt-in and OAuth mode now validates that tag-scoped auth is configured.

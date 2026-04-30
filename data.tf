@@ -5,6 +5,12 @@ data "http" "hetzner_ccm_release" {
   request_headers = {
     Accept = "application/vnd.github+json"
   }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
+  }
 }
 
 data "http" "hetzner_csi_release" {
@@ -13,6 +19,12 @@ data "http" "hetzner_csi_release" {
 
   request_headers = {
     Accept = "application/vnd.github+json"
+  }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
   }
 }
 
@@ -23,6 +35,12 @@ data "http" "kured_release" {
   request_headers = {
     Accept = "application/vnd.github+json"
   }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
+  }
 }
 
 data "http" "kured_manifest" {
@@ -30,6 +48,12 @@ data "http" "kured_manifest" {
 
   request_headers = {
     Accept = "text/plain"
+  }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
   }
 }
 
@@ -39,6 +63,12 @@ data "http" "system_upgrade_controller_manifest" {
   request_headers = {
     Accept = "text/plain"
   }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
+  }
 }
 
 data "http" "system_upgrade_controller_crd" {
@@ -46,6 +76,12 @@ data "http" "system_upgrade_controller_crd" {
 
   request_headers = {
     Accept = "text/plain"
+  }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
   }
 }
 
@@ -57,6 +93,12 @@ data "http" "gateway_api_standard_crds" {
   request_headers = {
     Accept = "text/plain"
   }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
+  }
 }
 
 data "http" "calico_release" {
@@ -65,6 +107,12 @@ data "http" "calico_release" {
 
   request_headers = {
     Accept = "application/vnd.github+json"
+  }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
   }
 }
 
@@ -80,6 +128,12 @@ data "http" "my_ipv4" {
 
   request_headers = {
     Accept = "text/plain"
+  }
+
+  retry {
+    attempts     = 4
+    min_delay_ms = 1000
+    max_delay_ms = 10000
   }
 }
 

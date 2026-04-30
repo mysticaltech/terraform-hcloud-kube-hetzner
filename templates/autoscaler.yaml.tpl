@@ -228,12 +228,4 @@ ${indent(8, yamlencode(cluster_autoscaler_tolerations))}
           - name: HCLOUD_SERVER_CREATION_TIMEOUT
             value: '${cluster_autoscaler_server_creation_timeout}'
           %{~ endif ~}
-          volumeMounts:
-            - name: ssl-certs
-              mountPath: /etc/ssl/certs
-              readOnly: true
           imagePullPolicy: "Always"
-      volumes:
-        - name: ssl-certs
-          hostPath:
-            path: "/etc/ssl/certs" # right place on MicroOS?
