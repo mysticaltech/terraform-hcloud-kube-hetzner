@@ -9,10 +9,11 @@
 
 **HA by default • Auto-upgrading • Cost-optimized**
 
-A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k3s on MicroOS<br>deployed for peanuts on [Hetzner Cloud](https://hetzner.com)
+A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k3s on openSUSE Leap Micro (default) / MicroOS (legacy)<br>deployed for peanuts on [Hetzner Cloud](https://hetzner.com)
 
-[![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.10-844FBA?style=flat-square&logo=terraform)](https://terraform.io)&nbsp;&nbsp;
+[![Terraform](https://img.shields.io/badge/Terraform-%3E%3D1.10.1-844FBA?style=flat-square&logo=terraform)](https://terraform.io)&nbsp;&nbsp;
 [![OpenTofu](https://img.shields.io/badge/OpenTofu-Compatible-FFDA18?style=flat-square&logo=opentofu)](https://opentofu.org)&nbsp;&nbsp;
+[![HCloud Provider](https://img.shields.io/badge/hcloud-%3E%3D1.62.0-00ADEF?style=flat-square)](https://registry.terraform.io/providers/hetznercloud/hcloud/latest)&nbsp;&nbsp;
 [![K3s](https://img.shields.io/badge/K3s-v1.35-FFC61C?style=flat-square&logo=k3s)](https://k3s.io)&nbsp;&nbsp;
 [![License](https://img.shields.io/github/license/kube-hetzner/terraform-hcloud-kube-hetzner?style=flat-square&color=blue)](LICENSE)&nbsp;&nbsp;
 [![GitHub Stars](https://img.shields.io/github/stars/kube-hetzner/terraform-hcloud-kube-hetzner?style=flat-square&logo=github)](https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/stargazers)
@@ -56,22 +57,25 @@ AI-powered config generation & debugging!
 > *We are not Hetzner affiliates, but we strive to be the optimal solution for deploying Kubernetes on their platform.*
 
 Built on the shoulders of giants:
-- **[openSUSE MicroOS](https://en.opensuse.org/Portal:MicroOS)** — Immutable container OS with automatic updates
+- **[openSUSE Leap Micro](https://en.opensuse.org/Portal:LeapMicro)** — Stable, immutable container OS with transactional updates
+- **[openSUSE MicroOS](https://en.opensuse.org/Portal:MicroOS)** — Rolling, immutable container OS (legacy/upgrade support)
 - **[k3s](https://k3s.io/)** — Certified, lightweight Kubernetes distribution
 
 <div align="center">
 <img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/kubectl-pod-all-17022022.png" alt="Kube-Hetzner Screenshot" width="700">
 </div>
 
-### Why MicroOS over Ubuntu?
+### Why Leap Micro over Ubuntu?
 
 | Feature | Benefit |
 |---------|---------|
 | **Immutable filesystem** | Most of the OS is read-only—hardened by design |
-| **Auto-ban abusive IPs** | SSH brute-force protection out of the box |
-| **Rolling release** | Piggybacks on openSUSE Tumbleweed—always current |
+| **Transactional updates** | Atomic upgrades with rollback |
+| **Stable release cadence** | Predictable base OS for production |
 | **BTRFS snapshots** | Automatic rollback if updates break something |
 | **[Kured](https://github.com/kubereboot/kured) support** | Safe, HA-aware node reboots |
+
+> MicroOS remains supported for upgrades/legacy nodes. If you want MicroOS for a new nodepool, set `os = "microos"` explicitly.
 
 ### Why k3s?
 
@@ -84,6 +88,76 @@ Built on the shoulders of giants:
 
 ---
 
+## 🔄 Upgrading
+
+Upgrading from `v2.x` to `v3.x`?
+
+Review the operator playbook in
+[`docs/v2-to-v3-migration.md`](docs/v2-to-v3-migration.md) and the variable map
+in [`MIGRATION.md`](MIGRATION.md) first. From a local kube-hetzner checkout,
+audit the Terraform root, then run:
+
+```bash
+uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root .
+terraform init -upgrade
+terraform plan
+```
+
+Only apply after reviewing all planned resource actions.
+
+### v3 Support Levels
+
+| Area | Support level | Notes |
+| --- | --- | --- |
+| k3s on Leap Micro | Stable default | Recommended path for new clusters. |
+| RKE2 on Leap Micro | Supported | Heavier distribution, covered by v3 validation and CI presets. |
+| MicroOS | Legacy/upgrade support | Existing clusters remain supported; new nodepools default to Leap Micro. |
+| OpenTofu | Supported | Validate with `tofu init`, `tofu validate`, and `tofu plan` before applying. |
+| Cilium dual-stack | Supported | Preferred advanced CNI path. |
+| Cilium Gateway API | Supported opt-in | `cilium_gateway_api_enabled = true` installs standard Gateway API CRDs and enables Cilium Gateway API. Requires Cilium with kube-proxy replacement. |
+| Tailscale node transport | Supported opt-in | `node_transport_mode = "tailscale"` provides secure Tailnet access for single-network clusters and private route transport for multinetwork scale while Kubernetes keeps Hetzner node IPs. |
+| Embedded registry mirror | Supported opt-in | Enables k3s/RKE2's embedded Spegel mirror for trusted larger clusters. |
+| Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; not production-supported until live datapath validation passes. |
+| Flannel/Cilium multinetwork scale over Hetzner Networks | Supported through Tailscale transport | Flannel is the first supported CNI; Cilium is gated as experimental until live datapath coverage promotes it. |
+| Cloudflare Zero Trust Access/Tunnel | Documented external access pattern | Use user-managed Cloudflare Access/Tunnel for operator, SSH, Rancher, or ingress access. kube-hetzner does not manage Cloudflare resources or support Cloudflare Mesh/WARP as node transport in v3. |
+| User-owned Tailscale/ZeroTier/WireGuard/WARP access | Supported external pattern | Use generic hooks when you only want Terraform/operator access and do not want kube-hetzner to manage node transport. |
+| Robot/vSwitch coupling | Advanced/special-case | Prefer blue/green migration and review route exposure carefully. |
+
+### Which Topology Should I Use?
+
+| Need | Recommended v3 topology |
+| --- | --- |
+| Small dev cluster | Single control plane, one agent pool, no ingress unless needed. |
+| Normal HA | 3 control planes, 2+ agents, one primary Hetzner Network, public API LB restricted to your source CIDRs or an explicit secure endpoint. |
+| Private-only | `nat_router` plus private control-plane LB on the primary Network. |
+| Secure operator/API access | `node_transport_mode = "tailscale"` with public API/SSH firewall sources closed. |
+| Cloudflare-protected operator/app access | Keep Tailscale or Hetzner private transport underneath; put user-managed Cloudflare Access/Tunnel in front of kube API, SSH, Rancher, or ingress endpoints. |
+| More than 100 Cloud nodes | Tailscale node transport plus `network_scope = "external"` shards, one Hetzner Network per 100-node budget. |
+| Very large reference | Autoscaler-first Tailscale multinetwork; see the 200-node and 10k-node examples. |
+| Cilium Gateway API | Cilium, `enable_kube_proxy = false`, `cilium_gateway_api_enabled = true`. |
+| Heavy image-pull pressure | `embedded_registry_mirror.enabled = true` on trusted clusters. |
+
+Full guide: [`docs/v3-topology-recommendations.md`](docs/v3-topology-recommendations.md).
+
+Public node join endpoints require a real public API host: either
+`control_plane_endpoint`, a public control-plane load balancer, or public
+IPv4/IPv6 on the control-plane nodes. IPv6-only public joins are valid; private
+control planes without one of those hosts are rejected during validation.
+
+### v3 Readiness Checklist
+
+Before applying a v3 upgrade, confirm:
+
+- Current state is backed up with `terraform state pull`.
+- Removed v2 inputs are gone and renamed booleans with inverted meaning are reviewed.
+- In-place v2 upgrades keep the default `network_subnet_mode = "per_nodepool"` unless subnet resource changes are intentional.
+- `terraform validate` or `tofu validate` passes before planning.
+- `terraform plan` has no unexpected `delete`, `replace`, or `forces replacement` actions.
+- Network, subnet, load balancer, NAT router, placement group, server, and volume changes are intentional.
+- Private-only, Robot/vSwitch, external-network, Tailscale/overlay, Longhorn, and autoscaler clusters have a rollback or blue/green plan.
+
+---
+
 ## ✨ Features
 
 <table>
@@ -91,7 +165,7 @@ Built on the shoulders of giants:
 <td width="50%" valign="top">
 
 ### 🚀 Core Platform
-- [x] **Maintenance-free** — Auto-upgrades MicroOS & k3s with rollback
+- [x] **Maintenance-free** — Auto-upgrades OS & k3s with rollback
 - [x] **Multi-architecture** — Mix x86 and ARM (CAX) for cost savings
 - [x] **Private networking** — Secure, low-latency node communication
 - [x] **SELinux hardened** — Pre-configured security policies
@@ -99,9 +173,11 @@ Built on the shoulders of giants:
 ### 🌐 Networking & CNI
 - [x] **CNI flexibility** — Flannel, Calico, or Cilium
 - [x] **Cilium XDP** — Hardware-level load balancing
-- [x] **Wireguard encryption** — Optional encrypted overlay
+- [x] **Cilium Gateway API** — Native Gateway API controller support
+- [x] **WireGuard encryption** — Optional encrypted overlay
 - [x] **Dual-stack** — Full IPv4 & IPv6 support
 - [x] **Custom subnets** — Define CIDR blocks per nodepool
+- [ ] **Cilium multinetwork scale** — Experimental public-overlay preview, not production-supported yet
 
 ### ⚖️ Load Balancing
 - [x] **Ingress controllers** — Traefik, Nginx, or HAProxy
@@ -115,6 +191,7 @@ Built on the shoulders of giants:
 - [x] **HA by default** — 3 control-planes + 2 agents across AZs
 - [x] **Super-HA** — Span multiple Hetzner locations
 - [x] **Cluster autoscaler** — Automatic node scaling
+- [x] **Embedded registry mirror** — Opt-in k3s/RKE2 Spegel mirror for trusted large clusters
 - [x] **Single-node mode** — Perfect for development
 
 ### 💾 Storage
@@ -126,14 +203,32 @@ Built on the shoulders of giants:
 - [x] **Audit logging** — Configurable retention policies
 - [x] **Firewall rules** — Granular SSH/API access control
 - [x] **NAT router** — Fully private clusters
+- [x] **Plan-time validation** — Terraform/OpenTofu rejects invalid config combinations early
 - [x] **190+ variables** — Fine-tune everything
-- [x] **Kustomization** — Extend with custom manifests
+- [x] **User kustomizations** — Ordered custom manifests with hooks
 
 </td>
 </tr>
 </table>
 
 ---
+
+## 🔐 Security
+
+### MicroOS / Leap Micro Hardening
+- **Immutable base OS:** Leap Micro and MicroOS use transactional updates and read-only system partitions by default, reducing host drift and limiting persistence for unauthorized changes.
+- **Reduced host surface:** Cluster nodes are treated as appliance-style Kubernetes hosts; operational changes should flow through Terraform and Kubernetes manifests rather than ad-hoc host mutation.
+- **SELinux integration:** The module includes SELinux handling for K3s/RKE2 bootstrap paths, with explicit controls and troubleshooting guidance for strict environments.
+
+### Network Isolation
+- **Default deny posture for cluster ingress:** Firewall rules are explicit and can be narrowed to trusted source ranges (`myipv4`/allowlists) for SSH and Kubernetes API exposure.
+- **Private cluster topology support:** You can run with private networking and NAT routing patterns to minimize directly exposed node interfaces.
+- **Load balancer boundary controls:** Control plane and ingress load balancer exposure can be restricted and combined with firewall source controls to reduce public attack surface.
+
+### RKE2 Security Posture
+- **CNCF-conformant distribution option:** RKE2 is supported as a first-class Kubernetes distribution choice in this module.
+- **Compliance-oriented operation:** RKE2 is designed for hardened, regulated environments and supports CIS-focused deployment patterns.
+- **Certification visibility:** For current security certifications/compliance mappings, reference the upstream RKE2 documentation and release notes as authoritative sources.
 
 ## 🏁 Getting Started
 
@@ -146,7 +241,7 @@ Built on the shoulders of giants:
 </tr>
 <tr>
 <td><strong>Homebrew</strong> (macOS/Linux)</td>
-<td><code>brew install hashicorp/tap/terraform hashicorp/tap/packer kubectl hcloud</code></td>
+<td><code>brew install opentofu hashicorp/tap/packer kubectl hcloud</code><br><small>Optional Terraform CLI: <code>brew install hashicorp/tap/terraform</code></small></td>
 </tr>
 <tr>
 <td><strong>Arch Linux</strong></td>
@@ -166,7 +261,26 @@ Built on the shoulders of giants:
 </tr>
 </table>
 
-> **Required tools:** [terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [tofu](https://opentofu.org/docs/intro/install/), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli)
+> **Required tools:** [Terraform](https://learn.hashicorp.com/tutorials/terraform/install-cli) or [OpenTofu](https://opentofu.org/docs/intro/install/) >= 1.10.1 (`brew install opentofu`), [packer](https://developer.hashicorp.com/packer/tutorials/docker-get-started/get-started-install-cli#installing-packer) (initial setup only), [kubectl](https://kubernetes.io/docs/tasks/tools/), [hcloud](https://github.com/hetznercloud/cli). The module requires `hetznercloud/hcloud` provider >= 1.62.0.
+
+OpenTofu is officially supported. Pull requests are validated in CI with both Terraform and OpenTofu, including real Hetzner preset apply/health/destroy tests when Hetzner E2E is enabled.
+
+### Plan-Time Validation
+
+Kube-Hetzner uses Terraform/OpenTofu validations as the module contract: self-contained input validation blocks plus the hard `terraform_data.validation_contract` precondition surface for cross-variable rules. Run `terraform plan` or `tofu plan` before every apply; invalid combinations fail before resources are created.
+
+The validation layer checks pure configuration invariants: non-empty tokens and SSH keys, supported regions and locations, CIDR syntax and IP-family pairs, nodepool name/count rules, odd control-plane quorum, Hetzner network/subnet/placement-group limits, multi-network join requirements, autoscaler boundaries, Cilium-only options, load balancer dependencies, firewall source formats, Robot/vSwitch/NAT requirements, audit settings, YAML snippets, and attached volume definitions.
+
+When validating the module itself with both CLIs in the same checkout, run OpenTofu in a temporary copy so its ignored lock file and plugin cache never disturb Terraform's local state:
+
+```bash
+tmpdir="$(mktemp -d)"
+rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
+(cd "$tmpdir" && tofu init -backend=false -input=false && tofu validate -no-color)
+rm -rf "$tmpdir"
+```
+
+Provider/runtime assertions still belong in resource preconditions, postconditions, or checks. If an invariant can be decided from module inputs, it should be enforced at this plan-time validation layer.
 
 ---
 
@@ -183,7 +297,7 @@ Built on the shoulders of giants:
 </tr>
 <tr>
 <td>3️⃣</td>
-<td><strong>Run the setup script</strong> — creates your project folder and MicroOS snapshot:</td>
+<td><strong>Run the setup script</strong> — creates your project folder and OS snapshots (Leap Micro recommended):</td>
 </tr>
 </table>
 
@@ -214,10 +328,16 @@ alias createkh='tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw
 mkdir /path/to/your/new/folder
 cd /path/to/your/new/folder
 curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/kube.tf.example -o kube.tf
+curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-leapmicro-snapshots.pkr.hcl -o hcloud-leapmicro-snapshots.pkr.hcl
 curl -sL https://raw.githubusercontent.com/kube-hetzner/terraform-hcloud-kube-hetzner/master/packer-template/hcloud-microos-snapshots.pkr.hcl -o hcloud-microos-snapshots.pkr.hcl
 export HCLOUD_TOKEN="your_hcloud_token"
-packer init hcloud-microos-snapshots.pkr.hcl
-packer build hcloud-microos-snapshots.pkr.hcl
+packer init hcloud-leapmicro-snapshots.pkr.hcl
+for distro in k3s rke2; do
+  packer build -var "selinux_package_to_install=${distro}" hcloud-leapmicro-snapshots.pkr.hcl
+done
+# (optional legacy)
+# packer init hcloud-microos-snapshots.pkr.hcl
+# packer build hcloud-microos-snapshots.pkr.hcl
 hcloud context create <project-name>
 ```
 </details>
@@ -237,7 +357,17 @@ hcloud context create <project-name>
 cd <your-project-folder>
 terraform init --upgrade
 terraform validate
+terraform plan
 terraform apply -auto-approve
+```
+
+OpenTofu works the same way:
+
+```sh
+tofu init --upgrade
+tofu validate
+tofu plan
+tofu apply -auto-approve
 ```
 
 **~5 minutes later:** Your cluster is ready! 🎉
@@ -260,7 +390,7 @@ terraform output -json kubeconfig | jq
 ssh root@<control-plane-ip> -i /path/to/private_key -o StrictHostKeyChecking=no
 ```
 
-Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
+Restrict SSH access by configuring `firewall_ssh_source` in your kube.tf (default is `["myipv4"]`). For CI/CD runners, override it with your runner CIDRs. See [SSH docs](docs/ssh.md#firewall-ssh-source-and-changing-ips) for dynamic IP handling.
 
 ### Connect via Kube API
 
@@ -287,7 +417,7 @@ Customize via `cilium_values` with [Cilium helm values](https://github.com/ciliu
 
 | Feature | Variable |
 |---------|----------|
-| Full kube-proxy replacement | `disable_kube_proxy = true` |
+| Full kube-proxy replacement | `enable_kube_proxy = false` |
 | Hubble observability | `cilium_hubble_enabled = true` |
 
 Access Hubble UI:
@@ -317,6 +447,7 @@ Adjust `count` in any nodepool and run `terraform apply`. Constraints:
 Enable with `autoscaler_nodepools`. Powered by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler).
 
 > ⚠️ Autoscaled nodes use a snapshot from the initial control plane. Ensure disk sizes match.
+> Longhorn storage should stay on static agent nodepools. Autoscaled Longhorn volumes require a write-capable Hetzner token in node user-data and leave detached volumes behind on scale-down.
 
 ---
 
@@ -336,7 +467,7 @@ See [Rancher's HA documentation](https://rancher.com/docs/k3s/latest/en/installa
 
 ## 🔄 Automatic Upgrades
 
-### OS Upgrades (MicroOS)
+### OS Upgrades (Leap Micro / MicroOS)
 
 Handled by [Kured](https://github.com/kubereboot/kured)—safe, HA-aware reboots. Configure timeframes via [Kured options](https://kured.dev/docs/configuration/).
 
@@ -351,7 +482,7 @@ Managed by [system-upgrade-controller](https://github.com/rancher/system-upgrade
 automatically_upgrade_os = false
 
 # Disable k3s upgrades
-automatically_upgrade_k3s = false
+automatically_upgrade_kubernetes = false
 ```
 
 <details>
@@ -406,15 +537,25 @@ Integrate Hetzner Robot servers via [the dedicated server guide](docs/add-robot-
 
 Use [Kustomize](https://kustomize.io) for additional deployments:
 
-1. Create `extra-manifests/kustomization.yaml.tpl`
-2. Supports Terraform templating via `extra_kustomize_parameters`
-3. Applied after cluster setup with `kubectl apply -k`
-
-Change folder name with `extra_kustomize_folder`. See [example](examples/kustomization_user_deploy).
+1. Create a source folder (default: `extra-manifests`) with your `kustomization.yaml.tpl` and manifests.
+2. Configure one or more ordered sets with `user_kustomizations`.
+3. Each set supports template parameters, optional pre-commands, and post-commands.
+4. Sets are applied sequentially with `kubectl apply -k`.
 
 ---
 
 ## 📚 Examples
+
+Repository examples:
+
+- [`examples/argocd`](examples/argocd/) — configure Kubernetes/Helm providers from `kubeconfig_data` and install ArgoCD.
+- [`examples/tailscale-node-transport`](examples/tailscale-node-transport/) — opt-in Tailscale node transport for secure single-network clusters and private multinetwork scale-out.
+- [`examples/cilium-gateway-api`](examples/cilium-gateway-api/) — Cilium Gateway API, Gateway, HTTPRoute, and cert-manager HTTP-01.
+- [`examples/cilium-multinetwork`](examples/cilium-multinetwork/) — experimental Cilium-only public-overlay preview across multiple Hetzner Cloud Networks.
+- [`examples/external-overlay-tailscale`](examples/external-overlay-tailscale/) — user-owned Tailscale operator access with `node_connection_overrides`.
+- [`examples/external-overlay-cloudflare-access`](examples/external-overlay-cloudflare-access/) — user-managed Cloudflare Zero Trust Access/Tunnel boundary for kube API, SSH, Rancher, and ingress.
+- [`examples/kustomization_user_deploy`](examples/kustomization_user_deploy/) — ordered `user_kustomizations` sets.
+- [`examples/tls`](examples/tls/) — basic Ingress TLS resources for Traefik and cert-manager.
 
 <details>
 <summary><strong>Custom post-install actions (ArgoCD, etc.)</strong></summary>
@@ -422,12 +563,21 @@ Change folder name with `extra_kustomize_folder`. See [example](examples/kustomi
 For CRD-dependent applications:
 
 ```tf
-extra_kustomize_deployment_commands = <<-EOT
-  kubectl -n argocd wait --for condition=established --timeout=120s crd/appprojects.argoproj.io
-  kubectl -n argocd wait --for condition=established --timeout=120s crd/applications.argoproj.io
-  kubectl apply -f /var/user_kustomize/argocd-projects.yaml
-  kubectl apply -f /var/user_kustomize/argocd-application-argocd.yaml
-EOT
+user_kustomizations = {
+  "1" = {
+    source_folder = "extra-manifests"
+    kustomize_parameters = {
+      target_namespace = "argocd"
+    }
+    pre_commands = ""
+    post_commands = <<-EOT
+      kubectl -n argocd wait --for condition=established --timeout=120s crd/appprojects.argoproj.io
+      kubectl -n argocd wait --for condition=established --timeout=120s crd/applications.argoproj.io
+      kubectl apply -f /var/user_kustomize/1/argocd-projects.yaml
+      kubectl apply -f /var/user_kustomize/1/argocd-application-argocd.yaml
+    EOT
+  }
+}
 ```
 </details>
 
@@ -472,6 +622,7 @@ locals {
 }
 
 cluster_ipv4_cidr = local.cluster_ipv4_cidr
+enable_kube_proxy = false
 
 cilium_values = <<-EOT
 ipam:
@@ -491,6 +642,11 @@ egressGateway:
   enabled: true
 MTU: 1450
 EOT
+
+Cilium Egress Gateway requires kube-proxy replacement, so keep `enable_kube_proxy = false` when enabling it.
+
+# Optional: keep selected egress policies pinned to a Ready egress node automatically
+cilium_egress_gateway_ha_enabled = true
 ```
 
 Example policy:
@@ -499,6 +655,8 @@ apiVersion: cilium.io/v2
 kind: CiliumEgressGatewayPolicy
 metadata:
   name: egress-sample
+  labels:
+    kube-hetzner.io/egress-ha: "true"
 spec:
   selectors:
     - podSelector:
@@ -518,6 +676,54 @@ spec:
 ```
 
 [Full Egress Gateway docs](https://docs.cilium.io/en/stable/network/egress-gateway/)
+</details>
+
+<details>
+<summary><strong>Cilium Gateway API</strong></summary>
+
+Cilium can own Gateway API directly:
+
+```tf
+cni_plugin                 = "cilium"
+enable_kube_proxy         = false
+cilium_gateway_api_enabled = true
+```
+
+When enabled, kube-hetzner installs the standard Gateway API CRDs for the
+selected Cilium line, enables `gatewayAPI.enabled` in Cilium values, and enables
+cert-manager Gateway API support. This is separate from Traefik's Kubernetes
+Gateway provider. Choose one Gateway API controller per cluster; v3 rejects
+enabling Cilium Gateway API and Traefik's Gateway provider at the same time.
+
+Use [`examples/cilium-gateway-api`](examples/cilium-gateway-api/) for a working
+GatewayClass/Gateway/HTTPRoute/cert-manager HTTP-01 starting point.
+
+</details>
+
+<details>
+<summary><strong>Embedded Registry Mirror</strong></summary>
+
+k3s and RKE2 can use their embedded Spegel registry mirror to share images
+between trusted cluster nodes:
+
+```tf
+embedded_registry_mirror = {
+  enabled                  = true
+  registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+  disable_default_endpoint = false
+}
+```
+
+kube-hetzner sets `embedded-registry: true` on server nodes and merges empty
+mirror entries into the effective `registries.yaml`. Existing
+`registries_config` entries and endpoints are preserved.
+
+This is opt-in because the mirror assumes equal node trust. Images pulled with
+credentials on one node may be shared with other nodes, and tags can be poisoned
+by a node that can place images in containerd. Use digest-pinned images for
+critical workloads. In Tailscale multinetwork clusters, advertised node-private
+routes are required so the mirror can reach peers across Network shards.
+
 </details>
 
 <details>
@@ -555,13 +761,21 @@ spec:
 
 [Full Traefik + Cert-Manager guide](https://traefik.io/blog/secure-web-applications-with-traefik-proxy-cert-manager-and-lets-encrypt/)
 
-> **Ingress-Nginx with HTTP challenge:** Add `lb_hostname = "cluster.example.org"` to work around [this known issue](https://github.com/cert-manager/cert-manager/issues/466).
+> **Ingress-Nginx with HTTP challenge:** Add `load_balancer_hostname = "cluster.example.org"` to work around [this known issue](https://github.com/cert-manager/cert-manager/issues/466).
 </details>
 
 <details>
 <summary><strong>Managing snapshots</strong></summary>
 
-**Create:**
+**Create (recommended):**
+```sh
+export HCLOUD_TOKEN=<your-token>
+for distro in k3s rke2; do
+  packer build -var "selinux_package_to_install=${distro}" ./packer-template/hcloud-leapmicro-snapshots.pkr.hcl
+done
+```
+
+**Create (legacy MicroOS):**
 ```sh
 export HCLOUD_TOKEN=<your-token>
 packer build ./packer-template/hcloud-microos-snapshots.pkr.hcl
@@ -575,6 +789,38 @@ hcloud image delete <image-id>
 </details>
 
 <details>
+<summary><strong>Custom OS snapshots per nodepool</strong></summary>
+
+Override the default OS snapshot on any nodepool or individual node with `os_snapshot_id`:
+
+```tf
+agent_nodepools = [
+  {
+    name        = "storage",
+    server_type = "cx33",
+    location    = "nbg1",
+    labels      = ["node.kubernetes.io/server-usage=storage"],
+    taints      = [],
+    count       = 1
+    os_snapshot_id = "348644983"  # Custom snapshot with LVM partitions
+  },
+]
+```
+
+Per-node override (in a `nodes` map):
+```tf
+nodes = {
+  "0" : { os_snapshot_id = "348644983" },
+  "1" : {},  # uses nodepool or global default
+}
+```
+
+> **Caution:** You are responsible for ensuring the snapshot ID matches the correct `os` type (`leapmicro`/`microos`) and node architecture (x86 for `cx*`/`cpx*` servers, ARM for `cax*` servers). A mismatched snapshot will cause provisioning failures.
+
+When not set, the module automatically selects the most recent snapshot matching the node's `os` and architecture.
+</details>
+
+<details>
 <summary><strong>Single-node development cluster</strong></summary>
 
 Set `automatically_upgrade_os = false` (attached volumes don't handle auto-reboots well).
@@ -585,7 +831,7 @@ Uses k3s [service load balancer](https://rancher.com/docs/k3s/latest/en/networki
 <details>
 <summary><strong>Terraform Cloud deployment</strong></summary>
 
-1. Create MicroOS snapshot in your project first
+1. Create a Leap Micro snapshot in your project first (or MicroOS if you explicitly use it)
 2. Configure SSH keys as Terraform Cloud variables (mark private key as sensitive):
 
 ```tf
@@ -693,7 +939,7 @@ parameters:
 
 Enable admission controllers:
 ```tf
-k3s_exec_server_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
+control_plane_exec_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
 ```
 
 Assign namespace to architecture:
@@ -724,11 +970,11 @@ metadata:
 **Setup backup:**
 
 1. Configure `etcd_s3_backup` in kube.tf
-2. Add k3s_token output:
+2. Add cluster_token output:
 
 ```tf
-output "k3s_token" {
-  value     = module.kube-hetzner.k3s_token
+output "cluster_token" {
+  value     = module.kube-hetzner.cluster_token
   sensitive = true
 }
 ```
@@ -739,7 +985,7 @@ output "k3s_token" {
 
 ```tf
 locals {
-  k3s_token = var.k3s_token
+  cluster_token = var.cluster_token
   etcd_version = "v3.5.9"
   etcd_snapshot_name = "name-of-the-snapshot"
   etcd_s3_endpoint = "your-s3-endpoint"
@@ -748,7 +994,7 @@ locals {
   etcd_s3_secret_key = var.etcd_s3_secret_key
 }
 
-variable "k3s_token" {
+variable "cluster_token" {
   sensitive = true
   type      = string
 }
@@ -759,7 +1005,7 @@ variable "etcd_s3_secret_key" {
 }
 
 module "kube-hetzner" {
-  k3s_token = local.k3s_token
+  cluster_token = local.cluster_token
 
   postinstall_exec = compact([
     (
@@ -810,7 +1056,7 @@ module "kube-hetzner" {
 
 2. Set environment variables:
 ```sh
-export TF_VAR_k3s_token="..."
+export TF_VAR_cluster_token="..."
 export TF_VAR_etcd_s3_secret_key="..."
 ```
 
@@ -843,9 +1089,9 @@ resource "hcloud_server_network" "your_proxy_server" {
 }
 
 module "kube-hetzner" {
-  existing_network_id = [hcloud_network.k3s_proxied.id]  # Note: brackets required!
+  existing_network = { id = hcloud_network.k3s_proxied.id }  # Note: object required!
   network_ipv4_cidr = "10.0.0.0/9"
-  additional_k3s_environment = {
+  additional_kubernetes_install_environment = {
     "http_proxy" : "http://10.128.0.1:3128",
     "HTTP_PROXY" : "http://10.128.0.1:3128",
     "HTTPS_PROXY" : "http://10.128.0.1:3128",
@@ -855,6 +1101,214 @@ module "kube-hetzner" {
   }
 }
 ```
+</details>
+
+<details>
+<summary><strong>Tailscale node transport</strong></summary>
+
+Tailscale node transport is useful even before a cluster outgrows one Hetzner
+Network. In a normal single-network cluster it gives Terraform, kubeconfig, and
+operator SSH a private Tailnet path, so you can close public Kubernetes API and
+SSH firewall rules without introducing a separate bastion workflow. Kubernetes
+still keeps Hetzner private node IPs, so Hetzner CCM, CSI, and Load Balancers
+continue to see provider-owned addresses instead of Tailnet `100.64.0.0/10`
+addresses.
+
+For clusters that need more than one Hetzner Cloud Network, the same transport
+becomes the production v3 scale-out path. Hetzner Networks still cap attached
+resources per Network and do not route separate Networks together. Tailscale
+fills that gap by advertising each node's own Hetzner private `/32` route into
+the Tailnet and accepting those routes on every node.
+
+Tailscale mode does not require exposing Kubernetes itself to the web. The
+recommended large-cluster shape keeps public Kubernetes API and SSH firewall
+rules closed, disables managed public ingress unless you explicitly need it,
+and uses the Tailnet for operator/API/node transport. Nodes may still have
+public IPv4/IPv6 enabled so they can bootstrap Tailscale and form direct
+WireGuard paths; the public firewall opens Tailscale UDP/41641, not Kubernetes
+API, SSH, or HTTP/S. A truly no-public-IP multinetwork topology needs private
+egress and externally managed Tailscale bootstrap for every external Network;
+the module NAT router covers only the primary kube-hetzner Network.
+
+Minimal secure single-network shape:
+
+```tf
+node_transport_mode = "tailscale"
+
+tailscale_auth_key = var.tailscale_auth_key
+
+tailscale_node_transport = {
+  # cloud_init brings Tailscale up before Terraform starts using SSH.
+  bootstrap_mode  = "cloud_init"
+  magicdns_domain = "example-tailnet.ts.net"
+  auth = {
+    mode = "auth_key"
+  }
+  routing = {
+    # Single-network clusters already have Hetzner private reachability between
+    # nodes, so route approval is optional. Leave this true for multinetwork.
+    advertise_node_private_routes = false
+  }
+}
+
+# Tailscale mode deliberately rejects public world-open API/SSH defaults.
+firewall_kube_api_source = null
+firewall_ssh_source      = null
+
+# Every active Tailscale agent/autoscaler nodepool sets network_scope explicitly.
+# Use "primary" when network_id is omitted/null.
+# agent_nodepools = [{
+#   name = "agent", server_type = "cx23", location = "nbg1",
+#   labels = [], taints = [], count = 2, network_scope = "primary"
+# }]
+```
+
+Multinetwork scale-out adds `network_scope = "external"` nodepools with
+external `network_id` values and requires approved node-private routes. Set
+`network_scope` explicitly in Tailscale mode so
+Terraform can validate primary-vs-external Network intent during `plan`, even
+when a `network_id` comes from an `hcloud_network` resource created in the same
+root.
+
+```tf
+node_transport_mode = "tailscale"
+
+# Use a reusable shared key, or role-specific keys when autoscaler nodes should
+# use a reusable ephemeral key while static nodes use durable tagged keys.
+tailscale_auth_key = var.tailscale_auth_key
+# tailscale_control_plane_auth_key = var.tailscale_control_plane_auth_key
+# tailscale_agent_auth_key         = var.tailscale_agent_auth_key
+# tailscale_autoscaler_auth_key    = var.tailscale_autoscaler_auth_key
+
+tailscale_node_transport = {
+  bootstrap_mode  = "cloud_init" # required when autoscaler_nodepools are used
+  magicdns_domain = "example-tailnet.ts.net"
+  auth = {
+    mode = "auth_key"
+    # Tagged nodes are recommended for production ACLs and route auto-approval,
+    # but tags must be owned/permitted in your Tailnet policy before use.
+    # advertise_tags_control_plane = ["tag:kube-hetzner-control-plane"]
+    # advertise_tags_agent         = ["tag:kube-hetzner-agent"]
+    # advertise_tags_autoscaler    = ["tag:kube-hetzner-autoscaler"]
+  }
+  routing = {
+    advertise_node_private_routes = true
+  }
+}
+
+agent_nodepools = [
+  {
+    name        = "agent-small-a"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 50
+    # network_id omitted/null means the primary kube-hetzner network.
+    network_scope = "primary"
+  },
+  {
+    name        = "agent-small-b"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 50
+    network_id    = 11959154 # existing external private network id
+    network_scope = "external"
+  },
+]
+
+autoscaler_nodepools = [
+  {
+    name        = "autoscaled-a"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 50
+    network_scope = "primary"
+  },
+  {
+    name        = "autoscaled-b"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 50
+    network_id    = 11959154
+    network_scope = "external"
+  },
+]
+```
+
+Large-scale reference layouts live in
+[`examples/tailscale-node-transport`](./examples/tailscale-node-transport/):
+
+- [`large-scale-200.tf.example`](./examples/tailscale-node-transport/large-scale-200.tf.example)
+  shows 200 total nodes across two Hetzner Networks while keeping each Network
+  at exactly 100 attachments.
+- [`massive-10000-nodes.tf.example`](./examples/tailscale-node-transport/massive-10000-nodes.tf.example)
+  shows the reference topology for 10,000 total nodes: 3 control planes, 7
+  static system agents, 90 autoscaled primary workers, and 99 external
+  100-node autoscaler shards. This is a quota/design reference, not a casual
+  default; it requires Hetzner capacity approvals, Tailnet policy/device
+  capacity, and production Kubernetes scale planning.
+
+The important constraints are enforced during `terraform plan`:
+
+- `node_transport_mode = "tailscale"` is mutually exclusive with
+  `multinetwork_mode = "cilium_public_overlay"`.
+- Control planes always stay on the primary kube-hetzner network and no longer
+  accept `network_id`.
+- Static agents and autoscaler nodepools may use `network_id` to spread across
+  existing Hetzner private Networks. In Tailscale mode, every active static
+  agent node, agent nodepool, and autoscaler nodepool must set
+  `network_scope = "primary"` or `network_scope = "external"`.
+- Control planes are not auto-attached to every external agent Network, avoiding
+  Hetzner's 3-Networks-per-server limit.
+- The module can advertise each node's Hetzner private `/32` route through
+  Tailscale, accepts Tailnet routes on nodes, and disables Tailscale
+  subnet-route SNAT so Kubernetes/CNI traffic keeps the real Hetzner node
+  source IP.
+- Single-network clusters may set
+  `tailscale_node_transport.routing.advertise_node_private_routes = false` to
+  avoid Tailnet route approvals. Any nodepool with `network_scope = "external"`
+  requires the default `true`.
+- For multinetwork clusters, Tailnet ACLs must auto-approve node-private routes
+  for the users, groups, or node tags you use, or the cluster will wait for
+  manual route approval. Tags are optional in `auth_key` mode, but they are the
+  cleanest production ACL boundary once `tagOwners` and `autoApprovers` are
+  configured.
+- With `auth.mode = "auth_key"`, use a reusable `tailscale_auth_key` for one
+  shared key, or role-specific keys (`tailscale_control_plane_auth_key`,
+  `tailscale_agent_auth_key`, `tailscale_autoscaler_auth_key`). A single-use
+  key only registers the first node. Prefer a reusable, pre-approved, tagged,
+  ephemeral key for autoscaler nodes.
+- With `auth.mode = "oauth_client_secret"`, the module passes role-specific
+  OAuth auth-key parameters: static nodes default to durable devices and
+  autoscaler-created nodes default to ephemeral devices.
+- Tailscale mode rejects world-open `firewall_kube_api_source` and
+  `firewall_ssh_source`; use `null` for no public API/SSH rule or restrict to
+  explicit CIDRs.
+- Public module-managed control-plane Load Balancers are rejected in Tailscale
+  mode. Private control-plane Load Balancers remain available for single-network
+  HA/API patterns; kubeconfig still defaults to the first control plane's
+  Tailnet MagicDNS endpoint unless you set an explicit endpoint.
+- `autoscaler_nodepools` require `tailscale_node_transport.bootstrap_mode =
+  "cloud_init"` because autoscaler-created nodes cannot be configured by
+  Terraform remote-exec before joining.
+- The module NAT router can be combined with Tailscale only for
+  single-primary-network private egress. It does not provide egress for
+  external Hetzner Networks, so multinetwork Tailscale nodepools need their own
+  public IPv4/IPv6 egress. Do not set `nat_router` for external-network
+  Tailscale topologies in this release.
+- Managed Hetzner private Load Balancers work for single-primary-network
+  Tailscale clusters. They still cannot span external nodepool Networks; when
+  using `network_id` scale-out, use public LB targets, Klipper, no/custom
+  ingress, or an external load balancer.
+
+The older `multinetwork_mode = "cilium_public_overlay"` path remains as a
+gated lab preview for Cilium-only public transport experiments. Prefer
+Tailscale node transport for real private multinetwork clusters.
 </details>
 
 <details>
@@ -873,10 +1327,16 @@ agent_nodepools = [
 
 Legacy compatibility:
 ```tf
-placement_group_compat_idx = 1
+placement_group_index = 1
 ```
 
-For >10 nodes, use map-based definition:
+Count-based nodepools without an explicit `placement_group` are automatically
+sharded into spread groups of 10 servers. Hetzner projects also cap placement
+groups at 50 total, so very large static clusters must either disable placement
+groups, split across projects/clusters, or use autoscaler nodepools for burst
+capacity. kube-hetzner does not currently assign Hetzner Placement Groups to
+autoscaler-created nodes. If you set an explicit `placement_group`, split
+groups manually:
 ```tf
 agent_nodepools = [
   {
@@ -888,7 +1348,7 @@ agent_nodepools = [
 ]
 ```
 
-Disable globally: `placement_group_disable = true`
+Disable globally: `enable_placement_groups = false`
 </details>
 
 <details>
@@ -939,29 +1399,29 @@ enable_delete_protection = {
 </details>
 
 <details>
-<summary><strong>Private-only cluster (Wireguard)</strong></summary>
+<summary><strong>Private-only cluster (WireGuard)</strong></summary>
 
 Requirements:
 1. Pre-configured network
 2. NAT gateway with public IP ([Hetzner guide](https://community.hetzner.com/tutorials/how-to-set-up-nat-for-cloud-networks))
-3. Wireguard VPN access ([Hetzner guide](https://docs.hetzner.com/cloud/apps/list/wireguard/))
+3. WireGuard VPN access ([Hetzner guide](https://docs.hetzner.com/cloud/apps/list/wireguard/))
 4. Route `0.0.0.0/0` through NAT gateway
 
 Configuration:
 ```tf
-existing_network_id = [YOURID]
+existing_network = { id = 1234567 }
 network_ipv4_cidr = "10.0.0.0/9"
 
 # In all nodepools:
-disable_ipv4 = true
-disable_ipv6 = true
+enable_public_ipv4 = false
+enable_public_ipv6 = false
 
 # For autoscaler:
-autoscaler_disable_ipv4 = true
-autoscaler_disable_ipv6 = true
+autoscaler_enable_public_ipv4 = false
+autoscaler_enable_public_ipv6 = false
 
 # Optional private LB:
-control_plane_lb_enable_public_interface = false
+control_plane_load_balancer_enable_public_network = false
 ```
 </details>
 
@@ -974,13 +1434,128 @@ Fully private setup with:
 - **Control plane:** Through LB or NAT router port forwarding
 - **Ingress:** Through agents LB only
 
+```tf
+enable_control_plane_load_balancer = true
+
+nat_router = {
+  server_type = "cax21"
+  location    = "nbg1"
+}
+
+# Optional: use the router's private IP for SSH bastion traffic when the
+# operator already reaches the private network through Tailscale/WireGuard/etc.
+# use_private_nat_router_bastion = true
+```
+
 > **August 11, 2025:** Hetzner removed legacy Router DHCP option. This module now automatically persists routes via the virtual gateway.
+</details>
+
+<details>
+<summary><strong>External user-owned overlays (Tailscale/ZeroTier/WireGuard/WARP)</strong></summary>
+
+Use `node_transport_mode = "tailscale"` when Tailscale should be the official
+Kubernetes node transport for a single-network or multinetwork cluster. This
+external-overlay pattern is different: it is for operator access, custom
+control-plane endpoints, or post-bootstrap Tailscale Kubernetes Operator
+features that you manage outside kube-hetzner.
+
+There is still no broad `enable_tailscale` switch. kube-hetzner manages only
+the narrow node-transport contract above. It does not manage tailnet ACLs,
+route approvals, Tailscale Services, workload ingress/egress policy, or the
+Tailscale Kubernetes Operator lifecycle. Use your overlay setup in an outer
+module or out-of-band bootstrap, then pass resulting endpoints back into
+kube-hetzner.
+
+Cloudflare Zero Trust is documented separately because it is usually an
+Access/Tunnel edge rather than a node-to-node transport. Do not use Cloudflare
+Mesh/WARP as an officially supported kube-hetzner node transport in v3; use
+Tailscale for that contract.
+
+The supported kube-hetzner primitives are:
+
+- `preinstall_exec` / `postinstall_exec` for user-owned bootstrap hooks.
+- `node_connection_overrides` for Terraform SSH/provisioners over Tailnet IPs.
+- `control_plane_endpoint` for a stable external kube API endpoint.
+- `use_private_nat_router_bastion` when a Tailscale/WireGuard/WARP path already reaches the private network.
+- `firewall_ssh_source` / `firewall_kube_api_source` tightening after overlay access is proven.
+
+```tf
+# Bootstrap overlay client on each node (example commands only).
+# Avoid long-lived auth keys here; command strings and cloud-init user-data can
+# be visible in Terraform state/provider state or instance logs. Prefer an
+# external bootstrap or short-lived, one-use preauth keys that are immediately
+# rotated/revoked.
+preinstall_exec = [
+  "curl -fsSL https://tailscale.com/install.sh | sh",
+  # "tailscale up --auth-key=${var.tailscale_auth_key} --ssh --hostname=$(hostname)",
+]
+
+# After overlay IPs are known, route Terraform SSH through them
+# Keys must match final node names (with cluster prefix if enabled)
+node_connection_overrides = {
+  "k3s-control-plane" = "100.64.0.10"
+  "k3s-agent-0"       = "100.64.0.11"
+}
+
+# Optional: use an external control-plane endpoint exposed through overlay
+control_plane_endpoint = "https://cp.tailnet.example:6443"
+```
+
+Typical workflow:
+1. Apply once to bootstrap nodes and install/join overlay agents.
+2. Resolve overlay addresses and set `node_connection_overrides`.
+3. Apply again and optionally tighten `firewall_ssh_source` / `firewall_kube_api_source`.
+4. After Kubernetes is healthy, deploy the Tailscale Kubernetes Operator with
+   Helm, ArgoCD, or `user_kustomizations` if you want Tailscale Services,
+   workload ingress/egress, subnet routers, or kube API proxying.
+
+For cluster node transport, prefer
+[`examples/tailscale-node-transport/README.md`](examples/tailscale-node-transport/README.md).
+For user-owned Tailscale operator access, see
+[`examples/external-overlay-tailscale/README.md`](examples/external-overlay-tailscale/README.md).
+For Cloudflare Access/Tunnel operator and app access, see
+[`examples/external-overlay-cloudflare-access/README.md`](examples/external-overlay-cloudflare-access/README.md).
+</details>
+
+<details>
+<summary><strong>Cloudflare Zero Trust Access/Tunnel (external)</strong></summary>
+
+Cloudflare Zero Trust is useful in v3 as an operator and application access
+layer. Keep the cluster transport underneath simple:
+
+- Use `node_transport_mode = "tailscale"` for supported secure node transport,
+  especially single-network hardening and multinetwork scale-out.
+- Use Cloudflare Access/Tunnel for the Kubernetes API, SSH, Rancher, Grafana,
+  or ingress hostnames that you choose to publish through Cloudflare.
+- Manage Cloudflare accounts, policies, tunnels, DNS records, WARP enrollment,
+  and service tokens outside kube-hetzner.
+
+This module deliberately does not add a Cloudflare provider, Cloudflare token
+variables, Cloudflare Mesh bootstrap, or `node_transport_mode = "cloudflare"`.
+Cloudflare Mesh is still beta in Cloudflare's own docs, and using it as
+Kubernetes node transport would create a large support surface that v3 does not
+need.
+
+For kubeconfig access through Cloudflare Access, prefer a local helper path such
+as `cloudflared access tcp` or a WARP/private-route design owned outside this
+module. Do not point `control_plane_endpoint` at an Access-protected hostname
+unless every joining control-plane and agent node can reach and authenticate to
+that endpoint; `control_plane_endpoint` is also used for node joins.
+
+For SSH, use Cloudflare's own Access SSH patterns, or expose reachable overlay
+addresses through `node_connection_overrides` only after you have proven that
+Terraform can connect through them.
+
+Full example:
+[`examples/external-overlay-cloudflare-access/README.md`](examples/external-overlay-cloudflare-access/README.md).
 </details>
 
 <details>
 <summary><strong>Fix SELinux issues with udica</strong></summary>
 
 Create targeted SELinux profiles instead of weakening cluster-wide security:
+
+> **Troubleshooting note:** When using large attached volumes (for example large Longhorn disks), first boot can hit cloud-init/systemd timeouts while SELinux relabeling completes. If you hit this repeatedly, a practical workaround is to disable SELinux only on the affected nodepool(s) instead of disabling it cluster-wide.
 
 ```sh
 # Find container
@@ -1084,10 +1659,12 @@ Update `version` in your kube.tf and run `terraform apply`.
 2. Create your branch: `git checkout -b AmazingFeature`
 3. Point your kube.tf `source` to local clone
 4. Useful commands:
-   ```sh
-   ../kube-hetzner/scripts/cleanup.sh
-   packer build ../kube-hetzner/packer-template/hcloud-microos-snapshots.pkr.hcl
-   ```
+	   ```sh
+	   ../kube-hetzner/scripts/cleanup.sh
+	   for distro in k3s rke2; do packer build -var "selinux_package_to_install=${distro}" ../kube-hetzner/packer-template/hcloud-leapmicro-snapshots.pkr.hcl; done
+	   # (legacy)
+	   # packer build ../kube-hetzner/packer-template/hcloud-microos-snapshots.pkr.hcl
+	   ```
 5. Update `kube.tf.example` if needed
 6. Commit: `git commit -m 'Add AmazingFeature'`
 7. Push: `git push origin AmazingFeature`
@@ -1103,6 +1680,7 @@ This project includes [agent skills](https://agentskills.io) in `.claude/skills/
 | `/fix-issue <num>` | Guided workflow for fixing GitHub issues |
 | `/review-pr <num>` | Security-focused PR review |
 | `/test-changes` | Run terraform fmt, validate, plan |
+| `/migrate-v2-to-v3 <terraform-root>` | Guided v2 to v3 migration and plan review |
 
 **PRs to improve these skills are welcome!** See `.claude/skills/` for the skill definitions.
 
@@ -1134,6 +1712,13 @@ Your sponsorship directly funds:
 ---
 
 ## 🙏 Acknowledgements
+
+- **[k-andy](https://github.com/StarpTech/k-andy)** — The starting point for this project
+- **[Best-README-Template](https://github.com/othneildrew/Best-README-Template)** — README inspiration
+- **[Hetzner Cloud](https://www.hetzner.com)** — Outstanding infrastructure and Terraform provider
+- **[HashiCorp](https://www.hashicorp.com)** — The amazing Terraform framework
+- **[Rancher](https://www.rancher.com)** — k3s, the heart of this project
+- **[openSUSE](https://www.opensuse.org)** — Leap Micro & MicroOS, next-level container OS
 
 <div align="center">
 <a href="https://www.hetzner.com"><img src="https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/raw/master/.images/hetzner-logo.svg" alt="Hetzner — Server · Cloud · Hosting" height="80"></a>

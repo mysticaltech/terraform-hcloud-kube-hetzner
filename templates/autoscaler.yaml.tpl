@@ -4,17 +4,17 @@ kind: ServiceAccount
 metadata:
   labels:
     k8s-addon: cluster-autoscaler.addons.k8s.io
-    k8s-app: cluster-autoscaler
-  name: cluster-autoscaler
+    k8s-app: ${autoscaler_name}
+  name: ${autoscaler_name}
   namespace: kube-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: cluster-autoscaler
+  name: ${autoscaler_name}
   labels:
     k8s-addon: cluster-autoscaler.addons.k8s.io
-    k8s-app: cluster-autoscaler
+    k8s-app: ${autoscaler_name}
 rules:
   - apiGroups: [""]
     resources: ["events", "endpoints"]
@@ -27,7 +27,7 @@ rules:
     verbs: ["update"]
   - apiGroups: [""]
     resources: ["endpoints"]
-    resourceNames: ["cluster-autoscaler"]
+    resourceNames: ["${autoscaler_name}"]
     verbs: ["get", "update"]
   - apiGroups: [""]
     resources: ["nodes"]
@@ -60,87 +60,109 @@ rules:
     resources: ["leases"]
     verbs: ["create"]
   - apiGroups: ["coordination.k8s.io"]
-    resourceNames: ["cluster-autoscaler"]
+    resourceNames: ["${leader_election_resource_name}"]
     resources: ["leases"]
     verbs: ["get", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: cluster-autoscaler
+  name: ${autoscaler_name}
   namespace: kube-system
   labels:
     k8s-addon: cluster-autoscaler.addons.k8s.io
-    k8s-app: cluster-autoscaler
+    k8s-app: ${autoscaler_name}
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["create","list","watch"]
   - apiGroups: [""]
     resources: ["configmaps"]
-    resourceNames: ["cluster-autoscaler-status", "cluster-autoscaler-priority-expander"]
+    resourceNames: ["${autoscaler_name}-status", "cluster-autoscaler-priority-expander"]
     verbs: ["delete", "get", "update", "watch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: cluster-autoscaler
+  name: ${autoscaler_name}
   labels:
     k8s-addon: cluster-autoscaler.addons.k8s.io
-    k8s-app: cluster-autoscaler
+    k8s-app: ${autoscaler_name}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cluster-autoscaler
+  name: ${autoscaler_name}
 subjects:
   - kind: ServiceAccount
-    name: cluster-autoscaler
+    name: ${autoscaler_name}
     namespace: kube-system
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: cluster-autoscaler
+  name: ${autoscaler_name}
   namespace: kube-system
   labels:
     k8s-addon: cluster-autoscaler.addons.k8s.io
-    k8s-app: cluster-autoscaler
+    k8s-app: ${autoscaler_name}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: cluster-autoscaler
+  name: ${autoscaler_name}
 subjects:
   - kind: ServiceAccount
-    name: cluster-autoscaler
+    name: ${autoscaler_name}
     namespace: kube-system
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${autoscaler_name}-metrics
+  namespace: kube-system
+  labels:
+    app: ${autoscaler_name}
+spec:
+  type: NodePort
+  selector:
+    app: ${autoscaler_name}
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 8085
+      targetPort: 8085
+      nodePort: ${metrics_node_port}
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: cluster-autoscaler
+  name: ${autoscaler_name}
   namespace: kube-system
   labels:
-    app: cluster-autoscaler
+    app: ${autoscaler_name}
 spec:
   replicas: ${ca_replicas}
   selector:
     matchLabels:
-      app: cluster-autoscaler
+      app: ${autoscaler_name}
   template:
     metadata:
       labels:
-        app: cluster-autoscaler
+        app: ${autoscaler_name}
       annotations:
         prometheus.io/scrape: 'true'
         prometheus.io/port: '8085'
     spec:
-      serviceAccountName: cluster-autoscaler
+      serviceAccountName: ${autoscaler_name}
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/control-plane
+        %{~ if length(cluster_autoscaler_tolerations) > 0 ~}
+${indent(8, yamlencode(cluster_autoscaler_tolerations))}
+        %{~ endif ~}
 
       # Node affinity is used to force cluster-autoscaler to stick
       # to the control-plane node. This allows the cluster to reliably downscale
@@ -172,6 +194,8 @@ spec:
             - --logtostderr=${cluster_autoscaler_log_to_stderr}
             - --stderrthreshold=${cluster_autoscaler_stderr_threshold}
             - --cloud-provider=hetzner
+            - --leader-elect-resource-name=${leader_election_resource_name}
+            - --status-config-map-name=${autoscaler_name}-status
             %{~ for pool in node_pools ~}
             - --nodes=${pool.min_nodes}:${pool.max_nodes}:${pool.server_type}:${pool.location}:${cluster_name}${pool.name}
             %{~ endfor ~}
@@ -204,12 +228,4 @@ spec:
           - name: HCLOUD_SERVER_CREATION_TIMEOUT
             value: '${cluster_autoscaler_server_creation_timeout}'
           %{~ endif ~}
-          volumeMounts:
-            - name: ssl-certs
-              mountPath: /etc/ssl/certs
-              readOnly: true
           imagePullPolicy: "Always"
-      volumes:
-        - name: ssl-certs
-          hostPath:
-            path: "/etc/ssl/certs" # right place on MicroOS?

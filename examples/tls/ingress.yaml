@@ -3,12 +3,13 @@ kind: Ingress
 metadata:
   name: nginx-ingress
   annotations:
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.tls.certresolver: le
+    cert-manager.io/cluster-issuer: letsencrypt
 spec:
+  ingressClassName: traefik
   tls:
     - hosts:
         - example.com
+      secretName: example-com-tls
   rules:
     - host: example.com
       http:

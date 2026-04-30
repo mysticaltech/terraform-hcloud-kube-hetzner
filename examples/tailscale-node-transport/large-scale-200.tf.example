@@ -1,0 +1,162 @@
+# Tailscale node transport across two Hetzner Networks for 200 total nodes.
+#
+# Shape:
+# - 3 control planes on the primary kube-hetzner Network.
+# - 97 static agents on the primary Network.
+# - 100 static agents on one existing external Hetzner Network.
+# - Primary Network attachments: 3 + 97 = 100.
+# - Secondary Network attachments: 100.
+#
+# Placement groups:
+# - Leave placement_group unset on count-based nodepools.
+# - kube-hetzner auto-shards static count-based nodepools every 10 servers.
+# - This creates 1 control-plane group, 10 primary-agent groups, and
+#   10 secondary-agent groups: 21 module-created placement groups total.
+#
+# Exposure:
+# - Kubernetes API and SSH are not opened to the public internet.
+# - ingress_controller = "none" avoids a public web load balancer.
+# - Nodes still keep public IPv4/IPv6 by default for Tailscale bootstrap,
+#   package downloads, and direct Tailscale WireGuard path discovery.
+# - The public firewall allows Tailscale UDP/41641, not public Kubernetes API,
+#   SSH, or HTTP/S. Operator access goes through the Tailnet.
+
+terraform {
+  required_version = ">= 1.10.1"
+
+  required_providers {
+    hcloud = {
+      source  = "hetznercloud/hcloud"
+      version = ">= 1.62.0"
+    }
+  }
+}
+
+provider "hcloud" {
+  token = var.hcloud_token
+}
+
+module "kube-hetzner" {
+  source = "kube-hetzner/kube-hetzner/hcloud"
+  # Pin to v3 once released.
+  # version = "3.0.0"
+
+  providers = {
+    hcloud = hcloud
+  }
+
+  hcloud_token    = var.hcloud_token
+  ssh_public_key  = var.ssh_public_key
+  ssh_private_key = var.ssh_private_key
+
+  cluster_name       = "kh-ts-200"
+  ingress_controller = "none"
+
+  node_transport_mode      = "tailscale"
+  firewall_kube_api_source = null
+  firewall_ssh_source      = null
+
+  tailscale_auth_key = var.tailscale_auth_key
+  tailscale_node_transport = {
+    bootstrap_mode  = "cloud_init"
+    magicdns_domain = var.tailscale_magicdns_domain
+
+    auth = {
+      mode = "auth_key"
+      # For production, prefer tagged/preapproved auth keys and Tailnet
+      # autoApprovers.routes for the private Network CIDRs.
+      # advertise_tags_control_plane = ["tag:kube-hetzner-control-plane"]
+      # advertise_tags_agent         = ["tag:kube-hetzner-agent"]
+      # advertise_tags_autoscaler    = ["tag:kube-hetzner-autoscaler"]
+    }
+
+    routing = {
+      advertise_node_private_routes = true
+    }
+  }
+
+  # Optional for trusted large clusters: reduce duplicate image pulls by using
+  # the k3s/RKE2 embedded Spegel registry mirror. Keep route advertisement above
+  # enabled when network_scope = "external" nodepools exist.
+  # embedded_registry_mirror = {
+  #   enabled                  = true
+  #   registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+  #   disable_default_endpoint = false
+  # }
+
+  control_plane_nodepools = [
+    {
+      name        = "control-plane"
+      server_type = "cx33"
+      location    = "nbg1"
+      labels      = []
+      taints      = []
+      count       = 3
+    }
+  ]
+
+  agent_nodepools = [
+    {
+      name        = "agents-primary"
+      server_type = "cx33"
+      location    = "nbg1"
+      labels      = []
+      taints      = []
+      count       = 97
+      network_scope = "primary"
+    },
+    {
+      name        = "agents-secondary"
+      server_type = "cx33"
+      location    = "nbg1"
+      labels      = []
+      taints      = []
+      count       = 100
+      network_id    = var.secondary_network_id
+      network_scope = "external"
+    },
+  ]
+}
+
+output "kubeconfig" {
+  value     = module.kube-hetzner.kubeconfig
+  sensitive = true
+}
+
+variable "hcloud_token" {
+  description = "Hetzner Cloud API token."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key content for cluster nodes."
+  type        = string
+}
+
+variable "ssh_private_key" {
+  description = "SSH private key content for Terraform provisioners."
+  type        = string
+  sensitive   = true
+}
+
+variable "tailscale_auth_key" {
+  description = "Reusable, pre-approved Tailscale auth key for cluster nodes."
+  type        = string
+  sensitive   = true
+}
+
+variable "tailscale_magicdns_domain" {
+  description = "Tailnet MagicDNS domain, for example example-tailnet.ts.net."
+  type        = string
+}
+
+variable "secondary_network_id" {
+  description = "Existing Hetzner Network ID for the second 100-node shard."
+  type        = number
+
+  validation {
+    condition     = var.secondary_network_id > 0 && floor(var.secondary_network_id) == var.secondary_network_id
+    error_message = "secondary_network_id must be a positive integer Hetzner Network ID."
+  }
+}

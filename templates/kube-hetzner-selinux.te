@@ -19,6 +19,7 @@ require {
     class io_uring sqpoll;
     class anon_inode { create map read write };
     class tcp_socket name_connect;
+    class capability dac_override;
     class chr_file { open read write };
     class blk_file getattr;
 }
@@ -32,6 +33,7 @@ allow kernel_generic_helper_t self:unix_dgram_socket create;
 allow iscsid_t iscsid_exec_t:file execute;
 allow iscsid_t var_run_t:sock_file write;
 allow iscsid_t var_run_t:unix_stream_socket connectto;
+allow iscsid_t self:capability dac_override;
 
 #============= init_t ==============
 allow init_t unlabeled_t:dir { add_name remove_name rmdir search };

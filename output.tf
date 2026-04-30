@@ -43,12 +43,25 @@ output "agents_public_ipv6" {
 
 output "ingress_public_ipv4" {
   description = "The public IPv4 address of the Hetzner load balancer (with fallback to first control plane node)"
-  value       = local.has_external_load_balancer ? local.first_control_plane_ip : hcloud_load_balancer.cluster[0].ipv4
+  value = (
+    local.combine_load_balancers_effective
+    ? one(hcloud_load_balancer.control_plane[*].ipv4)
+    : (local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : hcloud_load_balancer.cluster[0].ipv4)
+  )
+}
+
+output "load_balancer_public_ipv4" {
+  description = "The public IPv4 address of the Terraform-managed ingress load balancer, if present."
+  value       = try(one(hcloud_load_balancer.cluster[*].ipv4), null)
 }
 
 output "ingress_public_ipv6" {
   description = "The public IPv6 address of the Hetzner load balancer (with fallback to first control plane node)"
-  value       = local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_disable_ipv6 ? null : hcloud_load_balancer.cluster[0].ipv6)
+  value = (
+    local.combine_load_balancers_effective
+    ? (var.load_balancer_enable_ipv6 ? one(hcloud_load_balancer.control_plane[*].ipv6) : null)
+    : (local.has_external_load_balancer ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : (var.load_balancer_enable_ipv6 ? hcloud_load_balancer.cluster[0].ipv6 : null))
+  )
 }
 
 output "lb_control_plane_ipv4" {
@@ -66,9 +79,44 @@ output "k3s_endpoint" {
   value       = local.k3s_endpoint
 }
 
-output "k3s_token" {
-  description = "The k3s token to register new nodes"
-  value       = local.k3s_token
+output "effective_kubeconfig_endpoint" {
+  description = "Effective Kubernetes API endpoint written into the generated kubeconfig."
+  value       = local.kubeconfig_server
+}
+
+output "effective_node_join_endpoint" {
+  description = "Effective default node join endpoint for the selected Kubernetes distribution."
+  value       = local.kubernetes_distribution == "rke2" ? local.rke2_join_endpoint : local.k3s_endpoint
+}
+
+output "node_transport_mode" {
+  description = "Effective Kubernetes node transport mode."
+  value       = var.node_transport_mode
+}
+
+output "tailscale_control_plane_magicdns_hosts" {
+  description = "Tailnet MagicDNS hostnames for control-plane nodes when node_transport_mode is tailscale."
+  value = local.node_transport_tailscale_enabled ? {
+    for k, node in module.control_planes : k => "${node.name}.${local.tailscale_magicdns_domain}"
+  } : {}
+}
+
+output "tailscale_agent_magicdns_hosts" {
+  description = "Tailnet MagicDNS hostnames for static agent nodes when node_transport_mode is tailscale."
+  value = local.node_transport_tailscale_enabled ? {
+    for k, node in module.agents : k => "${node.name}.${local.tailscale_magicdns_domain}"
+  } : {}
+}
+
+output "cluster_token" {
+  description = "The cluster token to register new nodes"
+  value       = local.cluster_token
+  sensitive   = true
+}
+
+output "join_script_external" {
+  description = "Helper command for joining non-managed external nodes to k3s with external-IP and wireguard-native flannel."
+  value       = local.kubernetes_distribution == "k3s" ? "curl -sfL https://get.k3s.io | K3S_URL='${local.k3s_endpoint}' K3S_TOKEN='${local.cluster_token}' sh -s - agent --node-external-ip=<PUBLIC_NODE_IP> --flannel-backend=wireguard-native" : "External join helper is available only for k3s clusters."
   sensitive   = true
 }
 
@@ -82,6 +130,16 @@ output "agent_nodes" {
   value       = [for node in module.agents : node]
 }
 
+output "control_planes" {
+  description = "Full control plane module map keyed by node identifier."
+  value       = module.control_planes
+}
+
+output "agents" {
+  description = "Full agent module map keyed by node identifier."
+  value       = module.agents
+}
+
 output "domain_assignments" {
   description = "Assignments of domains to IPs based on reverse DNS"
   value = concat(
@@ -92,6 +150,20 @@ output "domain_assignments" {
     ]),
     # Get assignments from floating IPs.
     [for rdns in hcloud_rdns.agents : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    # NAT router primary IP PTR assignments.
+    [for rdns in hcloud_rdns.nat_router_primary_ipv4 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    [for rdns in hcloud_rdns.nat_router_primary_ipv6 : {
+      domain = rdns.dns_ptr
+      ips    = [rdns.ip_address]
+    }],
+    # Control plane load balancer PTR assignment.
+    [for rdns in hcloud_rdns.control_plane_lb_ipv4 : {
       domain = rdns.dns_ptr
       ips    = [rdns.ip_address]
     }]

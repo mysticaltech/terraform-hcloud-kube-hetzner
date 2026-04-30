@@ -8,7 +8,7 @@ spec:
       image: registry.k8s.io/busybox
       command: [ "/bin/sh", "-c", "env" ]
       env:
-        - name: DEMO_ENVIRONEMNT_VARIABLE
+        - name: DEMO_ENVIRONMENT_VARIABLE
           valueFrom:
             configMapKeyRef:
               name: demo-config

@@ -2,11 +2,41 @@ variable "name" {
   description = "Host name"
   type        = string
 }
-variable "microos_snapshot_id" {
-  description = "MicroOS snapshot ID to be used. Per default empty, an initial snapshot will be created"
+
+variable "append_random_suffix" {
+  description = "Whether to append a random suffix to the server name."
+  type        = bool
+  default     = true
+}
+
+variable "connection_host" {
+  description = "Optional SSH host override used for Terraform provisioners."
   type        = string
   default     = ""
 }
+
+variable "connection_host_suffix" {
+  description = "Optional DNS suffix appended to the final server name for Terraform provisioners, for example a Tailscale MagicDNS tailnet name."
+  type        = string
+  default     = ""
+}
+
+variable "node_connection_overrides" {
+  description = "Optional SSH host overrides keyed by node name (final or base name)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "os_snapshot_id" {
+  description = "OS snapshot ID to be used."
+  type        = string
+}
+
+variable "os" {
+  description = "Operating system used for the snapshot. Used to conditionally apply OS-specific cloud-init steps."
+  type        = string
+}
+
 variable "base_domain" {
   description = "Base domain used for reverse dns"
   type        = string
@@ -45,6 +75,12 @@ variable "firewall_ids" {
   nullable    = true
 }
 
+variable "extra_firewall_ids" {
+  description = "Additional firewall IDs to attach to the server."
+  type        = list(number)
+  default     = []
+}
+
 variable "placement_group_id" {
   description = "Placement group ID"
   type        = number
@@ -70,6 +106,7 @@ variable "ipv4_subnet_id" {
 variable "private_ipv4" {
   description = "Private IP for the server"
   type        = string
+  default     = null
 }
 
 variable "server_type" {
@@ -99,32 +136,32 @@ variable "automatically_upgrade_os" {
   default = true
 }
 
-variable "k3s_registries" {
+variable "registries_config" {
   default = ""
   type    = string
 }
 
-variable "k3s_registries_update_script" {
+variable "registries_update_script" {
   default = ""
   type    = string
 }
 
-variable "k3s_kubelet_config" {
+variable "kubelet_config" {
   default = ""
   type    = string
 }
 
-variable "k3s_kubelet_config_update_script" {
+variable "kubelet_config_update_script" {
   default = ""
   type    = string
 }
 
-variable "k3s_audit_policy_config" {
+variable "audit_policy_config" {
   description = "K3S audit-policy.yaml contents"
   type        = string
 }
 
-variable "k3s_audit_policy_update_script" {
+variable "audit_policy_update_script" {
   description = "Script to update audit policy configuration"
   type        = string
 }
@@ -137,6 +174,18 @@ variable "cloudinit_write_files_common" {
 variable "cloudinit_runcmd_common" {
   default = ""
   type    = string
+}
+
+variable "cloudinit_write_files_extra" {
+  type        = list(any)
+  default     = []
+  description = "Additional cloud-init write_files entries appended after module defaults."
+}
+
+variable "cloudinit_runcmd_extra" {
+  type        = list(any)
+  default     = []
+  description = "Additional cloud-init runcmd entries appended after module defaults."
 }
 
 variable "swap_size" {
@@ -177,10 +226,34 @@ variable "disable_ipv6" {
   description = "Whether to disable ipv4 on the server. If you disable ipv4 and ipv6 make sure you have an access to your private network."
 }
 
+variable "primary_ipv4_id" {
+  type        = number
+  default     = null
+  description = "Optional existing or module-managed Primary IPv4 ID to assign to the server."
+}
+
+variable "primary_ipv6_id" {
+  type        = number
+  default     = null
+  description = "Optional existing or module-managed Primary IPv6 ID to assign to the server."
+}
+
 variable "network_id" {
   type        = number
   default     = null
   description = "The network id to attach the server to."
+}
+
+variable "primary_network_key" {
+  type        = number
+  default     = 0
+  description = "Declared primary network identifier from nodepool config (0 means module-managed primary network). Used for deterministic filtering of extra networks."
+}
+
+variable "extra_network_ids" {
+  type        = list(number)
+  default     = []
+  description = "Additional network IDs to attach to the server."
 }
 
 variable "ssh_bastion" {

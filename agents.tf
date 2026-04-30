@@ -1,3 +1,35 @@
+resource "hcloud_primary_ip" "agents_ipv4" {
+  for_each = {
+    for key, value in local.agent_nodes : key => value
+    if var.primary_ip_pool.enable_ipv4 && !value.disable_ipv4 && value.primary_ipv4_id == null
+  }
+
+  type        = "ipv4"
+  name        = "${var.cluster_name}-agent-${each.key}-ipv4"
+  location    = each.value.location
+  auto_delete = var.primary_ip_pool.auto_delete
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
+resource "hcloud_primary_ip" "agents_ipv6" {
+  for_each = {
+    for key, value in local.agent_nodes : key => value
+    if var.primary_ip_pool.enable_ipv6 && !value.disable_ipv6 && value.primary_ipv6_id == null
+  }
+
+  type        = "ipv6"
+  name        = "${var.cluster_name}-agent-${each.key}-ipv6"
+  location    = each.value.location
+  auto_delete = var.primary_ip_pool.auto_delete
+
+  lifecycle {
+    ignore_changes = [location]
+  }
+}
+
 module "agents" {
   source = "./modules/host"
 
@@ -7,85 +39,196 @@ module "agents" {
 
   for_each = local.agent_nodes
 
-  name                             = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
-  microos_snapshot_id              = substr(each.value.server_type, 0, 3) == "cax" ? data.hcloud_image.microos_arm_snapshot.id : data.hcloud_image.microos_x86_snapshot.id
-  base_domain                      = var.base_domain
-  ssh_keys                         = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
-  ssh_port                         = var.ssh_port
-  ssh_public_key                   = local.ssh_public_key
-  ssh_private_key                  = var.ssh_private_key
-  ssh_additional_public_keys       = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
-  firewall_ids                     = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
-  placement_group_id               = var.placement_group_disable ? null : (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_compat_idx].id : hcloud_placement_group.agent_named[each.value.placement_group].id)
-  location                         = each.value.location
-  server_type                      = each.value.server_type
-  backups                          = each.value.backups
-  ipv4_subnet_id                   = hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id
-  dns_servers                      = var.dns_servers
-  k3s_registries                   = var.k3s_registries
-  k3s_registries_update_script     = local.k3s_registries_update_script
-  cloudinit_write_files_common     = local.cloudinit_write_files_common
-  k3s_kubelet_config               = var.k3s_kubelet_config
-  k3s_kubelet_config_update_script = local.k3s_kubelet_config_update_script
-  k3s_audit_policy_config          = ""
-  k3s_audit_policy_update_script   = ""
-  cloudinit_runcmd_common          = local.cloudinit_runcmd_common
-  swap_size                        = each.value.swap_size
-  zram_size                        = each.value.zram_size
-  keep_disk_size                   = var.keep_disk_agents
-  disable_ipv4                     = each.value.disable_ipv4
-  disable_ipv6                     = each.value.disable_ipv6
-  ssh_bastion                      = local.ssh_bastion
-  network_id                       = data.hcloud_network.k3s.id
-  private_ipv4                     = cidrhost(hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].ip_range, each.value.index + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)))
+  name                         = "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${each.value.nodepool_name}${try(each.value.node_name_suffix, "")}"
+  append_random_suffix         = each.value.append_random_suffix
+  connection_host              = ""
+  connection_host_suffix       = local.tailscale_pre_terraform_ssh_enabled ? local.tailscale_magicdns_domain : ""
+  os_snapshot_id               = try(trimspace(each.value.os_snapshot_id), "") != "" ? trimspace(each.value.os_snapshot_id) : local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
+  os                           = each.value.os
+  base_domain                  = var.base_domain
+  ssh_keys                     = length(var.ssh_hcloud_key_label) > 0 ? concat([local.hcloud_ssh_key_id], data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.id) : [local.hcloud_ssh_key_id]
+  ssh_port                     = var.ssh_port
+  ssh_public_key               = local.ssh_public_key
+  ssh_private_key              = var.ssh_private_key
+  ssh_additional_public_keys   = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
+  firewall_ids                 = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
+  extra_firewall_ids           = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
+  placement_group_id           = var.enable_placement_groups ? (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_index].id : hcloud_placement_group.agent_named[each.value.placement_group].id) : null
+  location                     = each.value.location
+  server_type                  = each.value.server_type
+  backups                      = each.value.backups
+  ipv4_subnet_id               = local.use_per_nodepool_subnets ? hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id : hcloud_network_subnet.agent[0].id
+  dns_servers                  = var.dns_servers
+  registries_config            = local.registries_config_effective
+  registries_update_script     = local.k8s_registries_update_script
+  cloudinit_write_files_common = local.cloudinit_write_files_common
+  kubelet_config               = var.kubelet_config
+  kubelet_config_update_script = local.k8s_kubelet_config_update_script
+  audit_policy_config          = ""
+  audit_policy_update_script   = ""
+  cloudinit_runcmd_common      = local.cloudinit_runcmd_common
+  cloudinit_write_files_extra  = each.value.extra_write_files
+  cloudinit_runcmd_extra       = concat(local.tailscale_cloud_init_bootstrap_enabled ? [local.tailscale_bootstrap_script_static_agent_by_node[each.key]] : [], each.value.extra_runcmd)
+  swap_size                    = each.value.swap_size
+  zram_size                    = each.value.zram_size
+  keep_disk_size               = coalesce(each.value.keep_disk, var.keep_disk_agent_nodes)
+  disable_ipv4                 = each.value.disable_ipv4
+  disable_ipv6                 = each.value.disable_ipv6
+  primary_ipv4_id              = each.value.primary_ipv4_id != null ? each.value.primary_ipv4_id : try(hcloud_primary_ip.agents_ipv4[each.key].id, null)
+  primary_ipv6_id              = each.value.primary_ipv6_id != null ? each.value.primary_ipv6_id : try(hcloud_primary_ip.agents_ipv6[each.key].id, null)
+  ssh_bastion                  = local.ssh_bastion
+  node_connection_overrides    = var.node_connection_overrides
+  network_id                   = local.agent_primary_network_id_by_node[each.key]
+  primary_network_key          = each.value.network_id
+  extra_network_ids            = local.agent_effective_extra_network_ids_by_node[each.key]
+  private_ipv4                 = null
 
-  labels = merge(local.labels, local.labels_agent_node)
+  labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 
   automatically_upgrade_os = var.automatically_upgrade_os
 
-  network_gw_ipv4 = local.network_gw_ipv4
+  network_gw_ipv4 = local.network_gw_ipv4_by_network_id[local.agent_primary_network_id_by_node[each.key]]
 
   depends_on = [
     hcloud_network_subnet.agent,
     hcloud_placement_group.agent,
     hcloud_server.nat_router,
     terraform_data.nat_router_await_cloud_init,
+    terraform_data.nat_router_fail2ban,
+    terraform_data.nat_router_extra_runcmd,
   ]
 }
 
 locals {
+  agent_override_base_names = {
+    for k, v in local.agent_nodes :
+    k => "${var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""}${v.nodepool_name}${try(v.node_name_suffix, "")}"
+  }
+
+  agent_floating_ip_id_by_node = {
+    for k, v in local.agent_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.agents_existing[k].id, null),
+      try(hcloud_floating_ip.agents[k].id, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
+  agent_external_ip_by_node = {
+    for k, v in local.agent_nodes :
+    k => coalesce(
+      try(data.hcloud_floating_ip.agents_existing[k].ip_address, null),
+      try(hcloud_floating_ip.agents[k].ip_address, null),
+    )
+    if coalesce(lookup(v, "floating_ip"), false)
+  }
+
   k3s-agent-config = { for k, v in local.agent_nodes : k => merge(
     {
       node-name = module.agents[k].name
-      server    = local.k3s_endpoint
-      token     = local.k3s_token
-      # Kubelet arg precedence (last wins): local.kubelet_arg > v.kubelet_args > k3s_global_kubelet_args > k3s_agent_kubelet_args
+      server    = local.k3s_agent_join_endpoint_by_node[k]
+      token     = local.cluster_token
+      # Kubelet arg precedence (last wins): local.kubelet_arg < global_kubelet_args < agent_kubelet_args < v.kubelet_args
       kubelet-arg = concat(
         local.kubelet_arg,
-        v.kubelet_args,
-        var.k3s_global_kubelet_args,
-        var.k3s_agent_kubelet_args
+        v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
+        var.global_kubelet_args,
+        var.agent_kubelet_args,
+        v.kubelet_args
       )
       flannel-iface = local.flannel_iface
-      node-ip       = module.agents[k].private_ipv4_address
+      node-ip       = local.multinetwork_overlay_enabled ? join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null])) : module.agents[k].private_ipv4_address
       node-label    = v.labels
       node-taint    = v.taints
     },
+    local.multinetwork_overlay_enabled ? {
+      node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null]))
+      } : lookup(local.agent_external_ip_by_node, k, null) != null ? {
+      node-external-ip    = local.agent_external_ip_by_node[k]
+      flannel-external-ip = true
+    } : {},
+    local.disable_default_registry_endpoint_config,
     var.agent_nodes_custom_config,
     local.prefer_bundled_bin_config,
-    # Force selinux=false if disable_selinux = true.
-    var.disable_selinux
+    # Force selinux=false if enable_selinux = false.
+    !var.enable_selinux
     ? { selinux = false }
     : (v.selinux == true ? { selinux = true } : {})
   ) }
 
-  agent_ips = {
+  rke2-agent-config = { for k, v in local.agent_nodes : k => merge(
+    {
+      node-name = module.agents[k].name
+      server    = local.rke2_agent_join_endpoint_by_node[k]
+      token     = local.cluster_token
+      # Kubelet arg precedence (last wins): local.kubelet_arg < global_kubelet_args < agent_kubelet_args < v.kubelet_args
+      kubelet-arg = concat(
+        local.kubelet_arg,
+        v.swap_size != "" || v.zram_size != "" ? ["fail-swap-on=false"] : [],
+        var.global_kubelet_args,
+        var.agent_kubelet_args,
+        v.kubelet_args
+      )
+      node-ip    = local.multinetwork_overlay_enabled ? join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null])) : module.agents[k].private_ipv4_address
+      node-label = v.labels
+      node-taint = v.taints
+    },
+    local.multinetwork_overlay_enabled ? {
+      node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.agents[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.agents[k].ipv6_address : null]))
+      } : lookup(local.agent_external_ip_by_node, k, null) != null ? {
+      node-external-ip = local.agent_external_ip_by_node[k]
+    } : {},
+    local.disable_default_registry_endpoint_config,
+    var.agent_nodes_custom_config,
+    local.prefer_bundled_bin_config,
+    # Force selinux=false if enable_selinux = false.
+    !var.enable_selinux
+    ? { selinux = false }
+    : (v.selinux == true ? { selinux = true } : {})
+  ) }
+
+  tailscale_agent_magicdns_hosts = {
+    for k, v in module.agents :
+    k => "${v.name}.${local.tailscale_magicdns_domain}"
+  }
+
+  agent_initial_ips = {
     for k, v in module.agents : k => coalesce(
+      lookup(var.node_connection_overrides, v.name, null),
+      lookup(var.node_connection_overrides, local.agent_override_base_names[k], null),
       v.ipv4_address,
       v.ipv6_address,
       v.private_ipv4_address
     )
   }
+
+  agent_ips = {
+    for k, v in module.agents : k => coalesce(
+      lookup(var.node_connection_overrides, v.name, null),
+      lookup(var.node_connection_overrides, local.agent_override_base_names[k], null),
+      local.tailscale_use_tailnet_for_terraform ? local.tailscale_agent_magicdns_hosts[k] : null,
+      v.ipv4_address,
+      v.ipv6_address,
+      v.private_ipv4_address
+    )
+  }
+
+  attached_agent_volumes = merge([
+    for node_key, node in local.agent_nodes : {
+      for volume_idx, volume in coalesce(node.attached_volumes, []) :
+      "${node_key}-${volume_idx}" => {
+        node_key          = node_key
+        volume_idx        = volume_idx
+        size              = volume.size
+        mount_path        = volume.mount_path
+        filesystem        = volume.filesystem
+        automount         = volume.automount
+        name              = volume.name
+        labels            = volume.labels
+        delete_protection = volume.delete_protection
+      }
+    }
+  ]...)
 }
 
 resource "terraform_data" "agent_config" {
@@ -93,7 +236,7 @@ resource "terraform_data" "agent_config" {
 
   triggers_replace = {
     agent_id = module.agents[each.key].id
-    config   = sha1(yamlencode(local.k3s-agent-config[each.key]))
+    config   = local.kubernetes_distribution == "rke2" ? sha1(yamlencode(local.rke2-agent-config[each.key])) : sha1(yamlencode(local.k3s-agent-config[each.key]))
   }
 
   connection {
@@ -112,13 +255,17 @@ resource "terraform_data" "agent_config" {
 
   # Generating k3s agent config file
   provisioner "file" {
-    content     = yamlencode(local.k3s-agent-config[each.key])
+    content     = local.kubernetes_distribution == "rke2" ? yamlencode(local.rke2-agent-config[each.key]) : yamlencode(local.k3s-agent-config[each.key])
     destination = "/tmp/config.yaml"
   }
 
   provisioner "remote-exec" {
-    inline = [local.k3s_config_update_script]
+    inline = [local.k8s_config_update_script]
   }
+
+  depends_on = [
+    terraform_data.tailscale_agents,
+  ]
 }
 moved {
   from = null_resource.agent_config
@@ -148,12 +295,24 @@ resource "terraform_data" "agents" {
 
   # Install k3s agent
   provisioner "remote-exec" {
-    inline = local.install_k3s_agent
+    inline = concat(local.k8s_install_network_env_by_agent[each.key], local.install_k8s_agent)
   }
 
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
-    inline = concat(var.enable_longhorn || var.enable_iscsid ? ["systemctl enable --now iscsid"] : [], [
+    inline = concat(["systemctl enable --now iscsid"], local.kubernetes_distribution == "rke2" ? [
+      "timeout 120 systemctl start rke2-agent 2> /dev/null",
+      "systemctl enable rke2-agent",
+      <<-EOT
+      timeout 120 bash <<EOF
+        until systemctl status rke2-agent > /dev/null; do
+          systemctl start rke2-agent 2> /dev/null
+          echo "Waiting for the rke2 agent to start..."
+          sleep 2
+        done
+      EOF
+      EOT
+      ] : [
       "timeout 120 systemctl start k3s-agent 2> /dev/null",
       <<-EOT
       timeout 120 bash <<EOF
@@ -169,8 +328,12 @@ resource "terraform_data" "agents" {
 
   depends_on = [
     terraform_data.first_control_plane,
+    terraform_data.control_planes_rke2,
+    terraform_data.tailscale_agents,
     terraform_data.agent_config,
-    hcloud_network_subnet.agent
+    hcloud_load_balancer_service.control_plane,
+    hcloud_load_balancer_service.control_plane_rke2_supervisor,
+    hcloud_network_subnet.control_plane
   ]
 }
 moved {
@@ -271,7 +434,8 @@ resource "terraform_data" "configure_longhorn_volume" {
   }
 
   depends_on = [
-    hcloud_volume.longhorn_volume
+    hcloud_volume.longhorn_volume,
+    terraform_data.tailscale_agents
   ]
 }
 moved {
@@ -279,19 +443,125 @@ moved {
   to   = terraform_data.configure_longhorn_volume
 }
 
-resource "hcloud_floating_ip" "agents" {
-  for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
+resource "hcloud_volume" "attached_agent_volume" {
+  for_each = local.attached_agent_volumes
 
-  type              = "ipv4"
+  labels = merge(
+    {
+      provisioner = "terraform"
+      cluster     = var.cluster_name
+      scope       = "attached-volume"
+      role        = "agent"
+    },
+    each.value.labels
+  )
+
+  name              = coalesce(each.value.name, "${var.cluster_name}-agent-${module.agents[each.value.node_key].name}-vol-${each.value.volume_idx}")
+  size              = each.value.size
+  server_id         = module.agents[each.value.node_key].id
+  automount         = each.value.automount
+  format            = each.value.filesystem
+  delete_protection = coalesce(each.value.delete_protection, var.enable_delete_protection.volume)
+}
+
+resource "terraform_data" "configure_attached_agent_volume" {
+  for_each = local.attached_agent_volumes
+
+  triggers_replace = {
+    agent_id    = module.agents[each.value.node_key].id
+    volume_id   = hcloud_volume.attached_agent_volume[each.key].id
+    volume_size = hcloud_volume.attached_agent_volume[each.key].size
+    mount_path  = each.value.mount_path
+    filesystem  = each.value.filesystem
+    volume_name = hcloud_volume.attached_agent_volume[each.key].name
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      <<-EOT
+      set -e
+      systemctl enable --now iscsid
+
+      device='${hcloud_volume.attached_agent_volume[each.key].linux_device}'
+      mount_path='${each.value.mount_path}'
+      fstype='${each.value.filesystem}'
+
+      mkdir -p "$mount_path" >/dev/null
+      uuid="$(blkid -s UUID -o value "$device")"
+      if [ -z "$uuid" ]; then
+        echo "Unable to determine filesystem UUID for $device" >&2
+        exit 1
+      fi
+
+      if mountpoint -q "$mount_path"; then
+        mounted_source="$(findmnt -rn -T "$mount_path" -o SOURCE)"
+        mounted_uuid="$(blkid -s UUID -o value "$mounted_source" 2>/dev/null || true)"
+        if [ "$mounted_uuid" != "$uuid" ]; then
+          umount "$mount_path"
+        fi
+      fi
+
+      mountpoint -q "$mount_path" || mount -o discard,defaults "$device" "$mount_path"
+
+      case "$fstype" in
+        ext4) resize2fs "$device" ;;
+        xfs) xfs_growfs "$mount_path" ;;
+        *) echo "Unsupported attached volume filesystem type: $fstype" >&2; exit 1 ;;
+      esac
+
+      tmp_fstab="$(mktemp)"
+      awk -v path="$mount_path" -v uuid="$uuid" -v device="$device" '$0 ~ /^#/ || ($1 != "UUID=" uuid && $1 != device && $2 != path) { print }' /etc/fstab > "$tmp_fstab"
+      cat "$tmp_fstab" > /etc/fstab
+      rm -f "$tmp_fstab"
+      printf 'UUID=%s %s %s discard,nofail,defaults 0 0\n' "$uuid" "$mount_path" "$fstype" >> /etc/fstab
+      EOT
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.agent_ips[each.value.node_key]
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  depends_on = [
+    hcloud_volume.attached_agent_volume,
+    terraform_data.tailscale_agents
+  ]
+}
+
+resource "hcloud_floating_ip" "agents" {
+  for_each = {
+    for k, v in local.agent_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) == null
+  }
+
+  type              = local.agent_nodes[each.key].floating_ip_type
   labels            = local.labels
   home_location     = each.value.location
   delete_protection = var.enable_delete_protection.floating_ip
 }
 
+data "hcloud_floating_ip" "agents_existing" {
+  for_each = {
+    for k, v in local.agent_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_id", null) != null
+  }
+
+  id = each.value.floating_ip_id
+}
+
 resource "hcloud_floating_ip_assignment" "agents" {
   for_each = { for k, v in local.agent_nodes : k => v if coalesce(lookup(v, "floating_ip"), false) }
 
-  floating_ip_id = hcloud_floating_ip.agents[each.key].id
+  floating_ip_id = local.agent_floating_ip_id_by_node[each.key]
   server_id      = module.agents[each.key].id
 
   depends_on = [
@@ -300,14 +570,17 @@ resource "hcloud_floating_ip_assignment" "agents" {
 }
 
 resource "hcloud_rdns" "agents" {
-  for_each = { for k, v in local.agent_nodes : k => v if lookup(v, "floating_ip_rdns", null) != null }
+  for_each = {
+    for k, v in local.agent_nodes : k => v
+    if coalesce(lookup(v, "floating_ip"), false) && lookup(v, "floating_ip_rdns", null) != null
+  }
 
-  floating_ip_id = hcloud_floating_ip.agents[each.key].id
-  ip_address     = hcloud_floating_ip.agents[each.key].ip_address
+  floating_ip_id = local.agent_floating_ip_id_by_node[each.key]
+  ip_address     = local.agent_external_ip_by_node[each.key]
   dns_ptr        = local.agent_nodes[each.key].floating_ip_rdns
 
   depends_on = [
-    hcloud_floating_ip.agents
+    hcloud_floating_ip_assignment.agents
   ]
 }
 
@@ -316,34 +589,90 @@ resource "terraform_data" "configure_floating_ip" {
 
   triggers_replace = {
     agent_id       = module.agents[each.key].id
-    floating_ip_id = hcloud_floating_ip.agents[each.key].id
+    floating_ip_id = local.agent_floating_ip_id_by_node[each.key]
   }
 
   provisioner "remote-exec" {
     inline = [
-      # Reconfigure eth0:
-      #  - add floating_ip as first and other IP as second address
-      #  - add 172.31.1.1 as default gateway (In the Hetzner Cloud, the
-      #    special private IP address 172.31.1.1 is the default
-      #    gateway for the public network)
+      # Reconfigure the public interface for floating IP takeover.
+      # - IPv4 floating IPs: assign floating + node public IPv4 and set gw4.
+      # - IPv6 floating IPs: assign floating + node public IPv6 addresses.
       # The configuration is stored in file /etc/NetworkManager/system-connections/cloud-init-eth0.nmconnection
       <<-EOT
-      ETH=eth1
-      if ip link show eth0 &>/dev/null; then
-          ETH=eth0
-      fi
+	      route_dev() {
+	          awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+	      }
 
-      NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null)
-      if [ -z "$NM_CONNECTION" ]; then
-          echo "ERROR: No NetworkManager connection found for $ETH" >&2
-          exit 1
-      fi
+	      detect_public_ipv4_interface() {
+	          PRIV_IF=$(ip -4 route show ${local.network_ipv4_cidr_by_network_id[local.agent_primary_network_id_by_node[each.key]]} 2>/dev/null | route_dev)
+	          PUB_IF=$(ip -4 route get 172.31.1.1 2>/dev/null | route_dev)
+	          if [ -n "$PRIV_IF" ] && [ "$PUB_IF" = "$PRIV_IF" ]; then
+	              PUB_IF=""
+	          fi
+	          if [ -z "$PUB_IF" ]; then
+	              PUB_IF=$(ip -o -4 addr show scope global 2>/dev/null | awk -v priv="$PRIV_IF" '$2 != priv {print $2; exit}')
+	          fi
+	          if [ -z "$PUB_IF" ]; then
+	              PUB_IF=$(ip -o link show up 2>/dev/null | awk -F': ' -v priv="$PRIV_IF" '$2 != "lo" && $2 != priv {print $2; exit}')
+	          fi
+	          printf '%s\n' "$PUB_IF"
+	      }
 
-      nmcli connection modify "$NM_CONNECTION" \
-          ipv4.method manual \
-          ipv4.addresses ${hcloud_floating_ip.agents[each.key].ip_address}/32,${local.agent_ips[each.key]}/32 gw4 172.31.1.1 \
-          ipv4.route-metric 100 \
-      && nmcli connection up "$NM_CONNECTION"
+	      detect_public_ipv6_interface() {
+	          PRIV_IF=$(ip -4 route show ${local.network_ipv4_cidr_by_network_id[local.agent_primary_network_id_by_node[each.key]]} 2>/dev/null | route_dev)
+	          PUB_IF=$(ip -6 route show default 2>/dev/null | route_dev)
+	          if [ -n "$PRIV_IF" ] && [ "$PUB_IF" = "$PRIV_IF" ]; then
+	              PUB_IF=""
+	          fi
+	          if [ -z "$PUB_IF" ]; then
+	              PUB_IF=$(ip -o -6 addr show scope global 2>/dev/null | awk -v priv="$PRIV_IF" '$2 != priv && $2 !~ /^(flannel|cilium|lxc|veth)/ {print $2; exit}')
+	          fi
+	          printf '%s\n' "$PUB_IF"
+	      }
+
+	      if [ "${local.agent_nodes[each.key].floating_ip_type}" = "ipv6" ]; then
+	          ETH=$(detect_public_ipv6_interface)
+	          if [ -z "$ETH" ]; then
+	              echo "ERROR: Could not detect public IPv6 interface for floating IP configuration" >&2
+	              exit 1
+	          fi
+	          NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null | head -1)
+	          if [ -z "$NM_CONNECTION" ]; then
+	              echo "ERROR: No NetworkManager connection found for $ETH" >&2
+	              exit 1
+	          fi
+	          if [ -z "${module.agents[each.key].ipv6_address}" ]; then
+	              echo "ERROR: Floating IPv6 is enabled but node has no public IPv6 address" >&2
+	              exit 1
+	          fi
+
+          nmcli connection modify "$NM_CONNECTION" \
+              ipv6.method manual \
+              ipv6.addresses ${local.agent_external_ip_by_node[each.key]}/128,${module.agents[each.key].ipv6_address}/64 \
+              ipv6.route-metric 100 \
+	          && nmcli connection up "$NM_CONNECTION"
+	      else
+	          ETH=$(detect_public_ipv4_interface)
+	          if [ -z "$ETH" ]; then
+	              echo "ERROR: Could not detect public IPv4 interface for floating IP configuration" >&2
+	              exit 1
+	          fi
+	          NM_CONNECTION=$(nmcli -g GENERAL.CONNECTION device show "$ETH" 2>/dev/null | head -1)
+	          if [ -z "$NM_CONNECTION" ]; then
+	              echo "ERROR: No NetworkManager connection found for $ETH" >&2
+	              exit 1
+	          fi
+	          if [ -z "${module.agents[each.key].ipv4_address}" ]; then
+	              echo "ERROR: Floating IPv4 is enabled but node has no public IPv4 address" >&2
+	              exit 1
+          fi
+
+          nmcli connection modify "$NM_CONNECTION" \
+              ipv4.method manual \
+              ipv4.addresses ${local.agent_external_ip_by_node[each.key]}/32,${module.agents[each.key].ipv4_address}/32 gw4 172.31.1.1 \
+              ipv4.route-metric 100 \
+          && nmcli connection up "$NM_CONNECTION"
+      fi
       EOT
     ]
   }

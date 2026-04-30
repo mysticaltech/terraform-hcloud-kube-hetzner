@@ -13,7 +13,7 @@ resource "local_file" "cert_manager_values" {
 }
 
 resource "local_file" "hetzner_ccm_values" {
-  count           = var.export_values && var.hetzner_ccm_use_helm ? 1 : 0
+  count           = var.export_values ? 1 : 0
   content         = local.hetzner_ccm_values
   filename        = "hetzner_ccm_values.yaml"
   file_permission = "600"

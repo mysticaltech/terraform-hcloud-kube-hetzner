@@ -98,7 +98,7 @@ git log $LATEST..HEAD --pretty=format:"- %s (%h)"
 Use Gemini for comprehensive analysis:
 
 ```bash
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "Analyze these git changes for a changelog. Categorize into: Features, Bug Fixes, Breaking Changes, Documentation. Ignore internal refactors.
 
 $(git log $LATEST..HEAD --oneline)
@@ -189,8 +189,8 @@ Check `versions.tf` for:
 If significant changes, regenerate the Custom GPT knowledge base:
 
 ```bash
-# Run the knowledge generation script from CLAUDE.md
-python3 << 'PYEOF'
+# Run the knowledge generation script from CLAUDE.md with uv
+uv run python << 'PYEOF'
 # ... (script from CLAUDE.md)
 PYEOF
 ```
@@ -208,6 +208,52 @@ awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md
 ```
 
 If a separate `release-notes.md` exists in a future train, use it as a drafting aid, but copy the final release content into `CHANGELOG.md` under `## [Unreleased]` before tagging so the automation can consume it.
+
+Before tagging a v3 release, run the local readiness gates:
+
+```bash
+terraform fmt -recursive
+terraform-docs markdown . > docs/terraform.md
+terraform init -backend=false -input=false
+terraform validate -no-color
+tmpdir="$(mktemp -d)"
+rsync -a --exclude .git --exclude .terraform --exclude .terraform-tofu ./ "$tmpdir"/
+(cd "$tmpdir" && tofu init -backend=false -input=false && tofu validate -no-color)
+rm -rf "$tmpdir"
+uv run scripts/validate_tailscale_large_scale_examples.py
+uv run scripts/validate_v3_final_polish_examples.py
+uv run scripts/smoke_v3_plan_matrix.py
+```
+
+Cross-variable and local-dependent module contract failures are hard
+`terraform_data.validation_contract` preconditions, so invalid-combination
+release gates must assert `terraform plan`; `terraform validate` only proves
+the module loads.
+
+Also verify `README.md`, `kube.tf.example`, `docs/llms.md`, and `.claude/skills/*/SKILL.md` do not contain removed v2 input names except in explicit migration sections.
+
+For v3, additionally verify the Tailscale node-transport surfaces stay aligned:
+`node_transport_mode = "tailscale"` is the supported secure single-network and
+private multinetwork path, Flannel is first supported, Cilium is experimental,
+Calico is rejected, subnet-route SNAT is disabled when advertising routes,
+single-network examples may disable node-private route advertisement, and
+active Tailscale agent/autoscaler nodepools set `network_scope` explicitly so
+same-root external Network IDs are validated during `terraform plan`,
+external-overlay docs still describe only user-owned operator
+access/post-bootstrap features.
+
+Also verify the final v3 topology polish surfaces stay aligned:
+`docs/v3-topology-recommendations.md`, `examples/cilium-gateway-api`,
+`examples/external-overlay-cloudflare-access`, `cilium_gateway_api_enabled`,
+`embedded_registry_mirror`, endpoint outputs,
+public join endpoint IPv6/no-public-host guards, OpenTofu/null-resource gates,
+and the large-scale Tailscale examples must all match `variables.tf`,
+`locals.tf`, `kube.tf.example`, and `docs/llms.md`.
+
+For Cloudflare, keep the release support boundary sharp: Access/Tunnel is a
+documented external access pattern for operator/app endpoints; kube-hetzner does
+not manage Cloudflare provider resources, and Cloudflare Mesh/WARP is not a v3
+node-transport support promise.
 
 ### Release Notes Template
 
@@ -259,7 +305,7 @@ terraform apply
 
 ```bash
 git status --short
-git add CHANGELOG.md README.md docs/llms.md kube.tf.example .claude/skills/prepare-release/SKILL.md
+git add CHANGELOG.md README.md docs/llms.md docs/terraform.md kube.tf.example .claude/skills
 git commit -m "$(cat <<'EOF'
 chore: prepare release vX.Y.Z
 
@@ -343,6 +389,7 @@ Files that may need version updates:
 | `CHANGELOG.md` | Release content must stay under `[Unreleased]` until tag workflow runs |
 | `docs/llms.md` | Example version references |
 | `kube.tf.example` | Version in comments |
+| `.claude/skills/*/SKILL.md` | Operator workflows, v3 migration names, validation gates |
 | GPT knowledge | meta.version |
 
 ## Quick Checklist
@@ -352,6 +399,14 @@ Files that may need version updates:
 - [ ] CHANGELOG.md updated
 - [ ] Breaking changes documented with migration steps
 - [ ] Version badges updated (if needed)
+- [ ] `docs/terraform.md` regenerated
+- [ ] Project skills checked for stale v2 names
+- [ ] Tailscale node-transport README/example/skill guidance matches variables.tf
+- [ ] Cloudflare Access/Tunnel docs/examples say external-only, and no Cloudflare Mesh/WARP node-transport promise exists
+- [ ] v3 topology chooser, Cilium Gateway API, embedded registry mirror, and endpoint outputs are documented
+- [ ] `uv run scripts/validate_v3_final_polish_examples.py` passed
+- [ ] `uv run scripts/smoke_v3_plan_matrix.py` passed for Gateway API, registry mirror, public join endpoint guards, k3s/RKE2 Tailscale multinetwork constraints, and single-Gateway-controller validation
+- [ ] Terraform and OpenTofu validation passed
 - [ ] Release notes drafted
 - [ ] Changes committed and pushed
 - [ ] If explicitly authorized, tag pushed

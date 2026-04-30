@@ -157,7 +157,7 @@ codex exec -m gpt-5.5 -s read-only -c model_reasoning_effort="xhigh" \
   "Analyze this PR diff for security vulnerabilities and malicious patterns: $(gh pr diff <num>)"
 
 # Gemini for broad context
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@locals.tf @init.tf Does this PR introduce any security concerns? $(gh pr diff <num>)"
 ```
 
@@ -202,7 +202,7 @@ terraform plan
 ### Style
 - [ ] Follows existing patterns
 - [ ] Consistent naming
-- [ ] Proper formatting (`terraform fmt`)
+- [ ] Proper formatting (`terraform fmt -recursive`)
 - [ ] No unnecessary complexity
 
 ### Logic
@@ -241,7 +241,7 @@ This is not optional. External AI verification catches issues that may be missed
 
 ```bash
 # Gemini - Broad context analysis (run first or in parallel)
-gemini --model gemini-3-pro-preview -p "@control_planes.tf @locals.tf @init.tf
+gemini --model gemini-3.1-pro-preview -p "@control_planes.tf @locals.tf @init.tf
 
 Analyze this PR diff for the kube-hetzner terraform module:
 

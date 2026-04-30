@@ -91,7 +91,7 @@ Before implementing any fix:
 gh pr list --search "<error keyword>" --repo kube-hetzner/terraform-hcloud-kube-hetzner
 
 # Check if issue is already mentioned in changelog
-grep -i "<keyword>" CHANGELOG.md
+rg -i "<keyword>" CHANGELOG.md
 ```
 
 ## Step 4: Deep Investigation
@@ -111,13 +111,13 @@ cat locals.tf        # Core logic and computed values
 
 | Area | Files to Check |
 |------|---------------|
-| Network | `locals.tf` (subnet calculations), `network.tf` |
+| Network | `locals.tf`, `main.tf`, `validation-locals.tf` |
 | Control Plane | `control_planes.tf`, `locals.tf` |
-| Agents | `agents.tf`, `autoscaler.tf` |
-| Load Balancer | `load_balancer.tf`, `init.tf` |
+| Agents | `agents.tf`, `autoscaler-agents.tf` |
+| Load Balancer | `main.tf`, `init.tf`, `locals.tf` |
 | CNI | `templates/cni/*.yaml.tpl` |
 | Storage | `templates/longhorn.yaml.tpl` |
-| Firewall | `firewall.tf` |
+| Firewall | `main.tf`, `locals.tf` |
 
 ### For Complex Issues - Use AI Tools
 
@@ -127,7 +127,7 @@ codex exec -m gpt-5.5 -s read-only -c model_reasoning_effort="xhigh" \
   "Analyze this issue and identify root cause: <issue description>"
 
 # Gemini for large context analysis
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@locals.tf @variables.tf Analyze how <feature> works and potential issues"
 ```
 
@@ -164,7 +164,7 @@ git checkout -b fix/issue-<number>-<description>
 
 ```bash
 # ALWAYS run these before committing
-terraform fmt
+terraform fmt -recursive
 terraform validate
 
 # Test against existing deployment
@@ -175,7 +175,7 @@ terraform plan  # Should NOT show resource destruction
 
 ### Test Checklist
 
-- [ ] `terraform fmt` passes
+- [ ] `terraform fmt -recursive` passes
 - [ ] `terraform validate` passes
 - [ ] `terraform plan` shows expected changes only
 - [ ] No resource recreation for existing deployments
@@ -222,7 +222,7 @@ Before completing ANY issue:
 | Fetch issue | `gh issue view <num> --comments` |
 | Check PRs | `gh pr list --search "<keyword>"` |
 | Create branch | `git checkout -b fix/issue-<num>-<desc>` |
-| Format | `terraform fmt` |
+| Format | `terraform fmt -recursive` |
 | Validate | `terraform validate` |
 | Test plan | `terraform plan` |
 | Commit | `git commit -m "fix: ..."` |

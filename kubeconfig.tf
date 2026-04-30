@@ -1,8 +1,6 @@
 resource "ssh_sensitive_resource" "kubeconfig" {
   # Note: moved from remote_file to ssh_sensitive_resource because
   # remote_file does not support bastion hosts and ssh_sensitive_resource does.
-  # The default behaviour is to run file blocks and commands at create time
-  # You can also specify 'destroy' to run the commands at destroy time
   when = "create"
 
   bastion_host        = local.ssh_bastion.bastion_host
@@ -10,7 +8,7 @@ resource "ssh_sensitive_resource" "kubeconfig" {
   bastion_user        = local.ssh_bastion.bastion_user
   bastion_private_key = local.ssh_bastion.bastion_private_key
 
-  host        = can(ipv6(local.first_control_plane_ip)) ? "[${local.first_control_plane_ip}]" : local.first_control_plane_ip
+  host        = provider::assert::ipv6(local.first_control_plane_ip) ? "[${local.first_control_plane_ip}]" : local.first_control_plane_ip
   port        = var.ssh_port
   user        = "root"
   private_key = var.ssh_private_key
@@ -18,32 +16,48 @@ resource "ssh_sensitive_resource" "kubeconfig" {
 
   # An ssh-agent with your SSH private keys should be running
   # Use 'private_key' to set the SSH key otherwise
-
   timeout = "15m"
 
   commands = [
-    "cat /etc/rancher/k3s/k3s.yaml"
+    local.kubernetes_distribution == "rke2"
+    ? "cat /etc/rancher/rke2/rke2.yaml"
+    : "cat /etc/rancher/k3s/k3s.yaml"
   ]
 
-  depends_on = [terraform_data.control_planes[0]]
+  depends_on = [
+    terraform_data.control_planes,
+    terraform_data.control_planes_rke2,
+  ]
 }
 
 locals {
-  kubeconfig_server_address = var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : (var.use_control_plane_lb ?
-    (
-      var.control_plane_lb_enable_public_interface ?
-      hcloud_load_balancer.control_plane.*.ipv4[0]
-      : (
-        var.nat_router != null ?
-        hcloud_server.nat_router[0].ipv4_address
-        : hcloud_load_balancer_network.control_plane.*.ip[0]
+  kubeconfig_server_address = var.kubeconfig_server_address != "" ? var.kubeconfig_server_address : (local.node_transport_tailscale_enabled && var.tailscale_node_transport.kubernetes.kubeconfig_endpoint == "first_control_plane_tailnet" ?
+    local.tailscale_first_control_plane_host
+    : (var.enable_control_plane_load_balancer ?
+      (
+        var.control_plane_load_balancer_enable_public_network ?
+        hcloud_load_balancer.control_plane.*.ipv4[0]
+        : (
+          var.nat_router != null ?
+          hcloud_server.nat_router[0].ipv4_address
+          : hcloud_load_balancer_network.control_plane.*.ip[0]
+        )
       )
-    )
-    :
-    (can(local.first_control_plane_ip) ? local.first_control_plane_ip : "unknown")
+      :
+      (can(local.first_control_plane_ip) ? local.first_control_plane_ip : "unknown")
+  ))
+  kubeconfig_server_host = provider::assert::ipv6(local.kubeconfig_server_address) ? "[${local.kubeconfig_server_address}]" : local.kubeconfig_server_address
+  kubeconfig_server      = "https://${local.kubeconfig_server_host}:${var.kubernetes_api_port}"
+  kubeconfig_external = replace(
+    replace(
+      ssh_sensitive_resource.kubeconfig.result,
+      "https://127.0.0.1:${var.kubernetes_api_port}",
+      local.kubeconfig_server
+    ),
+    "default",
+    var.cluster_name
   )
-  kubeconfig_external = replace(replace(ssh_sensitive_resource.kubeconfig.result, "127.0.0.1", local.kubeconfig_server_address), "default", var.cluster_name)
-  kubeconfig_parsed   = yamldecode(local.kubeconfig_external)
+  kubeconfig_parsed = yamldecode(local.kubeconfig_external)
   kubeconfig_data = {
     host                   = local.kubeconfig_parsed["clusters"][0]["cluster"]["server"]
     client_certificate     = base64decode(local.kubeconfig_parsed["users"][0]["user"]["client-certificate-data"])

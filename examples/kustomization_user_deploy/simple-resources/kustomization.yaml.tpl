@@ -3,3 +3,4 @@ kind: Kustomization
 
 resources:
   - demo-config-map.yaml
+  - demo-pod.yml

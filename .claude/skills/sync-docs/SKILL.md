@@ -24,6 +24,9 @@ Ensure documentation is synchronized across all key files when variables or feat
 | `kube.tf.example` | Working example configuration | HIGH |
 | `README.md` | Project overview and quick start | MEDIUM |
 | `docs/terraform.md` | Auto-generated terraform docs | AUTO |
+| `docs/v3-topology-recommendations.md` | Topology chooser and release-shaping guidance | MEDIUM |
+| `examples/*/README.md` | Feature-specific operator examples | MEDIUM |
+| `.claude/skills/*/SKILL.md` | Agent/operator workflows | MEDIUM |
 
 ## Workflow
 
@@ -55,17 +58,17 @@ Use Gemini for large file analysis:
 
 ```bash
 # List all variables from variables.tf
-gemini --model gemini-3-pro-preview -p "@variables.tf List ALL variable names defined in this file, one per line"
+gemini --model gemini-3.1-pro-preview -p "@variables.tf List ALL variable names defined in this file, one per line"
 
 # Get variable details
-gemini --model gemini-3-pro-preview -p "@variables.tf For variable '<name>', provide: type, default, description"
+gemini --model gemini-3.1-pro-preview -p "@variables.tf For variable '<name>', provide: type, default, description"
 ```
 
 ## Step 2: Find Undocumented Variables
 
 ```bash
 # Compare variables.tf with llms.md
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@variables.tf @docs/llms.md List ALL variables from variables.tf that are NOT documented in llms.md. Output one per line."
 ```
 
@@ -109,12 +112,13 @@ For each undocumented variable:
 
 | Section | Variables |
 |---------|-----------|
-| Cluster Basics | cluster_name, hetzner_token, ssh_* |
+| Cluster Basics | cluster_name, hcloud_token, ssh_* |
 | Network | network_*, subnet_* |
 | Control Plane | control_plane_* |
 | Agents | agent_*, autoscaler_* |
 | Load Balancer | lb_*, traefik_*, nginx_* |
 | CNI | cni_*, cilium_*, calico_* |
+| Node Transport | node_transport_mode, tailscale_* |
 | Storage | longhorn_* |
 | Security | firewall_*, audit_* |
 | Advanced | Additional/misc options |
@@ -128,7 +132,7 @@ Ensure new variables appear in the example with:
 
 ```bash
 # Check what's in example vs variables.tf
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@variables.tf @kube.tf.example List variables from variables.tf missing from kube.tf.example"
 ```
 
@@ -141,11 +145,50 @@ Update README.md if:
 
 Features section should match actual capabilities.
 
+For Tailscale changes, keep these surfaces in sync:
+- `README.md` support table and Multinetwork section
+- `kube.tf.example` Tailscale node-transport comments
+- `docs/llms.md` support levels and variable notes
+- `docs/v3-topology-recommendations.md`
+- `examples/tailscale-node-transport/README.md`
+- `examples/external-overlay-tailscale/README.md`
+- `examples/external-overlay-cloudflare-access/README.md` when access-boundary wording changes
+- `.claude/skills/kh-assistant/SKILL.md`
+- `.claude/skills/migrate-v2-to-v3/SKILL.md`
+
+For Cloudflare Zero Trust wording, keep the boundary consistent:
+- Cloudflare Access/Tunnel is a documented external operator/app access pattern.
+- kube-hetzner does not add Cloudflare provider inputs or manage Cloudflare resources.
+- Cloudflare Mesh/WARP is not supported kube-hetzner node transport in v3.
+- Tailscale remains the supported managed node transport for secure multinetwork scale.
+
+For Cilium Gateway API changes, keep these surfaces in sync:
+- `variables.tf` validation for `cilium_gateway_api_enabled`
+- `locals.tf` Cilium values and Gateway API CRD version mapping
+- `README.md`
+- `kube.tf.example`
+- `docs/llms.md`
+- `docs/v3-topology-recommendations.md`
+- `examples/cilium-gateway-api/README.md`
+- `.claude/skills/kh-assistant/SKILL.md`
+- `.claude/skills/test-changes/SKILL.md`
+
+For embedded registry mirror changes, keep these surfaces in sync:
+- `variables.tf` validation for `embedded_registry_mirror`
+- `locals.tf` effective `registries.yaml` merge behavior
+- host/control-plane/agent/autoscaler config rendering
+- `README.md`
+- `kube.tf.example`
+- `docs/llms.md`
+- `docs/v3-topology-recommendations.md`
+- `.claude/skills/kh-assistant/SKILL.md`
+- `.claude/skills/test-changes/SKILL.md`
+
 ## Step 7: Verify Consistency
 
 ```bash
 # Final verification
-gemini --model gemini-3-pro-preview -p \
+gemini --model gemini-3.1-pro-preview -p \
   "@variables.tf @docs/llms.md @kube.tf.example Verify these files are consistent. List any discrepancies."
 ```
 
@@ -183,16 +226,19 @@ gemini --model gemini-3-pro-preview -p \
 # Regenerate terraform docs
 terraform-docs markdown . > docs/terraform.md
 
+# Validate v3 topology/Gateway/registry surfaces
+uv run scripts/validate_v3_final_polish_examples.py
+
 # Search for variable across all docs
-grep -r "variable_name" docs/ kube.tf.example README.md
+rg -n "variable_name" docs/ kube.tf.example README.md
 
 # Find undocumented variables (quick check)
-diff <(grep -oP 'variable "\K[^"]+' variables.tf | sort) \
-     <(grep -oP '`\K[a-z_]+(?=`)' docs/llms.md | sort -u) | grep "^<"
+diff <(rg -o 'variable "([^"]+)"' -r '$1' variables.tf | sort) \
+     <(rg -o '`[a-z_]+`' docs/llms.md | tr -d '`' | sort -u) | rg "^<"
 ```
 
 ## After Sync
 
-1. Run `terraform fmt`
+1. Run `terraform fmt -recursive`
 2. Commit with message: `docs: sync documentation with variables.tf`
 3. If breaking changes, update CHANGELOG.md

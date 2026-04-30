@@ -48,10 +48,16 @@ if [[ "$delete_volumes_input" =~ ^([Yy]es|[Yy])$ ]]; then
   DELETE_VOLUMES=1
 fi
 
-read -p "Do you want to delete MicroOS snapshots? (yes/no, default: no): " delete_snapshots_input
-DELETE_SNAPSHOTS=0
-if [[ "$delete_snapshots_input" =~ ^([Yy]es|[Yy])$ ]]; then
-  DELETE_SNAPSHOTS=1
+read -p "Do you want to delete MicroOS snapshots? (yes/no, default: no): " delete_microos_snapshots_input
+DELETE_MICROOS_SNAPSHOTS=0
+if [[ "$delete_microos_snapshots_input" =~ ^([Yy]es|[Yy])$ ]]; then
+  DELETE_MICROOS_SNAPSHOTS=1
+fi
+
+read -p "Do you want to delete Leap Micro snapshots? (yes/no, default: no): " delete_leapmicro_snapshots_input
+DELETE_LEAPMICRO_SNAPSHOTS=0
+if [[ "$delete_leapmicro_snapshots_input" =~ ^([Yy]es|[Yy])$ ]]; then
+  DELETE_LEAPMICRO_SNAPSHOTS=1
 fi
 
 if (( DRY_RUN == 0 )); then
@@ -73,7 +79,7 @@ PLACEMENT_GROUPS=()
 while IFS='' read -r line; do PLACEMENT_GROUPS+=("$line"); done < <(hcloud placement-group list "${HCLOUD_SELECTOR[@]}" "${HCLOUD_OUTPUT_OPTIONS[@]}")
 
 LOAD_BALANCERS=()
-while IFS='' read -r line; do LOAD_BALANCER+=("$line"); done < <(hcloud load-balancer list "${HCLOUD_SELECTOR[@]}" "${HCLOUD_OUTPUT_OPTIONS[@]}")
+while IFS='' read -r line; do LOAD_BALANCERS+=("$line"); done < <(hcloud load-balancer list "${HCLOUD_SELECTOR[@]}" "${HCLOUD_OUTPUT_OPTIONS[@]}")
 
 INGRESS_LB=$(hcloud load-balancer list -o noheader -o columns=id,name | grep "${CLUSTER_NAME}" | cut -d ' ' -f1 )
 
@@ -163,7 +169,7 @@ function delete_ssh_keys() {
 }
 
 function delete_autoscaled_nodes() {
-  local servers
+  local servers=()
   while IFS='' read -r line; do servers+=("$line"); done < <(hcloud server list -o noheader -o 'columns=id,name' | grep "${CLUSTER_NAME}")
 
   for server_info in "${servers[@]}"; do
@@ -176,9 +182,10 @@ function delete_autoscaled_nodes() {
   done
 }
 
-function delete_snapshots() {
-  local snapshots
-  while IFS='' read -r line; do snapshots+=("$line"); done < <(hcloud image list --selector 'microos-snapshot=yes' -o noheader -o 'columns=id,name')
+function delete_snapshots_by_selector() {
+  local selector="$1"
+  local snapshots=()
+  while IFS='' read -r line; do snapshots+=("$line"); done < <(hcloud image list --selector "$selector" -o noheader -o 'columns=id,name')
 
   for snapshot_info in "${snapshots[@]}"; do
     local ID=$(echo "$snapshot_info" | awk '{print $1}')
@@ -207,6 +214,10 @@ delete_firewalls
 delete_ssh_keys
 
 
-if (( DELETE_SNAPSHOTS == 1 )); then
-  delete_snapshots
+if (( DELETE_MICROOS_SNAPSHOTS == 1 )); then
+  delete_snapshots_by_selector "microos-snapshot=yes"
+fi
+
+if (( DELETE_LEAPMICRO_SNAPSHOTS == 1 )); then
+  delete_snapshots_by_selector "leapmicro-snapshot=yes"
 fi

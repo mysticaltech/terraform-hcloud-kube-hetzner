@@ -1,0 +1,232 @@
+# Reference topology for a 10,000-total-node kube-hetzner cluster.
+#
+# This is intentionally an autoscaler-first reference, not a "make Terraform
+# declare 10,000 hcloud_server resources" example. At this size, quota approval,
+# Tailscale device/tag policy, Kubernetes control-plane sizing, observability,
+# image distribution, load balancing, and failure-domain design all need a real
+# production design review before apply.
+#
+# Exact node math:
+# - 3 static control planes on the primary kube-hetzner Network.
+# - 7 static system agents on the primary Network.
+# - 90 autoscaled workers on the primary Network.
+# - 99 external Hetzner Networks, each with one autoscaler nodepool capped at
+#   100 nodes.
+# - Total maximum nodes: 3 + 7 + 90 + (99 * 100) = 10,000.
+#
+# Hetzner Network math:
+# - Primary Network attachments: 3 + 7 + 90 = 100.
+# - Each external Network attachment count: 100.
+# - If you mean 10,000 worker nodes plus control planes, you need additional
+#   network shards because the control planes consume primary Network capacity.
+#
+# Placement groups:
+# - Static nodes use module-managed spread groups and stay well under the
+#   50-placement-group project limit.
+# - kube-hetzner does not currently assign Hetzner Placement Groups to
+#   autoscaler-created nodes. If strict physical spread for autoscaled nodes is
+#   mandatory, split capacity across smaller clusters/projects or add dedicated
+#   autoscaler placement-group support before calling this production-ready.
+#
+# Exposure:
+# - Kubernetes API and SSH are closed on public firewalls.
+# - ingress_controller = "none" avoids a public web load balancer.
+# - Nodes keep public IPv4/IPv6 by default for Tailscale bootstrap and direct
+#   Tailscale WireGuard connectivity. They are not public Kubernetes endpoints.
+# - A truly no-public-IP variant needs private egress and externally managed
+#   Tailscale bootstrap for every external Network; the module NAT router only
+#   covers the primary Network and is not the turnkey 10k path.
+
+terraform {
+  required_version = ">= 1.10.1"
+
+  required_providers {
+    hcloud = {
+      source  = "hetznercloud/hcloud"
+      version = ">= 1.62.0"
+    }
+  }
+}
+
+provider "hcloud" {
+  token = var.hcloud_token
+}
+
+locals {
+  autoscaler_network_shards = concat(
+    [
+      {
+        name          = "primary"
+        network_id    = null
+        network_scope = "primary"
+        max_nodes     = 90
+      }
+    ],
+    [
+      for index, network_id in var.external_network_ids : {
+        name          = format("external-%03d", index + 1)
+        network_id    = network_id
+        network_scope = "external"
+        max_nodes     = 100
+      }
+    ]
+  )
+}
+
+module "kube-hetzner" {
+  source = "kube-hetzner/kube-hetzner/hcloud"
+  # Pin to v3 once released.
+  # version = "3.0.0"
+
+  providers = {
+    hcloud = hcloud
+  }
+
+  hcloud_token    = var.hcloud_token
+  ssh_public_key  = var.ssh_public_key
+  ssh_private_key = var.ssh_private_key
+
+  cluster_name       = "kh-ts-10000"
+  ingress_controller = "none"
+
+  # Use one shared primary control-plane subnet and one shared primary agent
+  # subnet. External Networks are pre-created outside this root.
+  network_subnet_mode = "shared"
+
+  node_transport_mode      = "tailscale"
+  firewall_kube_api_source = null
+  firewall_ssh_source      = null
+
+  # Static nodes and autoscaler nodes usually deserve separate auth-key policy.
+  # Autoscaler keys should be reusable, pre-approved, tagged, and ephemeral.
+  tailscale_control_plane_auth_key = var.tailscale_static_auth_key
+  tailscale_agent_auth_key         = var.tailscale_static_auth_key
+  tailscale_autoscaler_auth_key    = var.tailscale_autoscaler_auth_key
+
+  tailscale_node_transport = {
+    bootstrap_mode  = "cloud_init"
+    magicdns_domain = var.tailscale_magicdns_domain
+
+    auth = {
+      mode = "auth_key"
+      # Configure Tailnet tagOwners and autoApprovers.routes before enabling
+      # these tags in production.
+      # advertise_tags_control_plane = ["tag:kube-hetzner-control-plane"]
+      # advertise_tags_agent         = ["tag:kube-hetzner-agent"]
+      # advertise_tags_autoscaler    = ["tag:kube-hetzner-autoscaler"]
+    }
+
+    routing = {
+      advertise_node_private_routes = true
+    }
+  }
+
+  # Optional for trusted large clusters: reduce duplicate image pulls by using
+  # the k3s/RKE2 embedded Spegel registry mirror. Keep route advertisement above
+  # enabled when network_scope = "external" nodepools exist.
+  # embedded_registry_mirror = {
+  #   enabled                  = true
+  #   registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+  #   disable_default_endpoint = false
+  # }
+
+  control_plane_nodepools = [
+    {
+      name        = "control-plane"
+      server_type = "cx43"
+      location    = "nbg1"
+      labels      = []
+      taints      = []
+      count       = 3
+    }
+  ]
+
+  agent_nodepools = [
+    {
+      name        = "system-primary"
+      server_type = "cx33"
+      location    = "nbg1"
+      labels      = ["node.kubernetes.io/role=system"]
+      taints      = []
+      count       = 7
+      network_scope = "primary"
+    }
+  ]
+
+  autoscaler_nodepools = [
+    for shard in local.autoscaler_network_shards : {
+      name        = "workers-${shard.name}"
+      server_type = "cx43"
+      location    = "nbg1"
+      min_nodes   = 0
+      max_nodes   = shard.max_nodes
+      network_id    = shard.network_id
+      network_scope = shard.network_scope
+      labels = {
+        "kh/network-shard" = shard.name
+      }
+    }
+  ]
+}
+
+output "kubeconfig" {
+  value     = module.kube-hetzner.kubeconfig
+  sensitive = true
+}
+
+variable "hcloud_token" {
+  description = "Hetzner Cloud API token."
+  type        = string
+  sensitive   = true
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key content for cluster nodes."
+  type        = string
+}
+
+variable "ssh_private_key" {
+  description = "SSH private key content for Terraform provisioners."
+  type        = string
+  sensitive   = true
+}
+
+variable "tailscale_static_auth_key" {
+  description = "Reusable, pre-approved Tailscale auth key for durable static control-plane and system-agent nodes."
+  type        = string
+  sensitive   = true
+}
+
+variable "tailscale_autoscaler_auth_key" {
+  description = "Reusable, pre-approved, preferably tagged and ephemeral Tailscale auth key for autoscaler-created nodes."
+  type        = string
+  sensitive   = true
+}
+
+variable "tailscale_magicdns_domain" {
+  description = "Tailnet MagicDNS domain, for example example-tailnet.ts.net."
+  type        = string
+}
+
+variable "external_network_ids" {
+  description = "Exactly 99 existing Hetzner Network IDs, one per external 100-node autoscaler shard."
+  type        = list(number)
+
+  validation {
+    condition     = length(var.external_network_ids) == 99
+    error_message = "This exact 10,000-total-node reference expects 99 external Hetzner Network IDs."
+  }
+
+  validation {
+    condition = alltrue([
+      for network_id in var.external_network_ids :
+      network_id > 0 && floor(network_id) == network_id
+    ])
+    error_message = "All external_network_ids values must be positive integer Hetzner Network IDs."
+  }
+
+  validation {
+    condition     = length(distinct(var.external_network_ids)) == length(var.external_network_ids)
+    error_message = "external_network_ids must not contain duplicates."
+  }
+}

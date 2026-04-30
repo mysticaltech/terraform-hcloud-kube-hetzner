@@ -10,6 +10,16 @@ Before diving into the specifics of the configuration file, it's crucial to unde
 * **`kube-hetzner/kube-hetzner/hcloud` Module:** A community-maintained Terraform module that abstracts away the complexity of setting up a k3s cluster on Hetzner Cloud. It provides a set of configurable inputs to define your desired cluster topology and features.
 * **Declarative Configuration:** You *declare* the desired state of your infrastructure, and Terraform, with the help of the module, figures out how to achieve that state.
 * **Idempotency:** Applying the same Terraform configuration multiple times should result in the same state, without unintended side effects (though some module operations might have nuances).
+* **Plan-Time Module Contract:** The module uses Terraform/OpenTofu validations to reject invalid configurations during `terraform plan`. Self-contained input invariants stay in variable `validation` blocks; cross-variable and local-dependent rules live in the hard `terraform_data.validation_contract` precondition surface so Terraform 1.15+ can still initialize and validate the module. The contract covers required secrets, supported regions/locations, CIDR syntax and IP-family pairing, nodepool name/count/quorum rules, Hetzner network/subnet/placement-group limits, autoscaler boundaries, Cilium-only feature gates, load balancer dependencies, firewall source formats, Robot/vSwitch/NAT requirements, YAML snippets, audit settings, and attached volume definitions. Provider- or runtime-dependent assertions should remain in resource-specific preconditions, postconditions, or checks.
+* **Topology Chooser:** Start with `docs/v3-topology-recommendations.md` when choosing between dev, HA, private-only NAT, single-network Tailscale, Cloudflare Access/Tunnel, +100 Tailscale multinetwork, 10k reference, RKE2, Cilium dual-stack, Cilium Gateway API, Robot/vSwitch, and embedded registry mirror patterns. Do not steer users toward a Talos pivot, a public-network/IP-query-server scale story, Cloudflare Mesh/WARP node transport, or production Cilium public-overlay multinetwork claims.
+* **Tailscale Node Transport:** `node_transport_mode = "tailscale"` is the supported opt-in v3 path for secure single-network clusters and private multinetwork scale-out. It bootstraps Tailscale, uses MagicDNS for Terraform/kubeconfig access, can advertise each node's Hetzner private `/32` route into the tailnet, accepts Tailnet routes on every node, disables Tailscale subnet-route SNAT so Kubernetes/CNI traffic keeps real Hetzner node source IPs, and keeps Kubernetes node IPs on Hetzner private addresses so Hetzner CCM/CSI/LB behavior stays provider-native. In Tailscale mode, every active static agent node/nodepool and autoscaler nodepool must set `network_scope = "primary"` or `network_scope = "external"`; use `"primary"` with omitted/null `network_id`, and `"external"` with external `network_id` values, including same-root `hcloud_network.*.id` references. Single-primary-network clusters may set `tailscale_node_transport.routing.advertise_node_private_routes = false`; external `network_scope` nodepools require it to stay true and require Tailnet route auto-approval. Flannel VXLAN is the first supported CNI. Cilium requires `tailscale_node_transport.enable_experimental_cilium = true`; Calico is rejected for this transport until tested. The module NAT router is only a primary-network egress path; external-network Tailscale nodepools need public egress or an operator-owned external bootstrap path. Large-scale examples keep public API/SSH/web closed while nodes retain public IPv4/IPv6 for Tailscale bootstrap/direct UDP/41641; a no-public-IP external Network topology requires private egress plus externally managed Tailscale bootstrap.
+* **Cloudflare Zero Trust Boundary:** Cloudflare Access/Tunnel is a documented external access pattern for kube API, SSH, Rancher, Grafana, and ingress endpoints. kube-hetzner does not manage Cloudflare accounts, DNS records, tunnels, Access policies, WARP enrollment, service tokens, or Cloudflare provider resources. Do not suggest `node_transport_mode = "cloudflare"`; it does not exist. Do not present Cloudflare Mesh/WARP as supported Kubernetes node transport in v3. Use Tailscale when kube-hetzner should manage secure node transport.
+* **Cilium Gateway API:** `cilium_gateway_api_enabled = true` is supported opt-in when `cni_plugin = "cilium"` and `enable_kube_proxy = false`. The module installs standard Gateway API CRDs for the selected Cilium line, enables `gatewayAPI.enabled`, and turns on cert-manager Gateway API support when any Gateway provider is active. This is different from Traefik's Kubernetes Gateway provider; choose one Gateway API controller per cluster because v3 rejects enabling both at once.
+* **Embedded Registry Mirror:** `embedded_registry_mirror.enabled = true` enables the k3s/RKE2 embedded Spegel mirror for trusted clusters. The module adds empty mirror entries to the effective `registries.yaml` while preserving user `registries_config`. Warn users that nodes are equal-trust registry peers: credentials can be indirectly shared, tags can be poisoned, and critical images should use digests. Tailscale multinetwork plus the embedded mirror requires `tailscale_node_transport.routing.advertise_node_private_routes = true`.
+* **Cilium Multinetwork Preview Mode:** `multinetwork_mode = "cilium_public_overlay"` is a lab-only v3 preview for spanning multiple Hetzner Cloud Networks. It requires `enable_experimental_cilium_public_overlay = true`, `cni_plugin = "cilium"`, public node addresses for `multinetwork_transport_ip_family` (`ipv4`, `ipv6`, or `dualstack`), and a public control-plane endpoint or public control-plane load balancer. The module forces Cilium tunnel mode with WireGuard/node encryption, opens Cilium peer ports, disables Hetzner CCM route reconciliation, avoids control-plane fanout to every external agent network, uses public load-balancer targets, and renders one cluster-autoscaler Deployment per effective `network_id`. This path is not production-supported until live cross-network Cilium datapath validation passes. Raw Flannel/Calico private multinetwork scale and Robot/vSwitch route exposure as a Cloud-only scale solution remain unsupported.
+* **Hetzner Limits To Enforce:** Keep each Hetzner Network at or below 100 attached resources, each server at or below 3 attached Networks, each spread Placement Group at or below 10 servers, and each project at or below 50 Placement Groups. Autoscaler `max_nodes`, NAT routers, Terraform-managed load balancers, static nodes, `extra_network_ids`, and external nodepool `network_id` values must be included in validation/counting.
+* **v3 Support Levels:** k3s on Leap Micro is the stable default. RKE2 on Leap Micro, OpenTofu, Cilium dual-stack, Cilium Gateway API, and embedded registry mirror are supported opt-in where their validation rules pass. Tailscale node transport is supported opt-in for secure single-network clusters and Flannel-first private multinetwork scale-out. Cilium public-overlay multinetwork is an experimental preview, not a production-supported v3 promise yet. MicroOS is legacy/upgrade support. Cloudflare Access/Tunnel and user-owned Tailscale/ZeroTier/WireGuard/WARP remain external access patterns through generic hooks when they are only for operator access, app access, or post-bootstrap features. Robot/vSwitch, private-only, Longhorn-heavy, and existing-network upgrades are advanced/special-case paths that deserve blue/green consideration. Raw Flannel/Calico multinetwork scale without Tailscale/routed transport is unsupported.
+* **v3 Upgrade Rule:** Before applying a v3 plan, state must be backed up, removed v2 inputs must be gone, inverted booleans must be reviewed, validation must pass, and every network/subnet/load-balancer/server/primary-IP/placement-group/volume replacement must be intentional.
 
 This guide will walk through the provided Terraform configuration, explaining the purpose, implications, and interdependencies of each setting.
 
@@ -73,10 +83,10 @@ module "kube-hetzner" {
   source = "kube-hetzner/kube-hetzner/hcloud"
   #    When using the terraform registry as source, you can optionally specify a version number.
   #    See https://registry.terraform.io/modules/kube-hetzner/kube-hetzner/hcloud for the available versions
-  # version = "2.15.3"
+  # version = "3.0.0"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
-  # 3. If you want to use the latest master branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
+  # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
   # source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"
 ```
 
@@ -84,7 +94,7 @@ module "kube-hetzner" {
   * **Purpose:** This tells Terraform where to find the `kube-hetzner` module code.
   * **Option 1 (Terraform Registry - Recommended for Users):** `kube-hetzner/kube-hetzner/hcloud`
     * This is the standard way to use published modules. Terraform will download it from the public Terraform Registry.
-    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "2.15.3"`). This ensures:
+    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "3.0.0"`). This ensures:
       * **Reproducibility:** Your infrastructure builds are consistent over time.
       * **Stability:** Prevents unexpected changes or breakages if a new, incompatible version of the module is released.
       * **Controlled Upgrades:** You can consciously decide when to upgrade the module version after reviewing its changelog.
@@ -92,7 +102,7 @@ module "kube-hetzner" {
     * Used when you have a local copy of the module's source code, typically for development or testing modifications to the module itself. The path is relative to this `main.tf` file.
   * **Option 3 (Direct Git Repository - For Bleeding Edge/Specific Commits):** `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner"`
     * Pulls the module directly from the `master` branch of the GitHub repository. This is generally **not recommended for production** as `master` can be unstable.
-    * You can also specify a specific branch, tag, or commit hash using the `ref` query parameter (e.g., `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner?ref=v2.15.3"`).
+    * You can also specify a specific branch, tag, or commit hash using the `ref` query parameter (e.g., `source = "github.com/kube-hetzner/terraform-hcloud-kube-hetzner?ref=v3.0.0"`).
 
 ```terraform
   # Note that some values, notably "location" and "public_key" have no effect after initializing the cluster.
@@ -208,21 +218,23 @@ module "kube-hetzner" {
   # you can do so and pass its id here. For example if you want to use a proxy
   # which only listens on your private network. Advanced use case.
   #
-  # NOTE1: make sure to adapt network_ipv4_cidr, cluster_ipv4_cidr, and service_ipv4_cidr accordingly.
+  # NOTE1: make sure to adapt network_ipv4_cidr to the existing Hetzner Cloud network range.
   #        If your network is created with 10.0.0.0/8, and you use subnet 10.128.0.0/9 for your
   #        non-k3s business, then adapting `network_ipv4_cidr = "10.0.0.0/9"` should be all you need.
+  #        Pod/service CIDRs do not have to be subranges of the Hetzner network CIDR, but they must be valid
+  #        Kubernetes CIDRs and should not conflict with routes already used in your environment.
   #
-  # NOTE2: square brackets! This must be a list of length 1.
+  # NOTE2: v3 uses an object so the existing-network contract can grow without another breaking change.
   #
-  # existing_network_id = [hcloud_network.your_network.id]
+  # existing_network = { id = hcloud_network.your_network.id }
 ```
 
-* **`existing_network_id` (Optional, Advanced):**
+* **`existing_network` (Optional, Advanced):**
   * **Default:** Not set, meaning the module will create and manage its own Hetzner Cloud private network.
   * **Purpose:** Allows you to use a pre-existing Hetzner Cloud private network for your Kubernetes cluster.
-  * **Format:** A list containing a single element: the ID of the existing Hetzner network (e.g., `[1234567]`). The comment `[hcloud_network.your_network.id]` shows how you'd reference a network created in the same Terraform configuration but outside this module.
+  * **Format:** An object containing the numeric ID of the existing Hetzner network, for example `{ id = 1234567 }` or `{ id = hcloud_network.your_network.id }`.
   * **Use Case:** Integrating the Kubernetes cluster into a larger, existing infrastructure on Hetzner Cloud where other services already reside on a specific private network.
-  * **Critical Considerations (NOTE1):** If you use an existing network, you are responsible for ensuring that the IP address ranges used by this module (`network_ipv4_cidr`, `cluster_ipv4_cidr`, `service_ipv4_cidr`) do not conflict with other subnets or IP ranges already in use on that existing network. You might need to adjust these CIDR parameters in the module configuration to fit within an available portion of your existing network's IP space. The example given (using `10.0.0.0/9` for k3s within a larger `10.0.0.0/8` network) illustrates this.
+  * **Critical Considerations (NOTE1):** If you use an existing network, `network_ipv4_cidr` must describe the private network range the module is allowed to use. Pod and service CIDRs (`cluster_ipv4_cidr` and `service_ipv4_cidr`) are Kubernetes ranges; they do not have to be subranges of the Hetzner network CIDR, but they must be valid and should not conflict with routes already used in your environment. The example given (using `10.0.0.0/9` for k3s within a larger `10.0.0.0/8` network) illustrates this.
 
 ```terraform
   # If you must change the network CIDR you can do so below, but it is highly advised against.
@@ -231,38 +243,41 @@ module "kube-hetzner" {
 
 * **`network_ipv4_cidr` (Optional, Advanced):**
   * **Default (in module):** Typically `10.0.0.0/8`.
-  * **Purpose:** Defines the overall IP address range for the Hetzner Cloud private network that the module will create (if `existing_network_id` is not used). All other internal Kubernetes CIDRs (for pods, services, and node subnets) will be carved out of this range.
+  * **Purpose:** Defines the overall IP address range for the Hetzner Cloud private network that the module will create (if `existing_network` is not used). Hetzner node subnets are carved out of this range.
   * **Warning:** "highly advised against" changing this unless you have a very specific reason (e.g., conflict with on-premises networks if using VPN/interconnect, or needing a smaller/different range for a very specific setup). Changing it requires careful planning of all sub-CIDRs.
-  * **Impact:** If changed, `cluster_ipv4_cidr` and `service_ipv4_cidr` must be sub-ranges within this new `network_ipv4_cidr`.
+  * **Impact:** If changed, review pod/service CIDRs and every external route to avoid conflicts. Terraform validates CIDR syntax and related input combinations, but it cannot know every route outside the module.
+
+```terraform
+  # New v3 clusters default to one subnet per control-plane and agent nodepool.
+  # This matches the released v2 subnet topology.
+  # network_subnet_mode = "per_nodepool"
+```
+
+* **`network_subnet_mode` (String, Optional):**
+  * **Default:** `"per_nodepool"`.
+  * **Purpose:** Controls how kube-hetzner allocates Hetzner Cloud private subnets inside `network_ipv4_cidr`.
+  * **Default and Upgrade Path:** `"per_nodepool"` creates one subnet per control-plane and agent nodepool. This matches released v2 subnet topology and is the normal in-place upgrade-safe mode.
+  * **Compact Shared Mode:** `"shared"` creates one shared agent subnet and one shared control-plane subnet. Use it for new clusters or intentional topology changes, not accidental v2 upgrades.
 
 ```terraform
   # The amount of subnets into which the network will be split. Must be a power of 2.
-  # subnet_amount = 256
+  # subnet_count = 256
 ```
 
-* **`subnet_amount` (Number, Optional):**
+* **`subnet_count` (Number, Optional):**
   * **Default:** `256`.
   * **Purpose:** Determines into how many subnets the `network_ipv4_cidr` is divided.
-  * **Constraint:** Must be a power of 2. Each nodepool (control plane and agent) and potentially the NAT router takes one subnet. Ensure this is large enough for your planned number of nodepools.
+  * **Constraint:** Must be a positive power of 2 and large enough for the selected subnet mode plus module-created NAT/vSwitch subnets. Hetzner Cloud allows at most 50 subnets per private network, and the module validates this at plan time.
 
-```terraform
-  # Using the default configuration you can only create a maximum of 42 agent-nodepools.
-  # This is due to the creation of a subnet for each nodepool with CIDRs being in the shape of 10.[nodepool-index].0.0/16 which collides with k3s' cluster and service IP ranges (defaults below).
-  # Furthermore the maximum number of nodepools (controlplane and agent) is 50, due to a hard limit of 50 subnets per network, see https://docs.hetzner.com/cloud/networks/faq/.
-  # So to be able to create a maximum of 50 nodepools in total, the values below have to be changed to something outside that range, e.g. `10.200.0.0/16` and `10.201.0.0/16` for cluster and service respectively.
-```
-
-* **Explanation of Nodepool Subnet Allocation and Limits:**
-  * **Subnet per Nodepool:** The module creates a dedicated subnet within the Hetzner private network for each nodepool (both control plane and agent). This provides network isolation at the Hetzner level and allows for distinct IP ranges per nodepool.
-  * **Default Subnetting Scheme:** The module uses a scheme like `10.[nodepool-index].0.0/16` for these subnets. For example, the first nodepool might get `10.1.0.0/16`, the second `10.2.0.0/16`, and so on.
-  * **Collision Issue:** The default k3s cluster CIDR (`10.42.0.0/16`) and service CIDR (`10.43.0.0/16`) would collide if a nodepool index reached 42 or 43 using this scheme. This limits the number of *agent* nodepools to 42 if defaults are kept.
-  * **Hetzner Subnet Limit:** Hetzner Cloud has a hard limit of 50 subnets per private network. This is the ultimate cap on the total number of nodepools (control plane + agent).
-  * **Solution for >42 Nodepools:** To exceed 42 nodepools (up to the 50 limit), you *must* change `cluster_ipv4_cidr` and `service_ipv4_cidr` to ranges that won't collide with the `10.[0-49].0.0/16` nodepool subnet ranges. The example `10.200.0.0/16` and `10.201.0.0/16` achieves this.
+* **Explanation of Subnet Allocation and Limits:**
+  * **Default Mode:** `network_subnet_mode = "per_nodepool"` creates one subnet per control-plane and agent nodepool. This is bounded by Hetzner's 50-subnet network limit.
+  * **Shared Mode:** `network_subnet_mode = "shared"` uses one shared agent subnet and one shared control-plane subnet in the module-managed primary network.
+  * **Additional Subnets:** NAT router and vSwitch integration can consume additional subnets. Terraform validates subnet index ranges and collisions before apply.
 
 ```terraform
   # If you must change the cluster CIDR you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
-  # The cluster CIDR must be a part of the network CIDR!
+  # Must be a valid IPv4 CIDR. Keep cluster_ipv4_cidr and service_ipv4_cidr both set, or both empty for IPv6-only.
   # cluster_ipv4_cidr = "10.42.0.0/16"
 ```
 
@@ -270,13 +285,12 @@ module "kube-hetzner" {
   * **Default (in module):** `10.42.0.0/16` (a common default for k3s/Kubernetes).
   * **Purpose:** This is the IP address range from which Kubernetes assigns IP addresses to Pods running within the cluster.
   * **Critical Warning:** "Never change this value after you already initialized a cluster." Doing so would require a complete cluster redeployment because all existing Pods and network configurations would become invalid.
-  * **Constraint:** Must be a sub-range of `network_ipv4_cidr`.
-  * **Interdependency:** As explained above, may need to be changed if you require more than 42 nodepools.
+  * **Constraint:** Must be empty or a valid IPv4 CIDR. If IPv4 pod networking is enabled, `service_ipv4_cidr` must also be enabled.
 
 ```terraform
   # If you must change the service CIDR you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
-  # The service CIDR must be a part of the network CIDR!
+  # Must be a valid IPv4 CIDR and must not be identical to cluster_ipv4_cidr.
   # service_ipv4_cidr = "10.43.0.0/16"
 ```
 
@@ -284,13 +298,12 @@ module "kube-hetzner" {
   * **Default (in module):** `10.43.0.0/16` (a common default for k3s/Kubernetes).
   * **Purpose:** This is the IP address range from which Kubernetes assigns virtual IP addresses to Services (e.g., ClusterIP services).
   * **Critical Warning:** Same as `cluster_ipv4_cidr` – do not change post-initialization without a full redeploy.
-  * **Constraint:** Must be a sub-range of `network_ipv4_cidr`.
-  * **Interdependency:** May need to be changed if you require more than 42 nodepools.
+  * **Constraint:** Must be empty or a valid IPv4 CIDR. If IPv4 service networking is enabled, `cluster_ipv4_cidr` must also be enabled. It must not be identical to `cluster_ipv4_cidr`.
 
 ```terraform
   # If you must change the service IPv4 address of core-dns you can do so below, but it is highly advised against.
   # Never change this value after you already initialized a cluster. Complete cluster redeploy needed!
-  # The service IPv4 address must be part of the service CIDR!
+  # Choose an IPv4 address inside service_ipv4_cidr.
   # cluster_dns_ipv4 = "10.43.0.10"
 ```
 
@@ -298,7 +311,7 @@ module "kube-hetzner" {
   * **Default (in module):** `10.43.0.10`.
   * **Purpose:** Specifies the static IP address for the CoreDNS service (or KubeDNS) within the cluster. Pods use this IP to resolve internal and external domain names.
   * **Critical Warning:** Same as above – do not change post-initialization.
-  * **Constraint:** This IP address *must* fall within the `service_ipv4_cidr` range. Typically, it's one of the first few usable IPs in that range (e.g., `.10`).
+  * **Constraint:** This IP address should fall within the `service_ipv4_cidr` range. Terraform validates that it is a valid IPv4 address and that IPv4 service networking is enabled.
 
 The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are extensive. I will break them down carefully.
 
@@ -345,7 +358,8 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
       # zram_size   = "2G" # remember to add the suffix, examples: 512M, 1G
       # kubelet_args = ["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]
 
-      # Fine-grained control over placement groups (nodes in the same group are spread over different physical servers, 10 nodes per placement group max):
+      # Fine-grained control over placement groups. Leave unset to auto-shard count-based nodepools every 10 servers.
+      # Explicit placement_group values must stay at 10 servers or fewer, and the project cap is 50 placement groups:
       # placement_group = "default"
 
       # Enable automatic backups via Hetzner (default: false)
@@ -354,8 +368,8 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
       # To disable public ips (default: false)
       # WARNING: If both values are set to "true", your server will only be accessible via a private network. Make sure you have followed
       # the instructions regarding this type of setup in README.md: "Use only private IPs in your cluster".
-      # disable_ipv4 = true
-      # disable_ipv6 = true
+      # enable_public_ipv4 = false
+      # enable_public_ipv6 = false
     },
     // ... more control plane nodepool examples ...
   ]
@@ -367,7 +381,7 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
   * **High Availability (HA) Critical Logic:**
     * **Minimum for HA:** 3 control plane nodes.
     * **Odd Number:** Always use an odd number (1, 3, 5, etc.) for etcd quorum to prevent split-brain scenarios. 2 nodes are worse than 1 for HA.
-    * **Impact of Non-HA (1 control plane):** If you have only one control plane node, features like `automatically_upgrade_os` and `automatically_upgrade_k3s` (if not managed carefully) can lead to downtime. The module's README and comments often advise disabling automatic upgrades for single control plane setups.
+    * **Impact of Non-HA (1 control plane):** If you have only one control plane node, features like `automatically_upgrade_os` and `automatically_upgrade_kubernetes` (if not managed carefully) can lead to downtime. The module's README and comments often advise disabling automatic upgrades for single control plane setups.
     * **Distribution:** HA control plane nodes can be in the same nodepool definition (e.g., `count = 3` in one map) or spread across multiple nodepool definitions (e.g., three maps, each with `count = 1`, potentially in different `location`s for better fault tolerance).
   * **Minimum Requirements (Initial Cluster Create):**
     * At least one control plane nodepool with `count >= 1`.
@@ -413,7 +427,7 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
     * **`swap_size` (String, Optional):**
       * Examples: `"512M"`, `"2G"`, `"4G"`.
       * Configures a swap file of the specified size on the nodes.
-      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled and kubelet is configured correctly. The comment `Make sure you set "feature-gates=NodeSwap=true" if want to use swap_size` (seen later under `k3s_global_kubelet_args`) is relevant here. Use with caution and understanding of its implications on performance and scheduling.
+      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled and kubelet is configured correctly. The comment `Make sure you set "feature-gates=NodeSwap=true" if want to use swap_size` (seen later under `global_kubelet_args`) is relevant here. Use with caution and understanding of its implications on performance and scheduling.
     * **`zram_size` (String, Optional):**
       * Examples: `"512M"`, `"1G"`.
       * Configures zRAM (compressed RAM block device, often used for swap) on the nodes.
@@ -422,19 +436,19 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
       * Allows passing additional arguments directly to the `kubelet` process running on nodes in this specific pool.
       * Example: `["kube-reserved=cpu=250m,memory=1500Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"]`
       * This is for fine-grained resource reservation for Kubernetes system components (`kube-reserved`) and OS system components (`system-reserved`), ensuring they have enough resources and don't get starved by user pods.
-      * **Note:** There are also global `k3s_global_kubelet_args`, `k3s_control_plane_kubelet_args`, etc., defined later. These nodepool-specific `kubelet_args` likely supplement or override those for this pool.
+      * **Note:** There are also global `global_kubelet_args`, `control_plane_kubelet_args`, etc., defined later. These nodepool-specific `kubelet_args` likely supplement or override those for this pool.
     * **`placement_group` (String, Optional):**
-      * Default: The module might create a default placement group or assign nodes to one.
+      * Default: The module creates and assigns spread placement groups when `enable_placement_groups = true`.
       * Purpose: Hetzner Placement Groups ensure that servers within the same group are located on different physical host systems (spread strategy). This improves fault tolerance against hardware failures on a single host.
       * Value: Name of the placement group. If you specify the same name for multiple nodes/nodepools, they'll try to be in that group.
-      * Limit: Hetzner placement groups have limits (e.g., 10 servers per spread placement group). The module might manage creating multiple groups if a nodepool `count` exceeds this.
+      * Limit: Hetzner spread placement groups support 10 servers per group and 50 groups per project. Count-based nodepools without explicit `placement_group` are auto-sharded every 10 servers; explicit named groups must be split manually.
     * **`backups` (Boolean, Optional):**
       * Default: `false`.
       * If `true`, enables Hetzner's automated server backup service for nodes in this pool. This incurs additional cost per server.
-    * **`disable_ipv4` (Boolean, Optional) / `disable_ipv6` (Boolean, Optional):**
-      * Default: `false` for both.
-      * If `true`, disables the public IPv4 or IPv6 interface on the server, respectively.
-      * **Warning:** If both are `true`, the server will *only* have a private IP address and will only be accessible via the Hetzner private network (e.g., from another server in the same network, or via a VPN/bastion host connected to that network). This is an advanced setup requiring careful network planning. The comment refers to a `README.md` section "Use only private IPs in your cluster" for guidance.
+    * **`enable_public_ipv4` (Boolean, Optional) / `enable_public_ipv6` (Boolean, Optional):**
+      * Default: `true` for both.
+      * If `false`, disables the public IPv4 or IPv6 interface on the server, respectively.
+      * **Warning:** If both are `false`, the server will *only* have a private IP address and will only be accessible via the Hetzner private network (e.g., from another server in the same network, or via a VPN/bastion host connected to that network). This is an advanced setup requiring careful network planning. The comment refers to a `README.md` section "Use only private IPs in your cluster" for guidance.
 
 The example shows three control plane nodepools, each with one node, in different locations (`fsn1`, `nbg1`, `hel1`). This is a common pattern for a 3-node HA control plane, maximizing fault tolerance across Hetzner locations (within the same `network_region`).
 
@@ -496,8 +510,9 @@ The example shows three control plane nodepools, each with one node, in differen
         "node.kubernetes.io/role=egress:NoSchedule" # Ensures only egress gateway pods run here
       ],
       floating_ip = true # Special attribute for this module
+      # floating_ip_type = "ipv6" # Optional: "ipv4" (default) or "ipv6"
       # Optionally associate a reverse DNS entry with the floating IP(s).
-      # floating_ip_rns = "my.domain.com"
+      # floating_ip_rdns = "my.domain.com"
       count = 1
     },
     # Arm based nodes
@@ -540,7 +555,7 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Purpose:** Defines groups of agent (worker) nodes. These nodes run your actual application Pods.
   * **Structure and Lifecycle:** Similar to `control_plane_nodepools` (list of maps, rules for adding/removing/renaming apply).
   * **Minimum Requirement (Initial Cluster Create):** Typically, at least one agent nodepool with `count >= 1` is needed, unless it's a single-node cluster where the control plane also acts as a worker (in which case, agent nodepool counts can be 0).
-  * **Nodepool Attributes (per map):** Most attributes are the same as for `control_plane_nodepools` (`name`, `server_type`, `location`, `labels`, `taints`, `count`, `swap_size`, `zram_size`, `kubelet_args`, `placement_group`, `backups`, `disable_ipv4`/`ipv6`).
+  * **Nodepool Attributes (per map):** Most attributes are the same as for `control_plane_nodepools` (`name`, `server_type`, `location`, `labels`, `taints`, `count`, `swap_size`, `zram_size`, `kubelet_args`, `placement_group`, `backups`, `enable_public_ipv4`/`enable_public_ipv6`).
   * **Specific Agent Nodepool Attributes/Examples:**
     * **`longhorn_volume_size` (Number, Optional, specific to agent nodepools if Longhorn is enabled):**
       * If `enable_longhorn = true` (a global module setting), this attribute can be added to an agent nodepool definition.
@@ -549,14 +564,26 @@ The example shows three control plane nodepools, each with one node, in differen
         * **Hetzner Volumes:** Network-attached, potentially slower than local NVMe/SSD storage on the node, but can be larger, are independently manageable, and might be cheaper for bulk storage. Good for less I/O-intensive workloads or where data persistence independent of the node's lifecycle is paramount.
         * **Node Local Storage (if `longhorn_volume_size` is not set or 0):** Longhorn uses a directory on the node's filesystem. Faster I/O, but storage is tied to the node's disk.
       * **Recommendation:** The comment wisely suggests local storage for databases (high I/O) and Hetzner Volumes for backups or less critical storage.
+      * **Autoscaler Boundary:** Longhorn volumes are intentionally limited to static agent/control-plane nodepools. Autoscaled volume self-provisioning would require a write-capable Hetzner token in node user-data and detached volumes would be orphaned on scale-down.
     * **`floating_ip` (Boolean, Optional, specific to egress nodepool example):**
       * Default: `false`.
       * If `true`, the module will provision a Hetzner Floating IP and associate it with the node(s) in this pool. If `count > 1`, how the floating IP is managed across multiple nodes needs clarification from module docs (e.g., active/passive, or one FIP per node).
       * **Use Case (Egress Gateway):** As shown in the "egress" nodepool example, this is used with Cilium's Egress Gateway feature. This allows you to have a stable, predictable public IP address for outbound traffic originating from your cluster, which can be useful for whitelisting with external services.
       * The `labels` and `taints` on the "egress" pool ensure that only specific egress gateway pods (which would have tolerations for the taint) are scheduled there.
-    * **`floating_ip_rns` (String, Optional):**
+    * **`floating_ip_type` (String, Optional):**
+      * Default: `"ipv4"`.
+      * Allowed values: `"ipv4"`, `"ipv6"`.
+      * **Purpose:** Chooses which floating IP family to allocate and configure on the node.
+    * **`floating_ip_rdns` (String, Optional):**
       * If `floating_ip = true`, this allows you to set a reverse DNS (PTR record) for the provisioned floating IP.
       * Use Case: Email servers or services where reverse DNS is important for reputation.
+    * **`network_id` (Number, Optional):**
+      * Default: omitted/null (the primary kube-hetzner Network).
+      * Set to an external Hetzner Network ID when agent nodes should attach to a different Network shard.
+    * **`network_scope` (`"primary"` or `"external"`, Optional outside Tailscale, Required in Tailscale mode):**
+      * Plan-known primary/external Network intent for static agent nodepools and explicit `nodes` overrides.
+      * Set `"primary"` when `network_id` is omitted/null. Set `"external"` when `network_id` points at an external Hetzner Network, including same-root `hcloud_network.*.id` references.
+      * `network_scope = "primary"` must not set `network_id`; `network_scope = "external"` requires `network_id`.
     * **`nodes` (Map of Maps, Optional, replaces `count`):**
       * **Purpose:** Provides fine-grained control over individual nodes within a single nodepool definition, overriding the nodepool-level defaults for `location`, `labels`, `taints`, `server_type`, etc., on a per-node basis.
       * **Structure:**
@@ -612,11 +639,11 @@ The example shows three control plane nodepools, each with one node, in differen
   # FYI, Hetzner says "Traffic between cloud servers inside a Network is private and isolated, but not automatically encrypted."
   # Source: https://docs.hetzner.com/cloud/networks/faq/#is-traffic-inside-hetzner-cloud-networks-encrypted
   # It works with all CNIs that we support.
-  # Just note, that if Cilium with cilium_values, the responsibility of enabling of disabling Wireguard falls on you.
-  # enable_wireguard = true
+  # Just note, that if Cilium with cilium_values, the responsibility of enabling or disabling WireGuard falls on you.
+  # enable_cni_wireguard_encryption = true
 ```
 
-* **`enable_wireguard` (Boolean, Optional):**
+* **`enable_cni_wireguard_encryption` (Boolean, Optional):**
   * **Default:** `false`.
   * **Purpose:** Enables WireGuard encryption for inter-node CNI (Container Network Interface) traffic. This encrypts pod-to-pod communication that traverses different nodes.
   * **Context:** Hetzner private networks provide isolation but not encryption-in-transit by default. Enabling WireGuard adds this layer of security.
@@ -625,13 +652,13 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Performance:** WireGuard is generally efficient, but encryption always has some performance overhead.
 
 ```terraform
-  # Override the flannel backend used by k3s. When set, this takes precedence over enable_wireguard.
+  # Override the flannel backend used by k3s. When set, this takes precedence over enable_cni_wireguard_encryption.
   # Valid values: vxlan, host-gw, wireguard-native.
   # flannel_backend = "vxlan"
 ```
 
 * **`flannel_backend` (String, Optional):**
-  * **Default:** `null` (defaults to `vxlan`, or `wireguard-native` if `enable_wireguard = true`).
+  * **Default:** `null` (defaults to `vxlan`, or `wireguard-native` if `enable_cni_wireguard_encryption = true`).
   * **Purpose:** Explicitly configures the backend for the Flannel CNI.
   * **Robot Node Context:** For clusters involving Hetzner Robot nodes connected via vSwitch, `wireguard-native` is recommended to avoid MTU issues often seen with VXLAN in that topology.
 
@@ -642,11 +669,11 @@ The example shows three control plane nodepools, each with one node, in differen
   load_balancer_type     = "lb11"
   load_balancer_location = "nbg1"
 
-  # Disable IPv6 for the load balancer, the default is false.
-  # load_balancer_disable_ipv6 = true
+  # Enable IPv6 for the load balancer, the default is true.
+  # load_balancer_enable_ipv6 = true
 
-  # Disables the public network of the load balancer. (default: false).
-  # load_balancer_disable_public_network = true
+  # Enable the public network of the load balancer. The default is true.
+  # load_balancer_enable_public_network = true
 
   # Specifies the algorithm type of the load balancer. (default: round_robin).
   # load_balancer_algorithm_type = "least_connections"
@@ -669,12 +696,12 @@ The example shows three control plane nodepools, each with one node, in differen
 * **`load_balancer_location` (String, Obligatory):**
   * **Purpose:** Specifies the Hetzner location where the Load Balancer instance will be provisioned.
   * **Best Practice:** Choose a location where you have agent nodes to minimize latency between the LB and its backend targets. It must be within the same `network_region` as your nodes.
-* **`load_balancer_disable_ipv6` (Boolean, Optional):**
-  * **Default:** `false` (meaning IPv6 is enabled on the LB).
-  * **Purpose:** If `true`, the Load Balancer will not be assigned a public IPv6 address and will not listen for traffic on IPv6.
-* **`load_balancer_disable_public_network` (Boolean, Optional):**
-  * **Default:** `false` (meaning the LB has a public interface).
-  * **Purpose:** If `true`, the Load Balancer will only have a private IP address and will only be accessible from within the Hetzner private network.
+* **`load_balancer_enable_ipv6` (Boolean, Optional):**
+  * **Default:** `true`.
+  * **Purpose:** If `true`, the Load Balancer receives and listens on public IPv6.
+* **`load_balancer_enable_public_network` (Boolean, Optional):**
+  * **Default:** `true`.
+  * **Purpose:** If `true`, the Load Balancer has a public interface.
   * **Use Case:** For internal load balancing scenarios where you don't want to expose the LB to the public internet directly. External access would then require a VPN, bastion, or another proxy fronting this internal LB.
 * **`load_balancer_algorithm_type` (String, Optional):**
   * **Default:** `"round_robin"`.
@@ -747,8 +774,8 @@ The example shows three control plane nodepools, each with one node, in differen
   # ]
   #
   # To disable public ips on your autoscaled nodes, uncomment the following lines:
-  # autoscaler_disable_ipv4 = true
-  # autoscaler_disable_ipv6 = true
+  # autoscaler_enable_public_ipv4 = false
+  # autoscaler_enable_public_ipv6 = false
 ```
 
 * **`autoscaler_nodepools` (List of Maps, Optional):**
@@ -762,47 +789,45 @@ The example shows three control plane nodepools, each with one node, in differen
     * **`server_type` (String, Obligatory):** The Hetzner server type for nodes created in this pool (e.g., `cx33`, `cax21`). Must adhere to the single-architecture constraint mentioned above.
     * **`location` (String, Obligatory):** Hetzner location for nodes in this pool.
     * **`min_nodes` (Number, Obligatory):** The minimum number of nodes this pool can scale down to. Can be `0`.
+      * Must be a non-negative integer and must be less than or equal to `max_nodes`.
     * **`max_nodes` (Number, Obligatory):** The maximum number of nodes this pool can scale up to.
+      * Must be a non-negative integer and greater than or equal to `min_nodes`.
     * **`labels` (Map of Strings, Optional):**
       * Kubernetes labels to apply to nodes provisioned by the autoscaler in this pool.
       * **Format Difference:** Note that this `labels` attribute is a *map* (`key: value`), unlike the `labels` in `control_plane_nodepools` and `agent_nodepools` which are lists of strings (`["key=value"]`). This is likely due to how the Cluster Autoscaler itself expects these definitions.
+    * **`server_labels` (Map of Strings, Optional):**
+      * Hetzner Cloud server labels applied by the autoscaler when it creates servers. These are separate from Kubernetes node labels.
+    * **`network_id` (Number, Optional):**
+      * Default: omitted/null (the primary kube-hetzner Network).
+      * With `node_transport_mode = "tailscale"` or experimental `multinetwork_mode = "cilium_public_overlay"`, autoscaler nodepools can use external Hetzner Network IDs. The module renders one autoscaler Deployment per effective network so each gets the correct `HCLOUD_NETWORK`.
+    * **`network_scope` (`"primary"` or `"external"`, Optional outside Tailscale, Required in Tailscale mode):**
+      * Plan-known primary/external Network intent for autoscaler nodepools.
+      * Set `"primary"` when `network_id` is omitted/null. Set `"external"` when `network_id` points at an external Hetzner Network, including same-root `hcloud_network.*.id` references.
+      * `network_scope = "primary"` must not set `network_id`; `network_scope = "external"` requires `network_id`.
+    * **`subnet_ip_range` (String, Optional):**
+      * Optional private subnet CIDR inside the selected `network_id`. This maps to Hetzner Cluster Autoscaler's `subnetIPRange`.
+    * **`join_endpoint_type` (String, Optional):**
+      * `private` or `public`; in `cilium_public_overlay` the module forces public joins because nodes may live on separate Hetzner private Network islands. In Tailscale mode the module uses the private control-plane endpoint over Tailnet subnet routes. Public joins require `control_plane_endpoint`, a public control-plane Load Balancer, or public IPv4/IPv6 on the control-plane nodes; IPv6-only public joins are valid.
     * **`taints` (List of Maps, Optional):**
       * Kubernetes taints to apply to nodes provisioned by the autoscaler in this pool.
       * **Format:** Each element in the list is a map with `key`, `value`, and `effect` (e.g., `NoSchedule`, `NoExecute`, `PreferNoSchedule`).
+      * `effect` must be one of: `NoSchedule`, `PreferNoSchedule`, `NoExecute`.
     * **`kubelet_args` (List of Strings, Optional):** Same purpose as in other nodepools, for passing custom arguments to kubelet on autoscaled nodes.
     * **`swap_size` (String, Optional):**
       * Examples: `"512M"`, `"2G"`, `"4G"`.
+      * Validation format: empty string, or a value matching `[1-9][0-9]{0,3}(M|G)`.
       * Configures a swap file of the specified size on autoscaled nodes.
-      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled. Make sure you set `"feature-gates=NodeSwap=true"` in `k3s_global_kubelet_args` or `k3s_autoscaler_kubelet_args`.
+      * **K3s/Kubernetes Consideration:** Kubernetes traditionally doesn't work well with swap. However, recent versions of k3s/kubelet can support it if the `NodeSwap` feature gate is enabled. Make sure you set `"feature-gates=NodeSwap=true"` in `global_kubelet_args` or `autoscaler_kubelet_args`.
       * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
     * **`zram_size` (String, Optional):**
       * Examples: `"512M"`, `"1G"`.
+      * Validation format: empty string, or a value matching `[1-9][0-9]{0,3}(M|G)`.
       * Configures zRAM (compressed RAM block device used for swap) on autoscaled nodes.
       * Uses zstd compression algorithm for optimal performance.
       * When set, nodes will automatically receive the `node.kubernetes.io/server-swap=enabled` label.
-* **`autoscaler_disable_ipv4` / `autoscaler_disable_ipv6` (Boolean, Optional):**
-  * **Default:** `false`.
-  * **Purpose:** If `true`, disables public IPv4/IPv6 on nodes created by the Cluster Autoscaler. Similar implications as for regular nodepools (private network only access if both are true).
-
-```terraform
-  # ⚠️ Deprecated, will be removed after a new Cluster Autoscaler version has been released which support the new way of setting labels and taints. See above.
-  # Add extra labels on nodes started by the Cluster Autoscaler
-  # This argument is not used if autoscaler_nodepools is not set, because the Cluster Autoscaler is installed only if autoscaler_nodepools is set
-  # autoscaler_labels = [
-  #   "node.kubernetes.io/role=peak-workloads"
-  # ]
-
-  # Add extra taints on nodes started by the Cluster Autoscaler
-  # This argument is not used if autoscaler_nodepools is not set, because the Cluster Autoscaler is installed only if autoscaler_nodepools is set
-  # autoscaler_taints = [
-  #   "node.kubernetes.io/role=specific-workloads:NoExecute"
-  # ]
-```
-
-* **`autoscaler_labels` / `autoscaler_taints` (List of Strings, Optional, Deprecated):**
-  * **Status:** Marked as deprecated. These were older ways to apply labels/taints globally to all nodes created by the Cluster Autoscaler.
-  * **Superseded by:** The per-nodepool `labels` (map) and `taints` (list of maps) within the `autoscaler_nodepools` definition offer more granular control and are the preferred method with newer Cluster Autoscaler versions.
-  * **Logic:** If `autoscaler_nodepools` is not defined (i.e., autoscaler is disabled), these deprecated variables have no effect.
+* **`autoscaler_enable_public_ipv4` / `autoscaler_enable_public_ipv6` (Boolean, Optional):**
+  * **Default:** `true`.
+  * **Purpose:** If `false`, disables public IPv4/IPv6 on nodes created by the Cluster Autoscaler. Similar implications as for regular nodepools (private network only access if both are false).
 
 ```terraform
   # Configuration of the Cluster Autoscaler binary
@@ -826,7 +851,7 @@ The example shows three control plane nodepools, each with one node, in differen
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
-  # cluster_autoscaler_version = "v1.30.3"
+  # cluster_autoscaler_version = "v1.33.3"
   # cluster_autoscaler_log_level = 4
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
@@ -840,7 +865,7 @@ The example shows three control plane nodepools, each with one node, in differen
   * **`cluster_autoscaler_version` (String, Optional):**
     * **Default:** The module likely picks a recent, compatible version.
     * **Purpose:** Specifies the version tag for the `cluster_autoscaler_image`.
-    * **Recommendation:** Should generally be aligned with your Kubernetes cluster version (i.e., `install_k3s_version`). Mismatches can lead to incompatibility. The link provided helps find available official versions.
+    * **Recommendation:** Should generally be aligned with your Kubernetes cluster version (i.e., `k3s_version`). Mismatches can lead to incompatibility. The link provided helps find available official versions.
   * **`cluster_autoscaler_log_level` (Number, Optional):**
     * **Default:** `4`.
     * **Purpose:** Controls the verbosity of the Cluster Autoscaler logs (passed as the `--v` flag). Higher numbers mean more detailed logs. `5` is typically for maximum debug output.
@@ -860,7 +885,12 @@ The example shows three control plane nodepools, each with one node, in differen
     * **Default:** `true`.
     * **Purpose:** Whether to apply resource requests/limits to the autoscaler pod.
   * **`cluster_autoscaler_resource_values` (Map, Optional):**
+    * **Default:** Requests `10m` CPU / `64Mi` memory; limits `100m` CPU / `300Mi` memory.
     * **Purpose:** Customizes the specific CPU and memory requests/limits for the autoscaler pod.
+  * **`cluster_autoscaler_metrics_firewall_source` (List of Strings, Optional):**
+    * **Default:** `[]`.
+    * **Purpose:** Optional CIDR allowlist for external scraping of autoscaler metrics.
+    * **Details:** Enables an HCloud firewall rule to port `30085` (autoscaler metrics `NodePort`), which forwards to autoscaler container port `8085`.
 
 ```terraform
   # Additional Cluster Autoscaler binary configuration
@@ -973,20 +1003,9 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Default:** The module likely picks the latest stable version of the driver.
   * **Purpose:** Allows you to pin the `csi-driver-smb` to a specific version. Useful for stability or if you need a particular feature/fix from a specific version. The GitHub releases link provides available versions.
 
-```terraform
-  # To enable iscid without setting enable_longhorn = true, set enable_iscsid = true. You will need this if
-  # you install your own version of longhorn outside of this module.
-  # Default is false. If enable_longhorn=true, this variable is ignored and iscsid is enabled anyway.
-  # enable_iscsid = true
-```
-
-* **`enable_iscsid` (Boolean, Optional):**
-  * **Default:** `false`.
-  * **Purpose:** Ensures that the iSCSI daemon (`iscsid` or `open-iscsi`) and related tools are installed and running on your cluster nodes.
-  * **Relevance:** iSCSI is a protocol used by some storage solutions (like Longhorn, and potentially others you might install manually) to connect to block storage devices over a network.
-  * **Logic:**
-    * If `enable_longhorn = true` (a global module setting for Longhorn), `iscsid` is automatically enabled by the module because Longhorn requires it. This `enable_iscsid` variable is then ignored.
-    * If you are *not* using the module's Longhorn integration (`enable_longhorn = false`) but plan to install Longhorn (or another iSCSI-dependent storage solution) *manually*, you would set `enable_iscsid = true` here to ensure the necessary OS-level iSCSI support is present.
+* **iSCSI daemon behavior:**
+  * kube-hetzner always enables `iscsid` on all nodes.
+  * This avoids post-reboot storage failures for iSCSI-backed workloads (including Longhorn and manual storage setups).
 
 ```terraform
   # To use local storage on the nodes, you can enable Longhorn, default is "false".
@@ -1068,14 +1087,15 @@ The example shows three control plane nodepools, each with one node, in differen
 * **Reiteration of `longhorn_volume_size`:** This just re-emphasizes the agent nodepool attribute `longhorn_volume_size` for using Hetzner Volumes with Longhorn, as discussed in the `agent_nodepools` section.
 
 ```terraform
-  # To disable Hetzner CSI storage, you can set the following to "true", default is "false".
-  # disable_hetzner_csi = true
+  # Enable Hetzner CSI storage. The default is true.
+  # enable_hetzner_csi = true
 ```
 
-* **`disable_hetzner_csi` (Boolean, Optional):**
-  * **Default:** `false` (meaning the Hetzner CSI driver *is* deployed by default).
+* **`enable_hetzner_csi` (Boolean, Optional):**
+  * **Default:** `true`.
   * **Purpose:** The [Hetzner Cloud CSI driver](https://github.com/hetznercloud/csi-driver) allows Kubernetes to dynamically provision PersistentVolumes backed by Hetzner Cloud Volumes. It's the standard way to use Hetzner's native block storage with Kubernetes.
-  * **If `true`:** The module will *not* deploy the Hetzner Cloud CSI driver.
+  * **If `true`:** The module deploys the Hetzner Cloud CSI driver.
+  * **If `false`:** The module does not deploy the driver.
   * **Use Case for Disabling:**
     * You plan to use *only* Longhorn (or another storage solution) and don't want Hetzner Volumes managed via CSI.
     * You want to install and manage a specific version or configuration of the Hetzner CSI driver manually, outside of this module.
@@ -1089,6 +1109,7 @@ The example shows three control plane nodepools, each with one node, in differen
 * **`hetzner_ccm_version` (String, Optional):**
   * **Default:** The module likely picks the latest stable version.
   * **Purpose:** Allows pinning the [Hetzner Cloud Controller Manager (CCM)](https://github.com/hetznercloud/hcloud-cloud-controller-manager) to a specific version.
+  * **Install Method:** v3 always installs Hetzner CCM through the HelmChart manifest. The legacy raw-manifest CCM path was removed.
   * **CCM Role:** The CCM is responsible for integrating Kubernetes with Hetzner Cloud specifics, such as:
     * Setting node addresses.
     * Managing Hetzner Load Balancers for services of type `LoadBalancer`.
@@ -1096,22 +1117,11 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Reference:** The GitHub releases link provides available versions.
 
 ```terraform
-  # By default, new installations use Helm to install Hetzner CCM. You can use the legacy deployment method (using `kubectl apply`) by setting `hetzner_ccm_use_helm = false`.
-  hetzner_ccm_use_helm = true
+  # To enable Hetzner CCM compatibility and connection with dedicated Robot servers, set the `enable_robot_ccm` to "true", default is "false".
+  enable_robot_ccm = true
 ```
 
-* **`hetzner_ccm_use_helm` (Boolean, Optional):**
-  * **Default:** `true`.
-  * **Purpose:** Controls the deployment method for the Hetzner CCM.
-    * `true`: The module uses Helm to install and manage the CCM. This is generally the modern, preferred way.
-    * `false`: The module uses a legacy method, likely applying raw Kubernetes YAML manifests (`kubectl apply -f ...`). This might be for compatibility with older module versions or specific needs.
-
-```terraform
-  # To enable Hetzner CCM compatibility and connection with dedicated Robot servers, set the `robot_ccm_enabled` to "true", default is "false".
-  robot_ccm_enabled = true
-```
-
-* **`robot_ccm_enabled` (Boolean, Optional):**
+* **`enable_robot_ccm` (Boolean, Optional):**
   * **Default:** `false`.
   * **Purpose:** Enables the integration of Hetzner Robot dedicated servers via the Cloud Controller Manager (CCM). This is only activated if `robot_user` and `robot_password` are also provided.
     * `true`: The HCCM is configured to allow connections to Robot Nodes.
@@ -1130,7 +1140,7 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Purpose:** Links a Hetzner vSwitch to the private network. Required for hybrid setups with Robot servers.
 * **`vswitch_subnet_index` (Number, Optional):**
   * **Default:** `201`.
-  * **Purpose:** Defines which subnet index (within the `subnet_amount` range) is assigned to the vSwitch connection.
+  * **Purpose:** Defines which subnet index (within the `subnet_count` range) is assigned to the vSwitch connection.
 
 ```terraform
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
@@ -1139,7 +1149,7 @@ The example shows three control plane nodepools, each with one node, in differen
 
 * **`hetzner_csi_version` (String, Optional):**
   * **Default:** The module likely picks the latest stable version.
-  * **Purpose:** Allows pinning the Hetzner Cloud CSI driver to a specific version (if `disable_hetzner_csi` is `false`).
+  * **Purpose:** Allows pinning the Hetzner Cloud CSI driver to a specific version when `enable_hetzner_csi` is `true`.
   * **Reference:** The GitHub releases link provides available versions.
 
 ```terraform
@@ -1322,9 +1332,10 @@ Excellent! Let's continue our meticulous dissection.
   * **If `false`:** Traefik pods might run without specific requests/limits, relying on defaults or potentially being less predictable in resource consumption.
 
 ```terraform
-  # If you want to configure additional ports for traefik, enter them here as a list of objects with name, port, and exposedPort properties.
+  # If you want to configure additional ports for traefik, enter them here as a list of objects with
+  # name, port, exposedPort, and optional protocol (TCP or UDP; default TCP).
   # Example:
-  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234}]
+  # traefik_additional_ports = [{name = "example", port = 1234, exposedPort = 1234, protocol = "TCP"}]
 ```
 
 * **`traefik_additional_ports` (List of Maps, Optional, specific to `ingress_controller = "traefik"`):**
@@ -1333,7 +1344,7 @@ Excellent! Let's continue our meticulous dissection.
     * `name` (String): A unique name for this entrypoint (e.g., "tcp-echo", "metrics").
     * `port` (Number): The port number Traefik will listen on internally for this entrypoint.
     * `exposedPort` (Number): The port number on the Traefik service (and thus on the Hetzner Load Balancer) that will map to the internal `port`. Often these are the same.
-    * You might also need to specify `protocol` (e.g., `TCP`, `UDP`) if not HTTP/S, depending on how the Traefik Helm chart handles this.
+    * `protocol` (String, Optional): `TCP` or `UDP`. Defaults to `TCP`.
   * **Use Case:** Exposing non-HTTP services (e.g., TCP or UDP applications, metrics endpoints on custom ports) through Traefik.
 
 ```terraform
@@ -1409,21 +1420,22 @@ Excellent! Let's continue our meticulous dissection.
 
 ```terraform
   # If you want to disable the automatic upgrade of k3s, you can set below to "false".
-  # Ideally, keep it on, to always have the latest Kubernetes version, but lock the initial_k3s_channel to a kube major version,
-  # of your choice, like v1.25 or v1.26. That way you get the best of both worlds without the breaking changes risk.
+  # The default channel follows upstream stable. For production pinning, set k3s_version to an exact release tag.
+  # Minor channels such as v1.33 are not accepted as live installer channels unless an exact k3s_version is set,
+  # because Rancher's minor channel endpoints are not reliable enough to be used as deployment-time contracts.
   # For production use, always use an HA setup with at least 3 control-plane nodes and 2 agents, and keep this on for maximum security.
 
   # The default is "true" (in HA setup i.e. at least 3 control plane nodes & 2 agents, just keep it enabled since it works flawlessly).
-  # automatically_upgrade_k3s = false
+  # automatically_upgrade_kubernetes = false
 ```
 
-* **`automatically_upgrade_k3s` (Boolean, Optional):**
+* **`automatically_upgrade_kubernetes` (Boolean, Optional):**
   * **Default:** `true` (especially in HA setups).
   * **Purpose:** Controls whether k3s versions are automatically upgraded on the nodes using Rancher's System Upgrade Controller.
-    * `true`: The System Upgrade Controller will monitor for new k3s versions (based on `initial_k3s_channel` or `install_k3s_version` if it defines a channel) and apply them according to a plan (e.g., upgrading control planes one by one, then agents).
+    * `true`: The System Upgrade Controller will monitor for new k3s versions (based on `k3s_channel` or `k3s_version` if it defines a channel) and apply them according to a plan (e.g., upgrading control planes one by one, then agents).
     * `false`: Disables automatic k3s upgrades. You would be responsible for manually upgrading k3s versions.
   * **Recommendation:**
-    * **HA Setup:** Generally safe and recommended to keep `true` for security patches and new features. Pinning `initial_k3s_channel` to a specific minor version (e.g., `"v1.29"`) provides stability by only getting patch releases for that minor version.
+    * **HA Setup:** Generally safe and recommended to keep `true` for security patches and new features. For production pinning, set `k3s_version` to an exact release tag that matches your tested Kubernetes minor.
     * **Non-HA Setup:** Can be risky if an upgrade fails on the single control plane. Often recommended to set to `false` or manage very carefully.
   * **Mechanism:** Uses the [System Upgrade Controller](https://github.com/rancher/system-upgrade-controller), which is deployed into the cluster.
 
@@ -1435,7 +1447,7 @@ Excellent! Let's continue our meticulous dissection.
   system_upgrade_use_drain = true
 ```
 
-* **`system_upgrade_use_drain` (Boolean, Optional, relevant if `automatically_upgrade_k3s = true`):**
+* **`system_upgrade_use_drain` (Boolean, Optional, relevant if `automatically_upgrade_kubernetes = true`):**
   * **Default:** `true`.
   * **Purpose:** Controls the behavior of the System Upgrade Controller when upgrading a node.
     * `true`: The node is cordoned and then drained (`kubectl drain`). Draining evicts all pods gracefully, allowing them to be rescheduled on other available nodes. This is the safest approach to ensure no workload interruption if pods can be moved.
@@ -1451,7 +1463,7 @@ Excellent! Let's continue our meticulous dissection.
   # system_upgrade_enable_eviction = false
 ```
 
-* **`system_upgrade_enable_eviction` (Boolean, Optional, relevant if `automatically_upgrade_k3s = true` and `system_upgrade_use_drain = true`):**
+* **`system_upgrade_enable_eviction` (Boolean, Optional, relevant if `automatically_upgrade_kubernetes = true` and `system_upgrade_use_drain = true`):**
   * **Default:** `true` (implied, as pods are evicted during drain by default).
   * **Purpose:** Fine-tunes the pod removal process during a `drain` operation initiated by the System Upgrade Controller.
     * `true` (Default behavior of `kubectl drain`): Uses the Kubernetes eviction API. This respects PodDisruptionBudgets (PDBs). If evicting a pod would violate a PDB (e.g., not enough replicas of an application would remain), the eviction might be delayed or fail.
@@ -1513,45 +1525,46 @@ Excellent! Let's continue our meticulous dissection.
 **Section 2.13: k3s Versioning and Naming**
 
 ```terraform
-  # Allows you to specify the k3s version. If defined, supersedes initial_k3s_channel.
+  # Allows you to specify the k3s version. If defined, supersedes k3s_channel.
   # See https://github.com/k3s-io/k3s/releases for the available versions.
-  # install_k3s_version = "v1.30.2+k3s2"
+  # k3s_version = "v1.34.6+k3s1"
 ```
 
-* **`install_k3s_version` (String, Optional):**
+* **`k3s_version` (String, Optional):**
   * **Purpose:** Allows you to specify an exact k3s version to install on all nodes.
   * **Format:** Should match a k3s release tag from their GitHub releases (e.g., `"v1.30.2+k3s2"`). The `+k3sX` suffix indicates a k3s-specific build/patch of that Kubernetes version.
-  * **Precedence:** If both `install_k3s_version` and `initial_k3s_channel` are set, `install_k3s_version` takes precedence for the *initial* installation.
-  * **Upgrades:** If `automatically_upgrade_k3s = true`, the System Upgrade Controller will still look for newer versions within the channel defined by `initial_k3s_channel` (or the channel this specific version belongs to) unless the `install_k3s_version` itself points to a specific channel behavior (less common for exact versions).
-  * **Benefit:** Guarantees a specific k3s version is installed, useful for consistency, testing, or avoiding issues with very new/unstable releases from a channel.
+  * **Precedence:** If both `k3s_version` and `k3s_channel` are set, `k3s_version` takes precedence for the *initial* installation.
+  * **Upgrades:** If `automatically_upgrade_kubernetes = true`, the System Upgrade Controller uses the exact `k3s_version` when it is set. Leave `k3s_version` empty only when you intentionally want a live channel such as `stable`, `latest`, or `testing`.
+  * **Benefit:** Guarantees a specific k3s version is installed, useful for consistency, testing, Rancher compatibility, or avoiding deployment-time failures from upstream channel resolution.
 
 ```terraform
-  # Allows you to specify either stable, latest, testing or supported minor versions.
+  # Allows you to specify stable, latest, or testing as live install/upgrade channels.
+  # For exact Kubernetes minor pinning, use k3s_version instead of a minor k3s_channel.
   # see https://rancher.com/docs/k3s/latest/en/upgrades/basic/ and https://update.k3s.io/v1-release/channels
   # ⚠️ If you are going to use Rancher addons for instance, it's always a good idea to fix the kube version to one minor version below the latest stable,
-  #     e.g. v1.29 instead of the stable v1.30.
-  # The default is "v1.30".
-  # initial_k3s_channel = "stable"
+  #     e.g. an exact v1.33.x+k3s1 release instead of the current stable channel.
+  # The default is "stable".
+  # k3s_channel = "stable"
 ```
 
-* **`initial_k3s_channel` (String, Optional):**
-  * **Default (in module):** `"v1.30"` (or another recent stable minor version channel).
-  * **Purpose:** Specifies the k3s release channel from which to install k3s initially and, if `automatically_upgrade_k3s = true`, from which to pull subsequent upgrades.
+* **`k3s_channel` (String, Optional):**
+  * **Default (in module):** `"stable"`.
+  * **Purpose:** Specifies the k3s release channel from which to install k3s initially and, if `automatically_upgrade_kubernetes = true`, from which to pull subsequent upgrades.
   * **Channel Options:**
     * `"stable"`: Points to the latest stable k3s release.
     * `"latest"`: Points to the most recent k3s release, which might include release candidates or newer patches than "stable".
     * `"testing"`: For pre-release versions. Not for production.
-    * Minor version channels (e.g., `"v1.30"`, `"v1.29"`): Installs the latest patch release within that specific Kubernetes minor version. This is **highly recommended for production** as it provides stability by avoiding automatic major/minor version jumps, while still allowing for security patches.
-  * **Rancher Compatibility (⚠️):** Rancher often has specific Kubernetes version compatibility requirements. It's crucial to choose an `initial_k3s_channel` (or `install_k3s_version`) that is supported by the version of Rancher you intend to use (if `enable_rancher = true`). The advice to use one minor version below the absolute latest stable is good practice for broader addon compatibility.
+    * Minor version channels (e.g., `"v1.30"`, `"v1.29"`): Allowed only when `k3s_version` is set, because the exact version then owns installation and upgrade behavior.
+  * **Rancher Compatibility (⚠️):** Rancher often has specific Kubernetes version compatibility requirements. Choose a `k3s_version` that is supported by the version of Rancher you intend to use (if `enable_rancher = true`). Pinning one minor below the absolute latest stable is still good practice for broader addon compatibility.
   * **Reference:** The k3s documentation links explain channels in detail.
 
 ```terraform
   # Allows to specify the version of the System Upgrade Controller for automated upgrades of k3s
   # See https://github.com/rancher/system-upgrade-controller/releases for the available versions.
-  # sys_upgrade_controller_version = "v0.14.2"
+  # system_upgrade_controller_version = "v0.18.0"
 ```
 
-* **`sys_upgrade_controller_version` (String, Optional, relevant if `automatically_upgrade_k3s = true`):**
+* **`system_upgrade_controller_version` (String, Optional, relevant if `automatically_upgrade_kubernetes = true`):**
   * **Default:** The module likely picks a recent, compatible version of the System Upgrade Controller.
   * **Purpose:** Allows you to pin the version of the Rancher System Upgrade Controller that is deployed to manage k3s upgrades.
   * **Benefit:** Version pinning for stability or if you need a specific feature/fix from a particular controller version.
@@ -1591,7 +1604,7 @@ Excellent! Let's continue our meticulous dissection.
   # It will create the registries.yaml file, more info here https://docs.k3s.io/installation/private-registry.
   # Note that you do not need to get this right from the first time, you can update it when you want during the life of your cluster.
   # The default is blank.
-  /* k3s_registries = <<-EOT
+  /* registries_config = <<-EOT
     mirrors:
       hub.my_registry.com:
         endpoint:
@@ -1604,7 +1617,7 @@ Excellent! Let's continue our meticulous dissection.
   EOT */
 ```
 
-* **`k3s_registries` (String, Optional, Heredoc or File Content):**
+* **`registries_config` (String, Optional, Heredoc or File Content):**
   * **Default:** Blank/not set.
   * **Purpose:** Allows you to configure k3s's containerd (its container runtime) with custom image registry settings. This is typically done by creating a `registries.yaml` file on each node (e.g., in `/etc/rancher/k3s/registries.yaml`).
   * **Format:** The value should be a string containing the YAML content for `registries.yaml`. The example uses a Terraform heredoc (`<<-EOT ... EOT`) for multi-line string input.
@@ -1616,15 +1629,31 @@ Excellent! Let's continue our meticulous dissection.
   * **Reference:** The k3s private registry documentation is key.
 
 ```terraform
+  # embedded_registry_mirror = {
+  #   enabled                  = true
+  #   registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
+  #   disable_default_endpoint = false
+  # }
+```
+
+* **`embedded_registry_mirror` (Object, Optional):**
+  * **Default:** Disabled, with default registry list `["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]`.
+  * **Purpose:** Enables the k3s/RKE2 embedded distributed registry mirror and adds empty mirror entries for the selected registries to the effective `registries.yaml`.
+  * **Merge Rule:** Existing `registries_config` entries are preserved. User mirror entries and endpoints win over module-provided empty defaults.
+  * **Disable Default Endpoint:** `disable_default_endpoint = true` sets `disable-default-registry-endpoint` so configured registries pull only from explicit mirrors and/or the embedded mirror.
+  * **Security:** Use only on trusted clusters. The mirror assumes equal node trust, may share images pulled with credentials, and can be tag-poisoned by a node that can place images in containerd. Prefer digests for critical workloads.
+  * **Tailscale Multinetwork:** `network_scope = "external"` nodepools require `tailscale_node_transport.routing.advertise_node_private_routes = true` so embedded mirror peer traffic can cross Hetzner Network shards.
+
+```terraform
   # Additional environment variables for the host OS on which k3s runs. See for example https://docs.k3s.io/advanced#configuring-an-http-proxy .
-  # additional_k3s_environment = {
+  # additional_kubernetes_install_environment = {
   #   "CONTAINERD_HTTP_PROXY" : "http://your.proxy:port",
   #   "CONTAINERD_HTTPS_PROXY" : "http://your.proxy:port",
   #   "NO_PROXY" : "127.0.0.0/8,10.0.0.0/8,", # Note the trailing comma for NO_PROXY
   # }
 ```
 
-* **`additional_k3s_environment` (Map of Strings, Optional):**
+* **`additional_kubernetes_install_environment` (Map of Strings, Optional):**
   * **Purpose:** Allows setting additional environment variables that will be available to the k3s server and agent processes when they start. This is often done by writing to `/etc/default/k3s` or `/etc/systemd/system/k3s.service.d/override.conf` (or similar for k3s-agent).
   * **Use Case (HTTP Proxy):** The primary example is configuring k3s and containerd to use an HTTP/S proxy for outbound connections (e.g., for pulling images or communicating with external services if the nodes are in a restricted network).
     * `CONTAINERD_HTTP_PROXY` / `CONTAINERD_HTTPS_PROXY`: For containerd image pulls.
@@ -1698,10 +1727,10 @@ Excellent! Let's continue our meticulous dissection.
 
 ```terraform
   # Additional flags to pass to the k3s server command (the control plane).
-  # k3s_exec_server_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
+  # control_plane_exec_args = "--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector"
 ```
 
-* **`k3s_exec_server_args` (String or List of Strings, Optional):**
+* **`control_plane_exec_args` (String or List of Strings, Optional):**
   * **Purpose:** Allows passing additional command-line arguments directly to the `k3s server` process that runs on control plane nodes.
   * **Format:** Can be a single string with space-separated arguments, or a list of strings where each element is an argument.
   * **Example:** `--kube-apiserver-arg enable-admission-plugins=PodTolerationRestriction,PodNodeSelector`
@@ -1713,10 +1742,10 @@ Excellent! Let's continue our meticulous dissection.
 
 ```terraform
   # Additional flags to pass to the k3s agent command (every agents nodes, including autoscaler nodepools).
-  # k3s_exec_agent_args = "--kubelet-arg kube-reserved=cpu=100m,memory=200Mi,ephemeral-storage=1Gi"
+  # agent_exec_args = "--kubelet-arg kube-reserved=cpu=100m,memory=200Mi,ephemeral-storage=1Gi"
 ```
 
-* **`k3s_exec_agent_args` (String or List of Strings, Optional):**
+* **`agent_exec_args` (String or List of Strings, Optional):**
   * **Purpose:** Allows passing additional command-line arguments directly to the `k3s agent` process that runs on agent nodes (and nodes created by the Cluster Autoscaler).
   * **Example:** `--kubelet-arg kube-reserved=cpu=100m,memory=200Mi,ephemeral-storage=1Gi`
     * `--kubelet-arg`: A k3s-specific flag to pass arguments through to the underlying `kubelet` binary.
@@ -1728,15 +1757,15 @@ Excellent! Let's continue our meticulous dissection.
   # Make sure you set "feature-gates=NodeSwap=true" if want to use swap_size
   # Note: CloudDualStackNodeIPs was removed in K8s 1.32 (always enabled now)
   # see https://github.com/k3s-io/k3s/issues/8811#issuecomment-1856974516
-  # k3s_global_kubelet_args = ["kube-reserved=cpu=100m,ephemeral-storage=1Gi", "system-reserved=cpu=memory=200Mi", "image-gc-high-threshold=50", "image-gc-low-threshold=40"]
-  # k3s_control_plane_kubelet_args = []
-  # k3s_agent_kubelet_args = []
-  # k3s_autoscaler_kubelet_args = []
+  # global_kubelet_args = ["kube-reserved=cpu=100m,ephemeral-storage=1Gi", "system-reserved=cpu=memory=200Mi", "image-gc-high-threshold=50", "image-gc-low-threshold=40"]
+  # control_plane_kubelet_args = []
+  # agent_kubelet_args = []
+  # autoscaler_kubelet_args = []
 ```
 
 * **Kubelet Arguments via `config.yaml` (Persistent):**
   * **Purpose:** These variables allow configuring kubelet arguments by writing them into the k3s `config.yaml` file (e.g., `/etc/rancher/k3s/config.yaml`). Arguments set this way are persistent across k3s restarts and reboots, which is generally preferred over transient CLI args for kubelet settings.
-  * **`k3s_global_kubelet_args` (List of Strings, Optional):**
+  * **`global_kubelet_args` (List of Strings, Optional):**
     * Kubelet arguments to apply to *all* nodes (control plane, agent, autoscaled).
     * Example:
       * `"kube-reserved=cpu=100m,ephemeral-storage=1Gi"`
@@ -1744,11 +1773,11 @@ Excellent! Let's continue our meticulous dissection.
       * `"image-gc-high-threshold=50"`: Kubelet will start garbage collecting unused container images when disk usage for images exceeds 50%.
       * `"image-gc-low-threshold=40"`: Kubelet will stop garbage collecting images once disk usage drops below 40%.
       * `"feature-gates=NodeSwap=true"`: As per the comment, this is crucial if you intend to use the `swap_size` attribute on nodepools. `NodeSwap` enables kubelet's experimental swap support. Note: `CloudDualStackNodeIPs` was removed in K8s 1.32 (always enabled now).
-  * **`k3s_control_plane_kubelet_args` (List of Strings, Optional):**
-    * Kubelet arguments specific to control plane nodes. These would be merged with or override `k3s_global_kubelet_args`.
-  * **`k3s_agent_kubelet_args` (List of Strings, Optional):**
+  * **`control_plane_kubelet_args` (List of Strings, Optional):**
+    * Kubelet arguments specific to control plane nodes. These would be merged with or override `global_kubelet_args`.
+  * **`agent_kubelet_args` (List of Strings, Optional):**
     * Kubelet arguments specific to regular agent nodes (defined in `agent_nodepools`).
-  * **`k3s_autoscaler_kubelet_args` (List of Strings, Optional):**
+  * **`autoscaler_kubelet_args` (List of Strings, Optional):**
     * Kubelet arguments specific to nodes created by the Cluster Autoscaler (defined in `autoscaler_nodepools`).
   * **Nodepool-Specific `kubelet_args`:** Recall that individual nodepool definitions (e.g., within `control_plane_nodepools` or `agent_nodepools`) can also have a `kubelet_args` attribute. The order of precedence (global -> type-specific -> nodepool-specific) would need to be confirmed from the module's implementation, but typically more specific settings override general ones.
     
@@ -1774,7 +1803,7 @@ Excellent! Let's continue our meticulous dissection.
   # Allowed values: null (disable Kube API rule entirely) or a list of allowed networks with CIDR notation.
   # For maximum security, it's best to disable it completely by setting it to null. However, in that case, to get access to the kube api,
   # you would have to connect to any control plane node via SSH, as you can run kubectl from within these.
-  # Please be advised that this setting has no effect on the load balancer when the use_control_plane_lb variable is set to true. This is
+  # Please be advised that this setting has no effect on the load balancer when the enable_control_plane_load_balancer variable is set to true. This is
   # because firewall rules cannot be applied to load balancers yet.
   # firewall_kube_api_source = null
 ```
@@ -1789,7 +1818,7 @@ Excellent! Let's continue our meticulous dissection.
     * SSH into a control plane node and run `kubectl` locally from there (as it can access the API via localhost or the private network).
     * Set up a VPN into the Hetzner private network.
     * Use an SSH tunnel (`ssh -L local_port:localhost:6443 user@control_plane_ip`) and point your local `kubectl` to `https://localhost:local_port`.
-  * **`use_control_plane_lb = true` Implication:** If you are using a dedicated Hetzner Load Balancer in front of your control plane nodes (`use_control_plane_lb = true`), this `firewall_kube_api_source` setting (which applies to the *nodes'* firewall) has no direct effect on the accessibility of the API *through that load balancer*. Hetzner LBs currently do not support applying firewall rules directly to themselves. Access to the LB would be open, and security would rely on Kubernetes RBAC and authentication.
+  * **`enable_control_plane_load_balancer = true` Implication:** If you are using a dedicated Hetzner Load Balancer in front of your control plane nodes (`enable_control_plane_load_balancer = true`), this `firewall_kube_api_source` setting (which applies to the *nodes'* firewall) has no direct effect on the accessibility of the API *through that load balancer*. Hetzner LBs currently do not support applying firewall rules directly to themselves. Access to the LB would be open, and security would rely on Kubernetes RBAC and authentication.
   * **Security Best Practice:** Restrict this to the minimum necessary IPs or use `null` and access via SSH/VPN.
 
 ```terraform
@@ -1812,19 +1841,19 @@ Excellent! Let's continue our meticulous dissection.
   # By default, SELinux is enabled in enforcing mode on all nodes. For container-specific SELinux issues,
   # consider using the pre-installed 'udica' tool to create custom, targeted SELinux policies instead of
   # disabling SELinux globally. See the "Fix SELinux issues with udica" example in the README for details.
-  # disable_selinux = false
+  # enable_selinux = false
 ```
 
-* **`disable_selinux` (Boolean, Optional):**
-  * **Default:** `false` (meaning SELinux is *enabled* in enforcing mode).
-  * **Background:** The base OS image used by this module (openSUSE MicroOS) comes with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
+* **`enable_selinux` (Boolean, Optional):**
+  * **Default:** `true` (meaning SELinux is *enabled* in enforcing mode).
+  * **Background:** The base OS images used by this module (openSUSE Leap Micro or openSUSE MicroOS) come with SELinux enabled and enforcing by default. SELinux is a security module that provides mandatory access control (MAC).
   * **Purpose:**
-    * `false`: Keeps SELinux enabled. This is generally better for security but can sometimes cause issues if containers are not SELinux-aware or if their default SELinux policies are too restrictive for their needs.
-    * `true`: Disables SELinux (likely sets it to permissive or fully disabled) on the nodes. This can make it easier to get problematic containers running but reduces the overall security posture.
+    * `true`: Keeps SELinux enabled. This is generally better for security but can sometimes cause issues if containers are not SELinux-aware or if their default SELinux policies are too restrictive for their needs.
+    * `false`: Disables SELinux (likely sets it to permissive or fully disabled) on the nodes. This can make it easier to get problematic containers running but reduces the overall security posture.
   * **Troubleshooting SELinux Issues:**
     * The comment recommends using `udica` (a tool pre-installed on MicroOS) to generate custom, targeted SELinux policies for containers that are having permission issues, rather than disabling SELinux globally. This allows you to grant only the necessary permissions.
     * Checking audit logs (`ausearch -m avc -ts recent`) is crucial for diagnosing SELinux denials.
-  * **Recommendation:** Keep SELinux enabled (`disable_selinux = false`) and learn to work with it (e.g., using `udica`, understanding context labels) for better security. Disable it only as a last resort or for temporary debugging.
+  * **Recommendation:** Keep SELinux enabled (`enable_selinux = true`) and learn to work with it (e.g., using `udica`, understanding context labels) for better security. Disable it only as a last resort or for temporary debugging.
 
 ```terraform
   # Adding extra firewall rules, like opening a port
@@ -1891,11 +1920,11 @@ Excellent! Let's continue our meticulous dissection.
 ```terraform
   # You can choose the version of Cilium that you want. By default we keep the version up to date and configure Cilium with compatible settings according to the version.
   # See https://github.com/cilium/cilium/releases for the available versions.
-  # cilium_version = "v1.14.0"
+  # cilium_version = "1.19.3"
 ```
 
 * **`cilium_version` (String, Optional, relevant if `cni_plugin = "cilium"`):**
-  * **Default:** The module likely picks a recent, stable version of Cilium.
+  * **Default:** `1.19.3`.
   * **Purpose:** Allows pinning the Cilium installation to a specific version.
   * **Benefit:** Version stability, access to specific features/fixes.
   * **Compatibility:** The module's default Cilium configurations (if `cilium_values` is not used) are likely tailored to be compatible with the Cilium version it defaults to or the one you specify. Major changes in Cilium versions can alter Helm chart values or feature availability.
@@ -1934,7 +1963,21 @@ Excellent! Let's continue our meticulous dissection.
   * **Use Case:**
     * Providing a stable, predictable source IP for outbound traffic for whitelisting with external services.
     * Applying common network policies or monitoring to all egress traffic.
+  * **Requirements:** Must be used with `cni_plugin = "cilium"` and `enable_kube_proxy = false`; Cilium Egress Gateway requires kube-proxy replacement.
   * **Integration:** Often used with the "egress" `agent_nodepool` example shown earlier, which had `floating_ip = true`. The floating IP(s) on the egress nodes become the source IP(s) for the SNAT'd traffic.
+
+```terraform
+  # Enable Cilium's native Gateway API controller.
+  # Requires cni_plugin = "cilium" and enable_kube_proxy = false.
+  # cilium_gateway_api_enabled = true
+```
+
+* **`cilium_gateway_api_enabled` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Enables Cilium's native Gateway API controller by installing the standard Gateway API CRDs for the selected Cilium line and setting `gatewayAPI.enabled: true` in Cilium values.
+  * **Requirements:** `cni_plugin = "cilium"`, `enable_kube_proxy = false`, and an exact `cilium_version` supported by the module's Gateway API CRD mapping.
+  * **Cert-Manager:** When this or Traefik Gateway provider support is enabled, cert-manager Gateway API support is enabled as well.
+  * **Example:** See `examples/cilium-gateway-api`.
 
 ```terraform
   # Enables Hubble Observability to collect and visualize network traffic. Default: false
@@ -1967,10 +2010,10 @@ Excellent! Let's continue our meticulous dissection.
   # The setting "native" enforces XDP Acceleration on ports and "disabled" disables the acceleration, "best-effort" enables the XDP Acceleration if the interface supports it.
   # See [Cilium XDP documentation](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/#loadbalancer-nodeport-xdp-acceleration).
   # For Robot nodes connected over vSwitch, the XDP acceleration may not work on the Robot node and the setting therefore recommended to be set to "best-effort" or "disabled".
-  # cilium_loadbalancer_acceleration_mode = "best-effort"
+  # cilium_load_balancer_acceleration_mode = "best-effort"
 ```
 
-* **`cilium_loadbalancer_acceleration_mode` (String, Optional, relevant if `cni_plugin = "cilium"`):**
+* **`cilium_load_balancer_acceleration_mode` (String, Optional, relevant if `cni_plugin = "cilium"`):**
   * **Default:** `"best-effort"`.
   * **Purpose:** Specifies the Loadbalancer Acceleration mode for Cilium (loadBalancer.acceleration). 
 
@@ -1978,7 +2021,7 @@ Excellent! Let's continue our meticulous dissection.
   # You can choose the version of Calico that you want. By default, the latest is used.
   # More info on available versions can be found at https://github.com/projectcalico/calico/releases
   # Please note that if you are getting 403s from Github, it's also useful to set the version manually. However there is rarely a need for that!
-  # calico_version = "v3.27.2"
+  # calico_version = "v3.27.2" # optional pin; null/default fetches the latest release metadata
 ```
 
 * **`calico_version` (String, Optional, relevant if `cni_plugin = "calico"`):**
@@ -1987,34 +2030,34 @@ Excellent! Let's continue our meticulous dissection.
   * **GitHub 403s Note:** Sometimes, automated scripts fetching "latest" release information from GitHub can hit rate limits or encounter temporary issues. Pinning to a specific version can bypass such problems.
 
 ```terraform
-  # If you want to disable the k3s kube-proxy, use this flag. The default is "false".
+  # If you want Cilium to replace kube-proxy, disable kube-proxy. The default is "true".
   # Ensure that your CNI is capable of handling all the functionalities typically covered by kube-proxy.
-  # disable_kube_proxy = true
+  # enable_kube_proxy = false
 ```
 
-* **`disable_kube_proxy` (Boolean, Optional):**
-  * **Default:** `false` (k3s's embedded kube-proxy is enabled).
+* **`enable_kube_proxy` (Boolean, Optional):**
+  * **Default:** `true` (k3s's embedded kube-proxy is enabled).
   * **Purpose:**
-    * `false`: k3s runs its own kube-proxy component (usually a stripped-down version based on iptables or ipvs) on each node. Kube-proxy is responsible for implementing Kubernetes Services (ClusterIP, NodePort, LoadBalancer) by managing network rules (iptables, ipvs) on the nodes.
-    * `true`: Disables k3s's internal kube-proxy.
-  * **Requirement if `true`:** If you disable k3s's kube-proxy, your chosen CNI plugin *must* be capable of providing this service routing functionality itself.
-    * **Cilium:** Can replace kube-proxy entirely using eBPF for service handling (often more efficient). This is a common reason to set `disable_kube_proxy = true` when using Cilium.
+    * `true`: k3s/RKE2 runs kube-proxy. Kube-proxy is responsible for implementing Kubernetes Services (ClusterIP, NodePort, LoadBalancer) by managing network rules on the nodes.
+    * `false`: Disables kube-proxy so the CNI can replace it.
+  * **Requirement if `false`:** If you disable kube-proxy, your chosen CNI plugin *must* be capable of providing this service routing functionality itself.
+    * **Cilium:** Can replace kube-proxy entirely using eBPF for service handling (often more efficient). This is a common reason to set `enable_kube_proxy = false` when using Cilium.
     * **Calico:** Can also work without kube-proxy in some configurations, but this needs careful setup.
     * **Flannel:** Typically relies on kube-proxy for service implementation.
   * **Benefit of Disabling (with capable CNI):** Can lead to better performance, simpler network path, and reduced overhead by having a single component (the CNI) manage all aspects of pod and service networking.
 
 ```terraform
-  # If you want to disable the k3s default network policy controller, use this flag!
-  # Both Calico and Cilium cni_plugin values override this value to true automatically, the default is "false".
-  # disable_network_policy = true
+  # If you want to disable the k3s default network policy controller, set this false.
+  # Both Calico and Cilium cni_plugin values force the built-in controller off, the default is "true".
+  # enable_network_policy = false
 ```
 
-* **`disable_network_policy` (Boolean, Optional):**
-  * **Default:** `false` (k3s's default network policy controller is enabled if no other CNI provides it).
+* **`enable_network_policy` (Boolean, Optional):**
+  * **Default:** `true` (k3s's default network policy controller is enabled for Flannel).
   * **Purpose:**
-    * `false`: If the chosen CNI (like Flannel) doesn't have its own network policy enforcement, k3s might enable a basic network policy controller.
-    * `true`: Disables k3s's own network policy controller.
-  * **Automatic Override:** "Both Calico and Cilium cni_plugin values override this value to true automatically." This is because Calico and Cilium provide their own, more advanced network policy engines. When they are selected as the `cni_plugin`, the module ensures k3s's default (and potentially conflicting or redundant) network policy controller is disabled.
+    * `true`: Enables the built-in K3s network policy controller for Flannel.
+    * `false`: Disables the built-in controller.
+  * **Automatic Override:** Calico and Cilium provide their own policy engines, so the module disables the built-in controller for those CNI choices regardless of this value.
 
 Locked and loaded! Let's continue the detailed exploration.
 
@@ -2023,31 +2066,34 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.18: Miscellaneous Operational Settings**
 
 ```terraform
-  # If you want to disable the automatic use of placement group "spread". See https://docs.hetzner.com/cloud/placement-groups/overview/
+  # Enable automatic Hetzner placement group "spread" assignment. See https://docs.hetzner.com/cloud/placement-groups/overview/
   # We advise to not touch that setting, unless you have a specific purpose.
-  # The default is "false", meaning it's enabled by default.
-  # placement_group_disable = true
+  # The default is "true".
+  # enable_placement_groups = true
 ```
 
-* **`placement_group_disable` (Boolean, Optional):**
-  * **Default:** `false` (meaning Hetzner Placement Groups with a "spread" strategy are *enabled* and used by the module by default).
+* **`enable_placement_groups` (Boolean, Optional):**
+  * **Default:** `true`.
   * **Purpose:** Controls whether the module attempts to use Hetzner Placement Groups for your cluster nodes.
-    * `false`: The module will likely create one or more placement groups (with "spread" strategy, meaning servers in the group are on different physical hosts) and assign your nodes to them. This improves resilience against single physical host failures.
-    * `true`: Disables the module's automatic use of placement groups. Servers will be provisioned without explicit placement group assignment, relying on Hetzner's default allocation.
+    * `true`: The module creates one or more placement groups with the `spread` strategy and assigns nodes to them.
+    * `false`: Servers are provisioned without explicit placement group assignment, relying on Hetzner's default allocation.
+  * **Limits:** Hetzner spread placement groups support at most 10 servers per group and 50 placement groups per project. Count-based static nodepools without an explicit `placement_group` are auto-sharded every 10 servers. Explicit named placement groups must be split by the user before they exceed 10 servers.
+  * **Large-Scale Note:** Autoscaler-created nodes are not assigned placement groups by kube-hetzner today. A 10,000-node design should use autoscaler/network shards and treat physical spread as a separate project/cluster capacity design, not as 1,000 static placement groups in one Hetzner project.
   * **Recommendation:** "We advise to not touch that setting, unless you have a specific purpose." Using placement groups is generally a good practice for HA. You might disable it if you are hitting Hetzner limits on placement groups per project, or for very specific testing scenarios.
-  * **Interaction with Nodepool `placement_group`:** If a nodepool definition has its own `placement_group = "group_name"` attribute, that would likely take precedence for that specific nodepool, allowing for more granular control even if global placement groups are enabled.
+  * **Interaction with Nodepool `placement_group`:** If a nodepool definition has its own `placement_group = "group_name"` attribute, that takes precedence for that specific nodepool, but it also disables auto-sharding for that nodepool, so it must stay at 10 nodes or fewer.
 
 ```terraform
-  # By default, we allow ICMP ping in to the nodes, to check for liveness for instance. If you do not want to allow that, you can. Just set this flag to true (false by default).
-  # block_icmp_ping_in = true
+  # By default, incoming ICMP ping is blocked.
+  # Set this to true only if you explicitly want external ping-based liveness checks.
+  # allow_inbound_icmp = false
 ```
 
-* **`block_icmp_ping_in` (Boolean, Optional):**
-  * **Default:** `false` (meaning ICMP ping requests *are allowed* to the nodes by the Hetzner Firewall).
+* **`allow_inbound_icmp` (Boolean, Optional):**
+  * **Default:** `false`.
   * **Purpose:** Controls whether the Hetzner Firewall rule for ICMP (specifically echo-request, "ping") is configured to allow or block incoming pings to your cluster nodes.
-    * `false`: Nodes will respond to pings. Useful for basic liveness checks and network troubleshooting.
-    * `true`: Nodes will not respond to pings from external sources (blocked at the Hetzner Firewall level).
-  * **Security Consideration:** Blocking ICMP can make it slightly harder for attackers to discover live hosts (though there are other methods). However, it also hinders legitimate network diagnostics. The security benefit is often considered minor compared to the operational inconvenience.
+    * `true`: Nodes respond to pings. Useful for basic liveness checks and network troubleshooting.
+    * `false`: Nodes do not respond to pings from external sources.
+  * **Security Consideration:** Keeping this enabled by default reduces unnecessary network surface while still allowing users to opt in to ping-based diagnostics when needed.
 
 ```terraform
   # You can enable cert-manager (installed by Helm behind the scenes) with the following flag, the default is "true".
@@ -2090,10 +2136,10 @@ Locked and loaded! Let's continue the detailed exploration.
 ```terraform
   # When this is enabled, rather than the first node, all external traffic will be routed via a control-plane loadbalancer, allowing for high availability.
   # The default is false.
-  # use_control_plane_lb = true
+  # enable_control_plane_load_balancer = true
 ```
 
-* **`use_control_plane_lb` (Boolean, Optional):**
+* **`enable_control_plane_load_balancer` (Boolean, Optional):**
   * **Default:** `false`.
   * **Purpose:** Controls how the Kubernetes API server is exposed for external access, especially in an HA control plane setup.
     * `false` (Default): The kubeconfig generated by the module might point to the IP address of the *first* control plane node, or if `kubeconfig_server_address` is set, to that address. If that first node goes down (in an HA setup), you'd need to manually update your kubeconfig to point to another live control plane node.
@@ -2103,27 +2149,27 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Firewall Note:** As mentioned under `firewall_kube_api_source`, Hetzner LBs don't currently support firewall rules directly. Access to the control plane LB's public IP would be open, relying on Kubernetes authentication/RBAC.
 
 ```terraform
-  # When the above use_control_plane_lb is enabled, you can change the lb type for it, the default is "lb11".
-  # control_plane_lb_type = "lb21"
+  # When the above enable_control_plane_load_balancer is enabled, you can change the lb type for it, the default is "lb11".
+  # control_plane_load_balancer_type = "lb21"
 ```
 
-* **`control_plane_lb_type` (String, Optional, relevant if `use_control_plane_lb = true`):**
+* **`control_plane_load_balancer_type` (String, Optional, relevant if `enable_control_plane_load_balancer = true`):**
   * **Default:** `"lb11"`.
   * **Purpose:** Allows you to specify the Hetzner Load Balancer type for the dedicated control plane load balancer.
   * **Consideration:** The API server traffic is usually not as high volume as application traffic, so `lb11` is often sufficient. Choose a larger type if you anticipate extremely high API load or have specific requirements.
 
 ```terraform
-  # When the above use_control_plane_lb is enabled, you can change to disable the public interface for control plane load balancer, the default is true.
-  # control_plane_lb_enable_public_interface = false
+  # When the above enable_control_plane_load_balancer is enabled, you can change to disable the public interface for control plane load balancer, the default is true.
+  # control_plane_load_balancer_enable_public_network = false
 ```
 
-* **`control_plane_lb_enable_public_interface` (Boolean, Optional, relevant if `use_control_plane_lb = true`):**
+* **`control_plane_load_balancer_enable_public_network` (Boolean, Optional, relevant if `enable_control_plane_load_balancer = true`):**
   * **Default:** `true` (meaning the control plane LB has a public IP).
   * **Purpose:**
     * `true`: The control plane LB gets a public IP, making the Kube API accessible from the internet (subject to Kubernetes authN/authZ).
     * `false`: The control plane LB only gets a private IP within the Hetzner network. The Kube API would only be accessible from within that private network (e.g., via VPN, bastion, or other servers in the same network).
   * **Use Case for `false`:** Enhanced security by not exposing the Kube API directly to the public internet, even via an LB.
-  * **Integration with NAT Router:** When both `control_plane_lb_enable_public_interface = false` and `nat_router` are configured, the NAT router automatically forwards port 6443 to the control plane LB's private IP. This allows external kubectl access via the NAT router's public IP while keeping the control plane LB private. The generated kubeconfig will automatically use the NAT router's public IP as the server address.
+  * **Integration with NAT Router:** When both `control_plane_load_balancer_enable_public_network = false` and `nat_router` are configured, the NAT router automatically forwards port 6443 to the control plane LB's private IP. This allows external kubectl access via the NAT router's public IP while keeping the control plane LB private. The generated kubeconfig will automatically use the NAT router's public IP as the server address.
 
 ```terraform
   # Let's say you are not using the control plane LB solution above, and still want to have one hostname point to all your control-plane nodes.
@@ -2134,7 +2180,7 @@ Locked and loaded! Let's continue the detailed exploration.
 
 * **`additional_tls_sans` (List of Strings, Optional):**
   * **Purpose:** Allows you to add extra Subject Alternative Names (SANs) to the TLS certificate generated by k3s for its API server.
-  * **Use Case (DNS Round Robin for API):** If you are *not* using `use_control_plane_lb = true` but want a single hostname for your API server (e.g., `cp.cluster.my.org`), you might create multiple A/AAAA DNS records for this hostname, each pointing to the public IP of one of your control plane nodes (DNS Round Robin).
+  * **Use Case (DNS Round Robin for API):** If you are *not* using `enable_control_plane_load_balancer = true` but want a single hostname for your API server (e.g., `cp.cluster.my.org`), you might create multiple A/AAAA DNS records for this hostname, each pointing to the public IP of one of your control plane nodes (DNS Round Robin).
     * For clients to connect to `https://cp.cluster.my.org:6443` without TLS certificate errors, this hostname *must* be listed as a SAN in the API server's certificate.
   * **Format:** A list of hostnames or IP addresses.
   * **Impact:** k3s will include these in its self-signed certificate for the API, or if integrating with an external CA, these SANs would be requested.
@@ -2149,9 +2195,9 @@ Locked and loaded! Let's continue the detailed exploration.
 * **`kubeconfig_server_address` (String, Optional):**
   * **Purpose:** Allows you to explicitly set the server address (hostname or IP) that will be written into the `server:` field of the generated kubeconfig file.
   * **Default Behavior:** Without this, the kubeconfig will automatically point to:
-    * The public IP of the control plane LB (if `use_control_plane_lb = true` and `control_plane_lb_enable_public_interface = true`).
-    * The public IP of the NAT router (if `use_control_plane_lb = true`, `control_plane_lb_enable_public_interface = false`, and `nat_router` is configured).
-    * The private IP of the control plane LB (if `use_control_plane_lb = true`, `control_plane_lb_enable_public_interface = false`, and no `nat_router`).
+    * The public IP of the control plane LB (if `enable_control_plane_load_balancer = true` and `control_plane_load_balancer_enable_public_network = true`).
+    * The public IP of the NAT router (if `enable_control_plane_load_balancer = true`, `control_plane_load_balancer_enable_public_network = false`, and `nat_router` is configured).
+    * The private IP of the control plane LB (if `enable_control_plane_load_balancer = true`, `control_plane_load_balancer_enable_public_network = false`, and no `nat_router`).
     * The IP of the first control plane node (if no CP LB).
   * **Use Case:** If you've set up DNS Round Robin for your control plane nodes (as described for `additional_tls_sans`) and want your kubeconfig to use that hostname (e.g., `cp.cluster.my.org`) instead of a direct IP, or if you have a custom ingress setup.
   * **Requirement:** If you use a hostname here, ensure it resolves correctly and is included in the API server's TLS certificate SANs (via `additional_tls_sans` or default k3s behavior).
@@ -2168,34 +2214,61 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Use Case:** When using an external load balancer (not managed by this module) or a specific DNS alias for your control plane, set this to ensure agents register correctly against that endpoint.
 
 ```terraform
+  # Optional map of node name => SSH host override.
+  # Useful when an external access/overlay network (ZeroTier, WireGuard,
+  # Cloudflare Tunnel/WARP, etc.) is managed outside this module and Terraform
+  # should connect through those reachable hosts.
+  # For official Tailscale cluster node transport, use node_transport_mode = "tailscale"
+  # instead of this manual override pattern.
+  # Cloudflare Access/Tunnel can protect operator/app endpoints externally, but
+  # Cloudflare Mesh/WARP is not a supported kube-hetzner node transport in v3.
+  # If you bootstrap overlay clients with preinstall_exec, use short-lived one-use keys
+  # and assume commands/user-data may be visible in Terraform state or cloud-init logs.
+  # node_connection_overrides = {
+  #   "k3s-control-plane" = "100.64.0.10"
+  #   "k3s-agent-0"       = "100.64.0.11"
+  # }
+```
+
+* **`node_connection_overrides` (Map of Strings, Optional):**
+  * **Default:** `{}`.
+  * **Purpose:** Overrides the SSH host used by Terraform provisioners per node.
+  * **Key Format:** Node name exactly as created by the module (including cluster prefix when `use_cluster_name_in_node_name = true`).
+  * **Use Case:** External connectivity layers where node management should happen over reachable overlay, tunnel, or proxy addresses instead of public IPs.
+  * **Tailscale Boundary:** Use `node_transport_mode = "tailscale"` when Tailscale should be the official Kubernetes node transport. Use `node_connection_overrides` only for a user-owned external overlay that provides operator SSH/provisioning access.
+  * **Cloudflare Boundary:** Cloudflare Access/Tunnel is external operator/app access only in v3. kube-hetzner does not manage Cloudflare provider resources, and Cloudflare Mesh/WARP is not a supported node transport.
+  * **Recommended External Tailscale Flow:** Bootstrap or install Tailscale outside the core module, pass Tailnet IPs or hostnames through `node_connection_overrides`, use `control_plane_endpoint` for a stable kube API endpoint when needed, and only tighten `firewall_ssh_source` / `firewall_kube_api_source` after overlay access is proven.
+  * **Post-Bootstrap Operator:** If the cluster needs Tailscale Services, workload ingress/egress, subnet routers, or kube API proxying, deploy the Tailscale Kubernetes Operator after the cluster is healthy using Helm, ArgoCD, or `user_kustomizations`. Keep OAuth credentials and tailnet policy lifecycle outside kube-hetzner.
+
+```terraform
   # K3S audit-policy.yaml contents. Used to configure Kubernetes audit logging.
-  # k3s_audit_policy_config = <<-EOT
+  # audit_policy_config = <<-EOT
   #   apiVersion: audit.k8s.io/v1
   #   kind: Policy
   #   rules:
   #   - level: Metadata
   # EOT
-  # k3s_audit_log_path = "/var/log/k3s-audit/audit.log"
-  # k3s_audit_log_maxage = 30
-  # k3s_audit_log_maxbackup = 10
-  # k3s_audit_log_maxsize = 100
+  # audit_log_path = "/var/log/k3s-audit/audit.log"
+  # audit_log_max_age = 30
+  # audit_log_max_backups = 10
+  # audit_log_max_size = 100
 ```
 
-* **`k3s_audit_policy_config` (String, Optional):**
+* **`audit_policy_config` (String, Optional):**
   * **Purpose:** Defines the Kubernetes Audit Policy. If provided, k3s is configured to log audit events matching these rules.
   * **Format:** YAML string content for the policy file.
-* **`k3s_audit_log_*` variables:**
+* **`audit_log_*` variables:**
   * **Purpose:** Configure the rotation and retention of audit logs on control plane nodes.
-  * `k3s_audit_log_path`: Path to audit log file (default: `/var/log/k3s-audit/audit.log`)
-  * `k3s_audit_log_maxage`: Days to retain logs (default: `30`)
-  * `k3s_audit_log_maxbackup`: Number of backup files to keep (default: `10`)
-  * `k3s_audit_log_maxsize`: Max size in MB before rotation (default: `100`)
+  * `audit_log_path`: Path to audit log file (default: `/var/log/k3s-audit/audit.log`)
+  * `audit_log_max_age`: Days to retain logs (default: `30`)
+  * `audit_log_max_backups`: Number of backup files to keep (default: `10`)
+  * `audit_log_max_size`: Max size in MB before rotation (default: `100`)
 
 ```terraform
-  # lb_hostname Configuration:
+  # load_balancer_hostname Configuration:
   #
   # Purpose:
-  # The lb_hostname setting optimizes communication between services within the Kubernetes cluster
+  # The load_balancer_hostname setting optimizes communication between services within the Kubernetes cluster
   # when they use domain names instead of direct service names. By associating a domain name directly
   # with the Hetzner Load Balancer, this setting can help reduce potential communication delays.
   #
@@ -2204,7 +2277,7 @@ Locked and loaded! Let's continue the detailed exploration.
   # to an external Load Balancer, there can be a slowdown in communication.
   #
   # Guidance:
-  # - If your internal services use domain names pointing to an external LB, set lb_hostname to a domain
+  # - If your internal services use domain names pointing to an external LB, set load_balancer_hostname to a domain
   #   like `mycluster.domain.com`.
   # - Create an A record pointing `mycluster.domain.com` to your LB's IP.
   # - Create a CNAME record for `a.mycluster.domain.com` (or xyz.com) pointing to `mycluster.domain.com`.
@@ -2218,16 +2291,16 @@ Locked and loaded! Let's continue the detailed exploration.
   # For inter-namespace communication, use `.service_name` as per Kubernetes norms.
   #
   # Example:
-  # lb_hostname = "mycluster.domain.com"
+  # load_balancer_hostname = "mycluster.domain.com"
 ```
 
-* **`lb_hostname` (String, Optional):**
+* **`load_balancer_hostname` (String, Optional):**
   * **Purpose:** Sets the `load-balancer.hetzner.cloud/hostname` annotation on the Service object for your main Ingress controller (Traefik, Nginx, HAProxy).
   * **Hetzner CCM Behavior:** When the Hetzner Cloud Controller Manager (CCM) sees this annotation on a Service of type `LoadBalancer`, it attempts to associate the specified hostname with the provisioned Hetzner Load Balancer. This might involve creating/updating DNS records if you use Hetzner DNS, or it might just be informational for the LB itself.
   * **Scenario Explained:** The comment describes a scenario where internal cluster services communicate via external domain names that resolve to the main Hetzner LB. If Service B calls `a.mycluster.domain.com`, and this resolves to the LB IP, the traffic goes out to the LB and then back into the cluster to Service A. This can be inefficient ("hairpinning" or "NAT loopback" issues if not handled well).
-  * **Optimization Goal:** By setting `lb_hostname`, the CCM might optimize this path, or it might simply ensure that if you CNAME your application hostnames (like `a.mycluster.domain.com`) to this `lb_hostname` (which itself points to the LB IP), the LB is aware of the primary domain it serves. The exact optimization depends on Hetzner CCM's capabilities.
+  * **Optimization Goal:** By setting `load_balancer_hostname`, the CCM might optimize this path, or it might simply ensure that if you CNAME your application hostnames (like `a.mycluster.domain.com`) to this `load_balancer_hostname` (which itself points to the LB IP), the LB is aware of the primary domain it serves. The exact optimization depends on Hetzner CCM's capabilities.
   * **DNS Setup:** You are still responsible for:
-    1. Creating an A/AAAA record for `lb_hostname` (e.g., `mycluster.domain.com`) pointing to the Hetzner Load Balancer's public IP.
+    1. Creating an A/AAAA record for `load_balancer_hostname` (e.g., `mycluster.domain.com`) pointing to the Hetzner Load Balancer's public IP.
     2. Creating CNAME records for your individual application services (e.g., `a.mycluster.domain.com` CNAME to `mycluster.domain.com`).
   * **Recommendation:** Optional. If your services primarily use internal Kubernetes service discovery (e.g., `service-a.namespace.svc.cluster.local`), this might not be necessary.
 
@@ -2237,7 +2310,7 @@ Locked and loaded! Let's continue the detailed exploration.
 
 ```terraform
   # You can enable Rancher (installed by Helm behind the scenes) with the following flag, the default is "false".
-  # ⚠️ Rancher often doesn't support the latest Kubernetes version. You will need to set initial_k3s_channel to a supported version.
+  # ⚠️ Rancher often doesn't support the latest Kubernetes version. Set k3s_version to an exact supported release.
   # When Rancher is enabled, it automatically installs cert-manager too, and it uses rancher's own self-signed certificates.
   # See for options https://ranchermanager.docs.rancher.com/getting-started/installation-and-upgrade/install-upgrade-on-a-kubernetes-cluster#3-choose-your-ssl-configuration
   # The easiest thing is to leave everything as is (using the default rancher self-signed certificate) and put Cloudflare in front of it.
@@ -2254,7 +2327,7 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Purpose:** If `true`, deploys [Rancher Manager](https://rancher.com/), a popular open-source platform for managing multiple Kubernetes clusters.
   * **Mechanism:** The module installs Rancher using its Helm chart.
   * **Key Considerations & Warnings:**
-    * **Kubernetes Version Compatibility (⚠️):** Rancher has strict Kubernetes version compatibility. You *must* set `initial_k3s_channel` or `install_k3s_version` to a version supported by the Rancher version being installed. This often means using a slightly older, well-tested Kubernetes minor version.
+    * **Kubernetes Version Compatibility (⚠️):** Rancher has strict Kubernetes version compatibility. You *must* set `k3s_version` to an exact release supported by the Rancher version being installed. This often means using a slightly older, well-tested Kubernetes minor version.
     * **Cert-Manager:** Rancher typically bundles or requires its own instance of cert-manager. It often uses its own self-signed CA by default for its UI. The comment suggests that if `enable_rancher` is true, the module's `enable_cert_manager` might be implicitly handled or overridden.
     * **SSL Configuration:** Rancher offers options for SSL: Rancher-generated self-signed certs (default), Let's Encrypt, or bringing your own certs. The comment suggests the default self-signed cert is easiest if you put a proxy like Cloudflare (with its own valid cert) in front of Rancher.
     * **Replicas:** Rancher deployment replicas default to the number of control plane nodes for HA.
@@ -2265,8 +2338,8 @@ Locked and loaded! Let's continue the detailed exploration.
 ```terraform
   # If using Rancher you can set the Rancher hostname, it must be unique hostname even if you do not use it.
   # If not pointing the DNS, you can just port-forward locally via kubectl to get access to the dashboard.
-  # If you already set the lb_hostname above and are using a Hetzner LB, you do not need to set this one, as it will be used by default.
-  # But if you set this one explicitly, it will have preference over the lb_hostname in rancher settings.
+  # If you already set the load_balancer_hostname above and are using a Hetzner LB, you do not need to set this one, as it will be used by default.
+  # But if you set this one explicitly, it will have preference over the load_balancer_hostname in rancher settings.
   # rancher_hostname = "rancher.xyz.dev"
 ```
 
@@ -2275,9 +2348,9 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Requirement:** Must be set if `enable_rancher = true`.
   * **DNS:** You need to create a DNS A/AAAA record for this hostname pointing to the IP address where Rancher is accessible (e.g., the Hetzner Load Balancer IP, or a node IP if using Klipper LB).
   * **Local Access (No DNS):** If you don't set up public DNS, you can still access the Rancher UI by port-forwarding the Rancher service locally using `kubectl port-forward svc/rancher -n cattle-system <local_port>:443` and then accessing `https://localhost:<local_port>` (after adding the hostname to your local `/etc/hosts` file pointing to `127.0.0.1`).
-  * **Interaction with `lb_hostname`:**
-    * If `lb_hostname` is set and `rancher_hostname` is *not*, Rancher will default to using `lb_hostname`.
-    * If `rancher_hostname` is explicitly set, it takes precedence for Rancher's configuration, even if `lb_hostname` is also set.
+  * **Interaction with `load_balancer_hostname`:**
+    * If `load_balancer_hostname` is set and `rancher_hostname` is *not*, Rancher will default to using `load_balancer_hostname`.
+    * If `rancher_hostname` is explicitly set, it takes precedence for Rancher's configuration, even if `load_balancer_hostname` is also set.
 
 ```terraform
   # When Rancher is deployed, by default is uses the "latest" channel. But this can be customized.
@@ -2290,7 +2363,7 @@ Locked and loaded! Let's continue the detailed exploration.
   * **Purpose:** Specifies the Rancher release channel to use when installing Rancher via its Helm chart.
     * `"latest"`: Installs the most recent Rancher version, which might include newer features but could be less tested.
     * `"stable"`: Installs the version of Rancher marked as stable, generally recommended for production.
-  * **Note:** This refers to the Rancher *application* version channel, distinct from the `initial_k3s_channel` for the Kubernetes version.
+  * **Note:** This refers to the Rancher *application* version channel, distinct from the `k3s_channel` for the Kubernetes version.
 
 ```terraform
   # Finally, you can specify a bootstrap-password for your rancher instance. Minimum 48 characters long!
@@ -2330,33 +2403,34 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.21: Kustomize and Post-Deployment Operations**
 
 ```terraform
-  # Extra commands to be executed after the `kubectl apply -k` (useful for post-install actions, e.g. wait for CRD, apply additional manifests, etc.).
-  # extra_kustomize_deployment_commands=""
+  # You can add user kustomizations to be deployed in sequence by setting the `user_kustomizations` variable.
+  # The Kustomization "sets" are run in sequential order (by numeric key) so that you can for example install a CRD and wait for it to be deployed.
+  #
+  # Properties of each value:
+  # - source_folder: Sets the source folder for *.yaml.tpl and Kustomization.yaml.tpl
+  # - kustomize_parameters: Key-value map for passing variables into Kustomization. Applies only to the Kustomization-set in the object, but to all files defined in the source_folder of the "set". Defaults to {}.
+  # - pre_commands: Commands to be executed before applying the Kustomization ("kubectl apply -k"). Defaults to "".
+  # - post_commands: Commands to be executed after applying the Kustomization ("kubectl apply -k"). You can use it to wait for CRD deployment etc. Defaults to "".
+  # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
+  # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
+  # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
+  #
+  # An example:
+  # user_kustomizations = {
+  #   "1" = {
+  #     source_folder        = "extra-manifests"
+  #     kustomize_parameters = { myvar = "myvalue" }
+  #     pre_commands         = ""
+  #     post_commands        = "kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true"
+  #   }
+  # }
 ```
 
-* **`extra_kustomize_deployment_commands` (String or List of Strings, Optional):**
-  * **Purpose:** Allows you to specify shell commands that will be executed *after* the module has run its main Kustomize deployment (which applies manifests for core components like CCM, CSI, Ingress, etc., based on your selections).
-  * **Mechanism:** The module likely uses a `local-exec` or `remote-exec` provisioner (if commands need to run on a node) to execute these. If they are `kubectl` commands, they'd run from where Terraform is executed, using the generated kubeconfig.
+* **`user_kustomizations` (Map of Objects, Optional):**
+  * **Purpose:** Allows you to specify Kustomization sets that are run sequentially, with each set containing its own source_folder, pre_commands, post_commands and kustomize_parameters
   * **Use Cases:**
-    * **Waiting for CRDs:** Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
-    * Applying additional Kubernetes manifests that depend on the core setup.
-    * Running post-install scripts or triggering initial application setup jobs.
-  * **Format:** Can be a single string with commands separated by `&&` or `\n`, or a list of individual command strings.
-
-```terraform
-  # Extra values that will be passed to the `extra-manifests/kustomization.yaml.tpl` if its present.
-  # extra_kustomize_parameters={}
-```
-
-* **`extra_kustomize_parameters` (Map of Strings, Optional):**
-  * **Purpose:** If you are using the module's "extra manifests" feature (where you can provide your own Kustomize setup in an `extra-manifests` directory), this map allows you to pass key-value parameters into a `kustomization.yaml.tpl` template file within that directory.
-  * **Mechanism:** The module would process `extra-manifests/kustomization.yaml.tpl` as a template, substituting placeholders with values from this map, and then run `kustomize build` on the result.
-  * **Use Case:** Parameterizing your custom Kustomize deployments based on Terraform inputs or computed values from the `kube-hetzner` module (e.g., passing in the cluster name, node IPs, etc., to your custom manifests).
-  * **Reference:** The comment points to examples in the module's repository for how to use this feature.
-
-```terraform
-  # See working examples for extra manifests or a HelmChart in examples/kustomization_user_deploy/README.md
-```
+    * Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
+    * The `user_kustomizations`-map allows you to define steps of install where e.g. the first step installs CRDs, checks for their proper existence and then second step that install further CRs.
 
 * **Documentation Pointer:** This directs users to example usage of the "extra manifests" feature, which is crucial for extending the module's capabilities with custom deployments.
 
@@ -2413,25 +2487,40 @@ Locked and loaded! Let's continue the detailed exploration.
 **Section 2.23: Base OS Image Configuration**
 
 ```terraform
-  # MicroOS snapshot IDs to be used. Per default empty, the most recent image created using createkh will be used.
-  # We recommend the default, but if you want to use specific IDs you can.
+  # Leap Micro snapshot IDs to be used (recommended). Per default empty, the most recent image created using createkh will be used.
+  # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'leapmicro-snapshot=yes'" command.
+  # leapmicro_x86_snapshot_id = "1234567"
+  # leapmicro_arm_snapshot_id = "1234567"
+
+  # MicroOS snapshot IDs to be used (legacy/upgrade). Per default empty, the most recent image created using createkh will be used.
   # You can fetch the ids with the hcloud cli by running the "hcloud image list --selector 'microos-snapshot=yes'" command.
   # microos_x86_snapshot_id = "1234567"
   # microos_arm_snapshot_id = "1234567"
 ```
 
-* **Background:** This module uses openSUSE MicroOS as the base operating system for the cluster nodes. MicroOS is a transactional, immutable-style OS designed for container workloads. The `createkh` tool (mentioned in the comment, part of the `kube-hetzner` project) is likely used to prepare and snapshot customized MicroOS images suitable for this module.
-* **`microos_x86_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated x86 snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for x86-based nodes (e.g., `cx` series).
-* **`microos_arm_snapshot_id` (String, Optional):**
-  * **Default:** Empty string (module uses the most recent `createkh`-generated ARM snapshot).
-  * **Purpose:** Allows you to specify the exact Hetzner snapshot ID for the openSUSE MicroOS image to be used for ARM-based nodes (e.g., `cax` series).
-* **Recommendation:** "We recommend the default". Using the default ensures you get the latest tested and prepared image from the module maintainers.
-* **Use Case for Pinning:**
-  * Ensuring absolute reproducibility if you need to rebuild a cluster exactly as it was.
-  * If a new default snapshot introduces an issue, you can temporarily pin to a known good older snapshot ID.
-* **Fetching IDs:** The `hcloud image list --selector 'microos-snapshot=yes'` command helps you find available snapshot IDs created by `createkh` in your Hetzner project.
+* **Background:** This module supports two immutable openSUSE base OS options for nodes:
+  * **Leap Micro** (`leapmicro`, recommended for new nodepools): stable, transactional updates.
+  * **MicroOS** (`microos`, legacy/upgrade support): rolling, transactional updates.
+* **Snapshots:** The module expects you to have snapshots in your Hetzner project labeled `leapmicro-snapshot=yes` and/or `microos-snapshot=yes` (typically created via the packer templates in `packer-template/`).
+* **`leapmicro_x86_snapshot_id` / `leapmicro_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `leapmicro-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for Leap Micro nodes (x86 for `cx*`, ARM for `cax*`).
+  * **Fetching IDs:** `hcloud image list --selector 'leapmicro-snapshot=yes'`
+* **`microos_x86_snapshot_id` / `microos_arm_snapshot_id` (String, Optional):**
+  * **Default:** Empty string (module uses the most recent `microos-snapshot=yes` image for that architecture).
+  * **Purpose:** Pin the exact snapshot ID used for MicroOS nodes (legacy/upgrade scenarios).
+  * **Fetching IDs:** `hcloud image list --selector 'microos-snapshot=yes'`
+* **OS selection (`os`) on nodepools (Optional):**
+  * **Valid values:** `leapmicro` or `microos`.
+  * **Where:** `control_plane_nodepools[].os`, `agent_nodepools[].os`, `agent_nodepools[].nodes[*].os`, and `autoscaler_nodepools[].os`.
+  * **Defaulting:** Existing nodepools keep their current OS on upgrade (MicroOS by default when unknown). New nodepools default to Leap Micro.
+* **Per-nodepool snapshot override (`os_snapshot_id`) (Optional):**
+  * **Type:** `string`, default `null`.
+  * **Where:** `control_plane_nodepools[].os_snapshot_id`, `control_plane_nodepools[].nodes[*].os_snapshot_id`, `agent_nodepools[].os_snapshot_id`, `agent_nodepools[].nodes[*].os_snapshot_id`.
+  * **Purpose:** Use a custom Hetzner snapshot (e.g. with LVM partitions or other pre-configured disk layouts) instead of the global snapshot looked up by `os` and architecture.
+  * **Fallback:** When `null` (default), the module selects the snapshot via `local.snapshot_id_by_os` based on the node's `os` and architecture — existing behavior is preserved.
+  * **Per-node override:** In map-based nodepools (`nodes = {}`), a node-level `os_snapshot_id` overrides the nodepool-level value.
+  * **Important:** The `os` field is still required even when `os_snapshot_id` is set — it drives cloud-init templates, hcloud labels, and other OS-specific logic. You are responsible for ensuring the snapshot matches the declared `os` type and node architecture (x86 for `cx*`/`cpx*`, ARM for `cax*`).
 
 ---
 
@@ -2484,7 +2573,7 @@ MTU: 1450 # Set MTU, important for tunnels/encapsulation
     * `ipam.mode: kubernetes`: Cilium uses Kubernetes for IP address management.
     * `kubeProxyReplacement: true`: Cilium fully replaces kube-proxy functionality.
     * `routingMode: native`: Enables direct routing.
-    * `encryption.enabled: true`, `encryption.type: wireguard`: Enables WireGuard encryption (overriding the simpler `enable_wireguard` flag if both are used, as `cilium_values` takes precedence for Cilium).
+    * `encryption.enabled: true`, `encryption.type: wireguard`: Enables WireGuard encryption (overriding the simpler `enable_cni_wireguard_encryption` flag if both are used, as `cilium_values` takes precedence for Cilium).
     * `MTU`: Setting the Maximum Transmission Unit is critical when using tunneling or encryption to avoid fragmentation.
 
 ```terraform
@@ -2750,7 +2839,7 @@ terraform {
   required_providers {
     hcloud = {
       source  = "hetznercloud/hcloud"
-      version = ">= 1.51.0"
+      version = ">= 1.62.0"
     }
   }
 }
@@ -2763,7 +2852,7 @@ terraform {
   * **`required_version`:** Specifies the minimum Terraform CLI version required to apply this configuration.
   * **`required_providers`:** Declares the providers needed by this root module and their source/version constraints.
     * `hcloud`: Specifies the official Hetzner Cloud provider from `hetznercloud/hcloud` on the Terraform Registry.
-    * `version = ">= 1.51.0"`: Constrains to use version 1.51.0 or newer of the Hetzner provider. It's good practice to use a lower bound and periodically update to newer provider versions for new features and bug fixes.
+    * `version = ">= 1.62.0"`: Constrains to use version 1.62.0 or newer of the Hetzner provider, which is required by kube-hetzner v3.
 
 ---
 
@@ -2816,7 +2905,7 @@ variable "robot_user" {
 ```
 
 * **`variable "robot_user"` Block:**
-  * **Purpose:** Declares an input variable named `robot_user` for this root Terraform configuration. The value should be retrieved from the Hetzner Robot Webservice UI. This variable is required for connecting Robot Nodes to the cluster and is only used when `robot_ccm_enabled` is set to `true`.
+  * **Purpose:** Declares an input variable named `robot_user` for this root Terraform configuration. The value should be retrieved from the Hetzner Robot Webservice UI. This variable is required for connecting Robot Nodes to the cluster and is only used when `enable_robot_ccm` is set to `true`.
   * **`sensitive = true`:** Marks this input variable as sensitive. If you were to set it via a `terraform.tfvars` file or command line (`-var="hcloud_token=..."`), Terraform would handle it with more care regarding logging.
   * **`default = ""`:** Provides a default value (empty string). This allows the logic `var.robot_user != "" ? var.robot_user : local.robot_user` to work correctly:
     * If `TF_VAR_robot_user` is set in the environment, `var.robot_user` gets that value.
@@ -2831,7 +2920,7 @@ variable "robot_password" {
 ```
 
 * **`variable "robot_password"` Block:**
-  * **Purpose:** Declares an input variable named `robot_password` for this root Terraform configuration. The value should be retrieved from the Hetzner Robot Webservice UI. This variable is required for connecting Robot Nodes to the cluster and is only used when `robot_ccm_enabled` is set to `true`.
+  * **Purpose:** Declares an input variable named `robot_password` for this root Terraform configuration. The value should be retrieved from the Hetzner Robot Webservice UI. This variable is required for connecting Robot Nodes to the cluster and is only used when `enable_robot_ccm` is set to `true`.
   * **`sensitive = true`:** Marks this input variable as sensitive. If you were to set it via a `terraform.tfvars` file or command line (`-var="hcloud_token=..."`), Terraform would handle it with more care regarding logging.
   * **`default = ""`:** Provides a default value (empty string). This allows the logic `var.robot_password != "" ? var.robot_password : local.robot_password` to work correctly:
     * If `TF_VAR_robot_password` is set in the environment, `var.robot_password` gets that value.
@@ -2864,7 +2953,7 @@ The following variables have been added to the `kube-hetzner` module since the i
 
 ```terraform
   # Setup a NAT router, and automatically disable public ips on all control plane and agent nodes.
-  # To use this, you must also set use_control_plane_lb = true, otherwise kubectl can never reach the cluster.
+  # To use this, you must also set enable_control_plane_load_balancer = true, otherwise kubectl can never reach the cluster.
   # The NAT router will also function as a bastion. This makes securing the cluster easier, as all public traffic passes through a single strongly secured node.
   # It does however also introduce a single point of failure, so if you need high-availability on your egress, you should consider other configurations.
   # nat_router = {
@@ -2875,28 +2964,32 @@ The following variables have been added to the `kube-hetzner` module since the i
 
 * **`nat_router` (Object, Optional):**
   * **Purpose:** Creates a dedicated NAT router server that acts as the single egress point for all cluster traffic. When enabled, all control plane and agent nodes are provisioned without public IPs.
-  * **Requirements:** Must set `use_control_plane_lb = true` when using NAT router, as kubectl needs a public endpoint to reach the cluster.
+  * **Requirements:** Must set `enable_control_plane_load_balancer = true` when using NAT router, as kubectl needs a public endpoint to reach the cluster.
   * **Benefits:**
     * Enhanced security by limiting public exposure to a single hardened node
     * Acts as a bastion host for SSH access to internal nodes
     * Simplifies firewall rules and security auditing
-    * Automatically forwards Kubernetes API traffic (port 6443) when `control_plane_lb_enable_public_interface = false`
+    * Automatically forwards Kubernetes API traffic (port 6443) when `control_plane_load_balancer_enable_public_network = false`
   * **Trade-offs:** Introduces a single point of failure for egress traffic
+  * **Private Bastion Mode:** Set `use_private_nat_router_bastion = true` to use the NAT router's private IP as the SSH bastion instead of its public IP. This allows hardening the NAT router to be egress-only (no inbound ports on the public IP). Requires the operator to have network-level access to the private network (e.g. via Tailscale, Cloudflare Tunnel, WireGuard).
   * **Configuration:**
     * `server_type`: The Hetzner server type for the NAT router
     * `location`: The location where the NAT router should be deployed
     * `labels`: (Optional) Additional labels for the NAT router
     * `enable_sudo`: (Optional, default: false) Enable sudo access for the nat-router user
-  * **Port Forwarding:** When the control plane LB has no public interface (`control_plane_lb_enable_public_interface = false`), the NAT router automatically configures iptables rules to forward incoming traffic on port 6443 to the control plane LB's private IP. This allows external kubectl access while keeping the control plane LB completely private.
+    * `enable_redundancy`: (Optional, default: false) Deploy two NAT routers with keepalived for failover
+    * `standby_location`: (Optional, default: "") Location for the standby NAT router; required when `enable_redundancy` is true
+    * `extra_runcmd`: (Optional, default: []) List of extra shell commands to run as root after the NAT router's cloud-init completes. Terraform reruns these commands when the list changes, so keep them idempotent. Useful for installing additional packages, fetching certificates, or running custom setup scripts.
+  * **Port Forwarding:** When the control plane LB has no public interface (`control_plane_load_balancer_enable_public_network = false`), the NAT router automatically configures iptables rules to forward incoming traffic on port 6443 to the control plane LB's private IP. This allows external kubectl access while keeping the control plane LB completely private.
 
 **k3s Binary Configuration**
 
 ```terraform
   # Set to true if util-linux breaks on the OS (temporary regression fixed in util-linux v2.41.1).
-  # k3s_prefer_bundled_bin = false
+  # prefer_bundled_bin = false
 ```
 
-* **`k3s_prefer_bundled_bin` (Boolean, Optional):**
+* **`prefer_bundled_bin` (Boolean, Optional):**
   * **Default:** `false`
   * **Purpose:** Forces k3s to use its bundled binaries instead of system binaries. This is a workaround for compatibility issues with certain OS utilities.
   * **Use Case:** Temporary fix for util-linux regression that affected k3s operation on certain MicroOS versions.
@@ -2904,17 +2997,17 @@ The following variables have been added to the `kube-hetzner` module since the i
 **Load Balancer Hostname Configuration**
 
 ```terraform
-  # The lb_hostname setting optimizes communication between services within the Kubernetes cluster when they use domain names instead of direct service names.
+  # The load_balancer_hostname setting optimizes communication between services within the Kubernetes cluster when they use domain names instead of direct service names.
   # By associating a domain name directly with the Hetzner Load Balancer, this setting can help reduce potential communication delays.
-  # lb_hostname = "mycluster.example.com"
+  # load_balancer_hostname = "mycluster.example.com"
 ```
 
-* **`lb_hostname` (String, Optional):**
+* **`load_balancer_hostname` (String, Optional):**
   * **Purpose:** Associates a domain name directly with the Hetzner Load Balancer for optimized internal service communication.
   * **Technical Impact:** Sets the `load-balancer.hetzner.cloud/hostname` annotation in the LB definition.
   * **Use Case:** When services communicate using domain names (e.g., `a.mycluster.domain.com`) that point to the external LB, this can reduce communication delays.
   * **Setup:**
-    1. Set `lb_hostname` to a domain like `mycluster.domain.com`
+    1. Set `load_balancer_hostname` to a domain like `mycluster.domain.com`
     2. Create an A record pointing to your LB's IP
     3. Create CNAME records for service subdomains pointing to the main domain
   * **Note:** Optional - only needed if services communicate via domain names instead of direct service names.
@@ -2944,12 +3037,12 @@ The following variables have been added to the `kube-hetzner` module since the i
   * **Requirements:** 
     * Control plane nodes need at least 4GB RAM (cx21 or larger)
     * Must set `rancher_hostname`
-    * May need to adjust `initial_k3s_channel` for compatibility
+    * May need to adjust `k3s_channel` for compatibility
   * **Note:** Automatically installs cert-manager with self-signed certificates
 
 * **`rancher_hostname` (String, Required if `enable_rancher = true`):**
   * **Purpose:** The hostname for accessing Rancher UI. Must be unique even if not used with DNS.
-  * **Default:** Falls back to `lb_hostname` if set and using Hetzner LB
+  * **Default:** Falls back to `load_balancer_hostname` if set and using Hetzner LB
 
 * **`rancher_install_channel` (String, Optional):**
   * **Default:** `"stable"`
@@ -2989,26 +3082,23 @@ The following variables have been added to the `kube-hetzner` module since the i
   * **Purpose:** Exports values.yaml files for deployed components (traefik, longhorn, cert-manager, etc.)
   * **Use Case:** Useful for GitOps workflows with ArgoCD or similar tools
 
-**Extra Kustomization Parameters**
+**User Kustomization Sets**
 
 ```terraform
-  # Extra commands and parameters for kustomization
-  # extra_kustomize_deployment_commands = ["kubectl wait --for=condition=ready pod -l app=myapp -n mynamespace --timeout=300s"]
-  # extra_kustomize_parameters = {
-  #   myvar = "myvalue"
+  # Ordered user kustomization sets with per-step templating and hooks
+  # user_kustomizations = {
+  #   "1" = {
+  #     source_folder        = "extra-manifests"
+  #     kustomize_parameters = {}
+  #     pre_commands         = ""
+  #     post_commands        = ""
+  #   }
   # }
 ```
 
-* **`extra_kustomize_deployment_commands` (List of Strings, Optional):**
-  * **Purpose:** Commands to execute after `kubectl apply -k`
-  * **Use Cases:** 
-    * Wait for CRDs to be ready
-    * Apply additional manifests
-    * Post-install validation
-
-* **`extra_kustomize_parameters` (Map, Optional):**
-  * **Purpose:** Variables passed to `extra-manifests/kustomization.yaml.tpl`
-  * **Use Case:** Template variables for custom kustomization overlays
+* **`user_kustomizations` (Map of Objects, Optional):**
+  * **Purpose:** Defines ordered Kustomize deployment sets with per-set template parameters and optional pre/post commands.
+  * **Migration Note:** The legacy `extra_kustomize_*` inputs were removed; migrate to `user_kustomizations`.
 
 **MicroOS Snapshot Control**
 
@@ -3031,12 +3121,20 @@ The following variables have been added to the `kube-hetzner` module since the i
   # Note that the VLAN ID is not the same as vSwitch ID. The vSwitch-subnet is assigned to 10.201.0.0/16 by default, can be changed via var.vswitch_subnet_index.
   # The vSwitch subnet is not created when the value is null. Default: null
   # vswitch_id = null
+  # Expose Cloud Network routes to the coupled Robot vSwitch when kube-hetzner creates the primary Network. Default: true.
+  # For existing_network, enable route exposure on that Network manually or set this to false.
+  # expose_routes_to_vswitch = true
 ```
 
 * **`vswitch_id` (number, Optional):**
   * **Purpose:** Connects the Cloud network to a pre-existing Hetzner vSwitch by creating a vSwitch-type subnet. It also exposes Cloud network routes to the vSwitch.
   * **Requirements:** vSwitch must exist
   * **Use Case:** The connection is required if Hetzner Robot instances are connected to the Hetzner Cloud instances via private networking  
+
+* **`expose_routes_to_vswitch` (Boolean, Optional):**
+  * **Default:** `true`.
+  * **Purpose:** Exposes primary Cloud Network routes to the coupled Robot vSwitch when `vswitch_id` is set and kube-hetzner manages the primary Network.
+  * **Existing Networks:** If `existing_network` is set, enable route exposure on that Network outside the module or set this to `false`.
 
 * **`vswitch_subnet_index` (number, Optional):**
   * **Purpose:** Defines the subnet range index to be used in the vSwitch subnet creation. Default: 201, which then converts to 10.201.0.0/16 by default.
@@ -3144,6 +3242,186 @@ Each of these `*_values` variables:
 * **`haproxy_requests_cpu` / `haproxy_requests_memory` (String, Optional):**
   * **Purpose:** Resource requests for HAProxy pods
   * **Format:** Kubernetes resource notation (e.g., "250m", "256Mi")
+
+---
+
+**V3 Additional Variable Reference**
+
+These variables are part of the current v3 module contract and should be considered together with the detailed sections above and the generated `docs/terraform.md` input table.
+
+* **`kubernetes_distribution` (String, Optional):**
+  * **Default:** `"k3s"`.
+  * **Purpose:** Selects `k3s` or `rke2`.
+  * **Considerations:** RKE2 has separate config paths, service names, bootstrap behavior, and currently requires `kubernetes_api_port = 6443`.
+
+* **`cluster_token` (String, Optional, Sensitive):**
+  * **Default:** `null`.
+  * **Purpose:** Supplies a fixed Kubernetes join token, mainly for restores.
+  * **Considerations:** Leave null for new clusters unless restoring existing state.
+
+* **`enable_secrets_encryption` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Enables Kubernetes Secrets encryption at rest with an API server EncryptionConfiguration.
+
+* **`enabled_architectures` (List String, Optional):**
+  * **Default:** `["x86", "arm"]`.
+  * **Purpose:** Limits nodepool/server type architecture selection and image lookup.
+  * **Considerations:** Must include every architecture used by control plane, agent, and autoscaler nodepools.
+
+* **`kubernetes_api_port` (Number, Optional):**
+  * **Default:** `6443`.
+  * **Purpose:** Sets the k3s API listener, load balancer listener/backend, firewall, and default join endpoint port.
+  * **Considerations:** RKE2 rejects non-default API ports.
+
+* **`kubernetes_config_updates_use_kured_sentinel` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Uses a Kured reboot sentinel for Kubernetes config changes instead of immediate service restarts.
+
+* **`system_upgrade_schedule_window` (Object, Optional):**
+  * **Default:** `null`.
+  * **Purpose:** Restricts system-upgrade-controller job creation to a defined weekly time window.
+  * **Usage:** Set `days`, `start`, `end`, and optional `time_zone` to constrain automated Kubernetes upgrades.
+
+* **`address_for_connectivity_test` (String, Optional):**
+  * **Default:** `"8.8.8.8"`.
+  * **Purpose:** External address used during node installation connectivity checks.
+
+* **`postinstall_exec` (List String, Optional):**
+  * **Default:** `[]`.
+  * **Purpose:** Extra commands appended after the Kubernetes install flow.
+
+* **`keep_disk_control_plane_nodes` / `keep_disk_agent_nodes` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Preserve OS disk size when upgrading/replacing control-plane or agent nodes.
+
+* **`kubelet_config` (String, Optional):**
+  * **Default:** `""`.
+  * **Purpose:** Writes distribution-specific kubelet config YAML and passes it through kubelet args.
+
+* **`rke2_channel` / `rke2_version` (String, Optional):**
+  * **Default:** `rke2_channel = "v1.32"`, `rke2_version = "v1.32.5+rke2r1"`.
+  * **Purpose:** Selects the RKE2 install channel or exact RKE2 version.
+  * **Considerations:** Exact versions supersede channels.
+
+* **`cluster_ipv6_cidr` / `service_ipv6_cidr` (String, Optional):**
+  * **Default:** `null`.
+  * **Purpose:** Enables IPv6 or dual-stack pod/service networking when paired with the matching IP-family mode.
+
+* **`myipv4_ref` (String, Optional):**
+  * **Default:** `"myipv4"`.
+  * **Purpose:** Placeholder used in firewall source/destination lists, replaced by the apply runner's public IPv4 /32.
+  * **Considerations:** Can be wrong behind VPNs, proxies, CDNs, or CI runners.
+
+* **`primary_ip_pool` (Object, Optional):**
+  * **Default:** `{}`.
+  * **Purpose:** Controls module-managed Hetzner Primary IP allocation and assignment per node.
+
+* **`extra_firewall_ids` (List Number, Optional):**
+  * **Default:** `[]`.
+  * **Purpose:** Attaches additional existing Hetzner firewall IDs to every managed control-plane and agent node.
+
+* **`exclude_agents_from_external_load_balancers` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Adds `node.kubernetes.io/exclude-from-external-load-balancers=true` to agent nodes.
+  * **Considerations:** Excludes agents from all CCM-managed LoadBalancer Services.
+
+* **`enable_load_balancer_monitoring` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Installs ServiceMonitor and PrometheusRule resources for Hetzner CCM load balancer metrics.
+  * **Requirements:** Prometheus Operator CRDs.
+
+* **`reuse_control_plane_load_balancer` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Reuses the control-plane load balancer for ingress Services.
+  * **Requirements:** `enable_control_plane_load_balancer = true`.
+
+* **`ingress_controller_use_system_namespace` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Deploys the selected ingress controller into `kube-system` unless `ingress_target_namespace` is set.
+
+* **`ingress_max_replica_count` (Number, Optional):**
+  * **Default:** `10`.
+  * **Purpose:** Sets the ingress HPA maximum replica count.
+
+* **`nat_router_hcloud_token` (String, Optional, Sensitive):**
+  * **Default:** `""`.
+  * **Purpose:** Token used by redundant NAT routers to reassign IPs.
+
+* **`nat_router_subnet_index` (Number, Optional):**
+  * **Default:** `200`.
+  * **Purpose:** Picks the NAT router subnet from `network_ipv4_cidr`.
+  * **Considerations:** Must not collide with control-plane, agent, vSwitch, or other peripheral subnet indexes.
+
+* **`optional_bastion_host` (Object, Optional):**
+  * **Default:** `null`.
+  * **Purpose:** Supplies an existing bastion host for node access, commonly with pre-existing private-network designs.
+
+* **`extra_robot_nodes` (List Object, Optional):**
+  * **Default:** `[]`.
+  * **Purpose:** Configures existing Hetzner Robot servers as additional agents through vSwitch networking.
+
+* **`node_transport_mode` (String, Optional):**
+  * **Default:** `"hetzner_private"`.
+  * **Purpose:** Selects the Kubernetes node transport. Use `"tailscale"` for secure single-network clusters that should use Tailnet access for Terraform/kubeconfig/SSH, or for supported private multinetwork clusters where Tailscale carries node-to-node traffic between Hetzner private Networks.
+  * **Requirements:** Tailscale mode requires `tailscale_node_transport.magicdns_domain`, restricted or closed public API/SSH firewall sources, no public module-managed control-plane Load Balancer, non-overlapping Tailnet/cluster/service/network CIDRs, and `multinetwork_mode = "disabled"`.
+
+* **`tailscale_node_transport` (Object, Optional):**
+  * **Default:** `{}`.
+  * **Purpose:** Configures Tailscale bootstrap, tags, route advertisement, Terraform SSH host selection, CNI MTU, and experimental gates for `node_transport_mode = "tailscale"`. Single-network clusters may set `routing.advertise_node_private_routes = false`; nodepools with `network_scope = "external"` require it to remain true.
+  * **Key Rules:** Flannel VXLAN is the first supported CNI, `flannel_backend = "host-gw"` is rejected, autoscaler nodepools require `bootstrap_mode = "cloud_init"`, and the module disables subnet-route SNAT when advertising node-private routes so Kubernetes/CNI traffic keeps real node source IPs.
+
+* **`tailscale_auth_key` / `tailscale_control_plane_auth_key` / `tailscale_agent_auth_key` / `tailscale_autoscaler_auth_key` (String, Optional, Sensitive):**
+  * **Default:** `null`.
+  * **Purpose:** Provide shared or role-specific Tailscale auth keys for `tailscale_node_transport.auth.mode = "auth_key"`.
+  * **Autoscaler Note:** Prefer a reusable, pre-approved, tagged, ephemeral key for `tailscale_autoscaler_auth_key`.
+
+* **`tailscale_oauth_client_secret` (String, Optional, Sensitive):**
+  * **Default:** `null`.
+  * **Purpose:** Provides the OAuth client secret for `tailscale_node_transport.auth.mode = "oauth_client_secret"`. The module appends role-specific OAuth auth-key parameters so static nodes default to durable devices and autoscaler nodes default to ephemeral devices.
+
+* **`enable_experimental_cilium_public_overlay` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Explicitly unlocks the lab-only `multinetwork_mode = "cilium_public_overlay"` preview. Keep false for production clusters until the live datapath E2E passes.
+
+* **`multinetwork_cilium_mtu` (Number, Optional):**
+  * **Default:** `1370`.
+  * **Purpose:** MTU used by `multinetwork_mode = "cilium_public_overlay"`.
+
+* **`multinetwork_cilium_peer_ipv4_cidrs` / `multinetwork_cilium_peer_ipv6_cidrs` (List String, Optional):**
+  * **Default:** IPv4 `["0.0.0.0/0"]`, IPv6 `["::/0"]`.
+  * **Purpose:** Firewall source CIDRs allowed to reach Cilium overlay peer ports.
+
+* **`cilium_egress_gateway_ha_enabled` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Deploys a controller that keeps labeled `CiliumEgressGatewayPolicy` objects pinned to a Ready egress node.
+
+* **`cluster_autoscaler_tolerations` (List Object, Optional):**
+  * **Default:** `[]`.
+  * **Purpose:** Appends tolerations to the Cluster Autoscaler Deployment.
+
+* **`calico_values` (String, Optional):**
+  * **Default:** `""`.
+  * **Purpose:** Replaces the Calico kustomize patch used by the current Calico install path.
+
+* **`cert_manager_version` / `longhorn_version` / `rancher_version` (String, Optional):**
+  * **Default:** `"*"`.
+  * **Purpose:** Pins the respective Helm chart version.
+
+* **`cert_manager_helmchart_bootstrap` / `csi_driver_smb_helmchart_bootstrap` / `longhorn_helmchart_bootstrap` / `rancher_helmchart_bootstrap` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Controls whether each HelmChart runs on control-plane nodes.
+
+* **`cilium_merge_values` / `cert_manager_merge_values` / `csi_driver_smb_merge_values` / `haproxy_merge_values` / `hetzner_ccm_merge_values` / `hetzner_csi_merge_values` / `longhorn_merge_values` / `nginx_merge_values` / `rancher_merge_values` / `traefik_merge_values` (String, Optional):**
+  * **Default:** `""`.
+  * **Purpose:** YAML snippets merged on top of module defaults, or on top of the matching full `*_values` override when set.
+  * **Considerations:** Prefer merge values for small overrides and full values for complete replacement.
+
+* **`traefik_provider_kubernetes_gateway_enabled` (Boolean, Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Enables Traefik's Kubernetes Gateway provider.
+
+* **`traefik_resource_values` (Object, Optional):**
+  * **Purpose:** Controls Traefik CPU/memory requests and limits.
 
 ---
 

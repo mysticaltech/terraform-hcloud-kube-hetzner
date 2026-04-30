@@ -1,40 +1,53 @@
-# How to Install and Deploy Additional Resources with Terraform and Kube-Hetzner
+# How to Install and Deploy Additional Resources with Kube-Hetzner v3
 
-Kube-Hetzner allows you to provide user-defined resources after the initial setup of the Kubernetes cluster. You can deploy additional resources using Kustomize scripts in the `extra-manifests` directory with the extension `.yaml.tpl`. These scripts are recursively copied onto the control plane and deployed with `kubectl apply -k`. The main entry point for these additional resources is the `kustomization.yaml.tpl` file. In this file, you need to list the names of other manifests without the `.tpl` extension in the resources section.
+Kube-Hetzner v3 deploys user resources through ordered `user_kustomizations`
+sets. Each set points at a source folder containing Kustomize files with the
+extension `.yaml.tpl` or `.yml.tpl`. The files are rendered, copied to the first
+control plane, and applied with `kubectl apply -k`.
 
-When you execute terraform apply, the manifests in the extra-manifests directory, including the rendered versions of the `*.yaml.tpl` files, will be automatically deployed to the cluster.
+The main entry point for a set is `kustomization.yaml.tpl`. List rendered file
+names without the `.tpl` suffix in the `resources` section.
+
+When you run `terraform apply` or `tofu apply`, kube-hetzner deploys the
+configured sets in numeric key order.
 
 ## Examples
 
 Here are some examples of common use cases for deploying additional resources:
 
-> **Note**: When trying out the demos, make sure that the files from the demo folders are located in the `extra-manifests` directory.
+> **Note:** When trying out a demo, either copy that demo's files into
+> `extra-manifests`, or point `source_folder` directly at the demo directory.
 
 ### Deploying Simple Resources
 
-The easiest use case is to deploy simple resources to the cluster. Since the Kustomize resources are [Terraform template](https://registry.terraform.io/providers/hashicorp/template/latest/docs/data-sources/file) files, they can make use of parameters provided in the `extra_kustomize_parameters` map of the `kube.tf` file.
+The easiest use case is to deploy simple resources to the cluster. Since the Kustomize resources are [Terraform template](https://registry.terraform.io/providers/hashicorp/template/latest/docs/data-sources/file) files, they can make use of parameters provided in the `kustomize_parameters` map of the `user_kustomizations`.
 
 #### `kube.tf`
 
-```
-...
-extra_kustomize_parameters = {
-  my_config_key = "somestring"
+```hcl
+user_kustomizations = {
+  "1" = {
+    source_folder = "extra-manifests"
+    kustomize_parameters = {
+      my_config_key = "somestring"
+    }
+    pre_commands  = ""
+    post_commands = ""
+  }
 }
-...
 ```
 
 The variable defined in `kube.tf` can be used in any `.yaml.tpl` manifest.
 
-#### `configmap.tf`
+#### `demo-config-map.yaml.tpl`
 
-```
+```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: demo-config
-  data:
-    someConfigKey: ${my_config_key}
+data:
+  someConfigKey: ${my_config_key}
 ```
 
 For a full demo see the [simple-resources](simple-resources/) example.
@@ -47,13 +60,18 @@ For a full demo see the [helm-chart](helm-chart/) example.
 
 ### Multiple Namespaces
 
-In more complex use cases, you may want to deploy to multiple namespaces with a common base. Kustomize supports this behavior, and it can be since Kube-Hetzner is considering all subdirectories of `extra-manifests`.
+In more complex use cases, you may want to deploy to multiple namespaces with a
+common base. Kustomize supports this behavior, and kube-hetzner copies
+subdirectories below the configured `source_folder`.
 
 For a full demo see the [multiple-namespaces](multiple-namespaces/) example.
 
 ### Using Letsencrypt with cert-manager
 
-You can use letsencrypt issuer to issue tls certificate see [example](https://doc.traefik.io/traefik/user-guides/cert-manager/). You need to create a issuer type of `ClusterIssuer` to make is available in all namespaces, unlike in the traefik example. Also note that the `server` in the example is a stagging server, you would need a prod server to use in, well, production. The prod server link can be found at `https://letsencrypt.org/getting-started/`
+You can use a Let's Encrypt issuer to issue TLS certificates; see the
+[Traefik/cert-manager example](https://doc.traefik.io/traefik/user-guides/cert-manager/).
+Create a `ClusterIssuer` to make it available in all namespaces. Use the
+staging ACME server while testing, then switch to the production directory URL.
 
 For a full demo see the [letsencrypt](letsencrypt/)
 
@@ -64,15 +82,15 @@ To check the existing kustomization, you can run the following command:
 ```
 $ terraform state list | grep kustom
   ...
-  module.kube-hetzner.terraform_data.kustomization
-  module.kube-hetzner.terraform_data.kustomization_user["demo-config-map.yaml.tpl"]
-  module.kube-hetzner.terraform_data.kustomization_user["demo-pod.yaml.tpl"]
-  module.kube-hetzner.terraform_data.kustomization_user["kustomization.yaml.tpl"]
+  module.kube-hetzner.terraform_data.kustomization[0]
+  module.kube-hetzner.module.user_kustomizations.terraform_data.kustomization_user_deploy
+  module.kube-hetzner.module.user_kustomizations.module.user_kustomization_set["1"].terraform_data.install_scripts
+  module.kube-hetzner.module.user_kustomizations.module.user_kustomization_set["1"].terraform_data.user_kustomization_template_files["kustomization.yaml.tpl"]
   ...
 ```
 
 If you want to rerun just the kustomization part, you can use the following command:
 
 ```
-terraform apply -replace='module.kube-hetzner.terraform_data.kustomization_user["kustomization.yaml.tpl"]' --auto-approve
+terraform apply -replace='module.kube-hetzner.module.user_kustomizations.terraform_data.kustomization_user_deploy' --auto-approve
 ```

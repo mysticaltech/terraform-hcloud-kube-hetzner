@@ -1,10 +1,15 @@
-# Rollback Node MicroOS Manually
+# Rollback a Leap Micro / MicroOS Node Manually
 
-How to manually rollback a MicroOS node to the last snapshot or be date.
+How to manually roll back an immutable openSUSE node to the previous snapshot
+or to a snapshot from a specific date.
 
 ## Background
 
-Certain versions of `linux-utils` (e.g., >2.40) may cause errors such as:
+Kube-Hetzner v3 defaults new nodepools to Leap Micro, while MicroOS remains
+supported for existing and explicitly configured nodepools. Both use BTRFS
+snapshots and `snapper`, so the manual rollback workflow is similar.
+
+Certain versions of `util-linux` may cause errors such as:
 
 ```
 ...cannot mount subpath... file exists... unmount...

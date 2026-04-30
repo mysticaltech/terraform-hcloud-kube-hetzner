@@ -18,7 +18,7 @@ It covers configuration for both k3s and Robot nodes, including networking, conf
 - **Operating System**: Ideally use the MicroOS image created by this project. Otherwise, any Linux distribution that supports k3s will work
 - **Network CNI Configuration**: 
     - Flannel: Doesn't need additional configuration.
-    - Cilium: Doesn't need additional configuration, ensure `cilium_loadbalancer_acceleration_mode` is set to `"best-effort"` or `"disabled"`
+    - Cilium: Doesn't need additional configuration, ensure `cilium_load_balancer_acceleration_mode` is set to `"best-effort"` or `"disabled"`
     - Calico: Untested
 
 ---
@@ -26,8 +26,9 @@ It covers configuration for both k3s and Robot nodes, including networking, conf
 ## 1. Connection from Kubernetes Cluster to vSwitch
 
 In your kube.tf-configuration:
-  - Set `robot_ccm_enabled = true` and provide the Webservice User credentials in the `robot_user` and `robot_password` variables. All three are required to enable Robot server integration. If `robot_ccm_enabled` is true but credentials are not provided, the integration will not be activated.
+  - Set `enable_robot_ccm = true` and provide the Webservice User credentials in the `robot_user` and `robot_password` variables. All three are required to enable Robot server integration. If `enable_robot_ccm` is true but credentials are not provided, the integration will not be activated.
   - Set `vswitch_id = <vswitch_id from prerequisites>`
+  - Keep `expose_routes_to_vswitch = true` when kube-hetzner creates the primary Network. If you use `existing_network`, enable route exposure on that existing Network manually in Hetzner Cloud or set `expose_routes_to_vswitch = false`.
 
 For manual configuration of the settings, see below:
 
