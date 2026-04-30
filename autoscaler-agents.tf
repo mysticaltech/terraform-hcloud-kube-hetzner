@@ -13,14 +13,18 @@ locals {
   )
 
   nodeConfigName = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+  autoscaler_effective_network_id_by_index = {
+    for index, nodePool in var.autoscaler_nodepools :
+    index => nodePool.network_scope == "primary" ? 0 : coalesce(nodePool.network_id, 0)
+  }
   autoscaler_network_keys = length(var.autoscaler_nodepools) == 0 ? [] : sort(distinct([
-    for nodePool in var.autoscaler_nodepools : tostring(coalesce(nodePool.network_id, 0))
+    for index, nodePool in var.autoscaler_nodepools : tostring(local.autoscaler_effective_network_id_by_index[index])
   ]))
   autoscaler_nodepools_by_network = {
     for network_key in local.autoscaler_network_keys :
     network_key => [
-      for nodePool in var.autoscaler_nodepools : nodePool
-      if tostring(coalesce(nodePool.network_id, 0)) == network_key
+      for index, nodePool in var.autoscaler_nodepools : nodePool
+      if tostring(local.autoscaler_effective_network_id_by_index[index]) == network_key
     ]
   }
   autoscaler_network_id_by_key = {
@@ -52,7 +56,7 @@ locals {
           },
           nodePool.subnet_ip_range == null ? {} : { subnetIPRange = nodePool.subnet_ip_range }
         )
-        if tostring(coalesce(nodePool.network_id, 0)) == network_key
+        if tostring(local.autoscaler_effective_network_id_by_index[index]) == network_key
       }
     }
   }
@@ -71,7 +75,7 @@ locals {
           },
           nodePool.subnet_ip_range == null ? {} : { subnetIPRange = nodePool.subnet_ip_range }
         )
-        if tostring(coalesce(nodePool.network_id, 0)) == network_key
+        if tostring(local.autoscaler_effective_network_id_by_index[index]) == network_key
       }
     }
   }
@@ -211,7 +215,7 @@ data "cloudinit_config" "autoscaler_config" {
         private_ipv4_default_route          = !var.autoscaler_enable_public_ipv4 || local.use_nat_router
         public_ipv4_default_route           = var.autoscaler_enable_public_ipv4 && !local.use_nat_router
         public_ipv6_default_route           = var.autoscaler_enable_public_ipv6 && !local.use_nat_router
-        network_gw_ipv4                     = local.network_gw_ipv4_by_network_id[coalesce(var.autoscaler_nodepools[count.index].network_id, 0) == 0 ? data.hcloud_network.k3s.id : var.autoscaler_nodepools[count.index].network_id]
+        network_gw_ipv4                     = local.network_gw_ipv4_by_network_id[local.autoscaler_effective_network_id_by_index[count.index] == 0 ? data.hcloud_network.k3s.id : local.autoscaler_effective_network_id_by_index[count.index]]
         multinetwork_public_overlay_enabled = local.multinetwork_overlay_enabled
         multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
         multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled
@@ -264,7 +268,7 @@ data "cloudinit_config" "autoscaler_config_rke2" {
         private_ipv4_default_route          = !var.autoscaler_enable_public_ipv4 || local.use_nat_router
         public_ipv4_default_route           = var.autoscaler_enable_public_ipv4 && !local.use_nat_router
         public_ipv6_default_route           = var.autoscaler_enable_public_ipv6 && !local.use_nat_router
-        network_gw_ipv4                     = local.network_gw_ipv4_by_network_id[coalesce(var.autoscaler_nodepools[count.index].network_id, 0) == 0 ? data.hcloud_network.k3s.id : var.autoscaler_nodepools[count.index].network_id]
+        network_gw_ipv4                     = local.network_gw_ipv4_by_network_id[local.autoscaler_effective_network_id_by_index[count.index] == 0 ? data.hcloud_network.k3s.id : local.autoscaler_effective_network_id_by_index[count.index]]
         multinetwork_public_overlay_enabled = local.multinetwork_overlay_enabled
         multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
         multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled

@@ -613,24 +613,50 @@ resource "terraform_data" "validation_contract" {
       error_message = "Managed Tailscale bootstrap requires every control-plane node to have internet egress via public IPv4, public IPv6, or nat_router. Use tailscale_node_transport.bootstrap_mode=\"external\" only when your own bootstrap handles this."
     }
 
+    precondition {
+      condition = (
+        var.node_transport_mode != "tailscale" ||
+        (
+          local.validation_static_agent_network_scopes_are_explicit &&
+          local.validation_autoscaler_network_scopes_are_explicit
+        )
+      )
+      error_message = "node_transport_mode=\"tailscale\" requires network_scope=\"primary\" or network_scope=\"external\" on every active agent_nodepools entry, every explicit agent node, and every active autoscaler_nodepools entry. This keeps primary/external Network intent known during terraform plan even when network_id comes from a same-root resource."
+    }
+
+    precondition {
+      condition = (
+        var.node_transport_mode != "tailscale" ||
+        alltrue(flatten([
+          for agent_nodepool in var.agent_nodepools : concat(
+            [
+              for _ in range(max(0, floor(coalesce(agent_nodepool.count, 0)))) :
+              agent_nodepool.network_scope != "external" ||
+              agent_nodepool.network_id != null
+            ],
+            [
+              for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+              try(coalesce(agent_node.network_scope, agent_nodepool.network_scope), null) != "external" ||
+              try(coalesce(agent_node.network_id, agent_nodepool.network_id), null) != null
+            ]
+          )
+        ])) &&
+        alltrue([
+          for autoscaler_nodepool in var.autoscaler_nodepools :
+          autoscaler_nodepool.max_nodes <= 0 ||
+          autoscaler_nodepool.network_scope != "external" ||
+          autoscaler_nodepool.network_id != null
+        ])
+      )
+      error_message = "node_transport_mode=\"tailscale\" with network_scope=\"external\" requires network_id to be set. Use network_scope=\"primary\" for the primary kube-hetzner Network."
+    }
+
     # Moved from variable "agent_nodepools" validation near variables.tf:1823.
     precondition {
       condition = (
         var.node_transport_mode != "tailscale" ||
         var.tailscale_node_transport.routing.advertise_node_private_routes ||
-        alltrue(flatten([
-          for agent_nodepool in var.agent_nodepools : concat(
-            [
-              agent_nodepool.count == null ||
-              agent_nodepool.count <= 0 ||
-              coalesce(agent_nodepool.network_id, 0) == 0
-            ],
-            [
-              for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
-              coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
-            ]
-          )
-        ]))
+        local.validation_static_agents_all_primary_by_scope
       )
       error_message = "tailscale_node_transport.routing.advertise_node_private_routes can be false only when all static agent nodepools stay on the primary Hetzner Network. External agent network_id values need approved node-private routes for cross-network Kubernetes traffic."
     }
@@ -643,19 +669,7 @@ resource "terraform_data" "validation_contract" {
         var.ingress_controller == "custom" ||
         var.enable_klipper_metal_lb ||
         var.load_balancer_enable_public_network ||
-        alltrue(flatten([
-          for agent_nodepool in var.agent_nodepools : concat(
-            [
-              agent_nodepool.count == null ||
-              agent_nodepool.count <= 0 ||
-              coalesce(agent_nodepool.network_id, 0) == 0
-            ],
-            [
-              for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
-              coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
-            ]
-          )
-        ]))
+        local.validation_static_agents_all_primary_by_scope
       )
       error_message = "Tailscale node transport does not make Hetzner private Load Balancers span external static agent Networks. With external agent network_id values, managed Hetzner ingress needs public Load Balancers and public node targets; otherwise use Klipper/MetalLB, ingress_controller=\"custom\"/\"none\", or an external load balancer."
     }
@@ -666,11 +680,11 @@ resource "terraform_data" "validation_contract" {
         var.extra_network_ids,
         (var.multinetwork_mode == "cilium_public_overlay" || var.node_transport_mode == "tailscale") ? [] : flatten([
           for agent_nodepool in var.agent_nodepools : concat(
-            coalesce(agent_nodepool.network_id, 0) == 0 ? [] : [coalesce(agent_nodepool.network_id, 0)],
+            (agent_nodepool.network_scope == "primary" ? 0 : coalesce(agent_nodepool.network_id, 0)) == 0 ? [] : [coalesce(agent_nodepool.network_id, 0)],
             [
               for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
               coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
-              if coalesce(agent_node.network_id, agent_nodepool.network_id, 0) != 0
+              if(try(coalesce(agent_node.network_scope, agent_nodepool.network_scope), null) == "primary" ? 0 : coalesce(agent_node.network_id, agent_nodepool.network_id, 0)) != 0
             ]
           )
         ])
@@ -685,10 +699,10 @@ resource "terraform_data" "validation_contract" {
           [0],
           flatten([
             for agent_nodepool in var.agent_nodepools : concat(
-              [coalesce(agent_nodepool.network_id, 0)],
+              [agent_nodepool.network_scope == "primary" ? 0 : coalesce(agent_nodepool.network_id, 0)],
               [
                 for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
-                coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
+                try(coalesce(agent_node.network_scope, agent_nodepool.network_scope), null) == "primary" ? 0 : coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
               ]
             )
           ])
@@ -723,14 +737,7 @@ resource "terraform_data" "validation_contract" {
       condition = (
         var.node_transport_mode != "tailscale" ||
         var.nat_router == null ||
-        alltrue([
-          for agent_nodepool in var.agent_nodepools :
-          coalesce(agent_nodepool.network_id, 0) == 0 &&
-          alltrue([
-            for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
-            coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
-          ])
-        ])
+        local.validation_static_agents_all_primary_by_scope
       )
       error_message = "node_transport_mode=\"tailscale\" can combine with nat_router only when all static agent nodes are on the primary Hetzner Network. The module NAT router does not provide egress for external Hetzner Networks."
     }
@@ -745,14 +752,14 @@ resource "terraform_data" "validation_contract" {
             [
               for _ in range(max(0, floor(coalesce(agent_nodepool.count, 0)))) :
               (
-                coalesce(agent_nodepool.network_id, 0) == 0 &&
+                agent_nodepool.network_scope == "primary" &&
                 var.nat_router != null
               ) || agent_nodepool.enable_public_ipv4 || agent_nodepool.enable_public_ipv6
             ],
             [
               for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
               (
-                coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0 &&
+                try(coalesce(agent_node.network_scope, agent_nodepool.network_scope), null) == "primary" &&
                 var.nat_router != null
               ) ||
               coalesce(agent_node.enable_public_ipv4, agent_nodepool.enable_public_ipv4) ||
@@ -806,11 +813,7 @@ resource "terraform_data" "validation_contract" {
       condition = (
         var.node_transport_mode != "tailscale" ||
         var.tailscale_node_transport.routing.advertise_node_private_routes ||
-        alltrue([
-          for autoscaler_nodepool in var.autoscaler_nodepools :
-          autoscaler_nodepool.max_nodes <= 0 ||
-          coalesce(autoscaler_nodepool.network_id, 0) == 0
-        ])
+        local.validation_autoscalers_all_primary_by_scope
       )
       error_message = "tailscale_node_transport.routing.advertise_node_private_routes can be false only when all autoscaler nodepools stay on the primary Hetzner Network. External autoscaler network_id values need approved node-private routes for cross-network Kubernetes traffic."
     }
@@ -823,11 +826,7 @@ resource "terraform_data" "validation_contract" {
         var.ingress_controller == "custom" ||
         var.enable_klipper_metal_lb ||
         var.load_balancer_enable_public_network ||
-        alltrue([
-          for autoscaler_nodepool in var.autoscaler_nodepools :
-          autoscaler_nodepool.max_nodes <= 0 ||
-          coalesce(autoscaler_nodepool.network_id, 0) == 0
-        ])
+        local.validation_autoscalers_all_primary_by_scope
       )
       error_message = "Tailscale node transport does not make Hetzner private Load Balancers span external autoscaler Networks. With external autoscaler network_id values, managed Hetzner ingress needs public Load Balancers and public node targets; otherwise use Klipper/MetalLB, ingress_controller=\"custom\"/\"none\", or an external load balancer."
     }
@@ -854,13 +853,13 @@ resource "terraform_data" "validation_contract" {
         var.node_transport_mode == "tailscale" ||
         length(distinct(concat(
           [0],
-          [for autoscaler_nodepool in var.autoscaler_nodepools : coalesce(autoscaler_nodepool.network_id, 0)],
+          [for autoscaler_nodepool in var.autoscaler_nodepools : autoscaler_nodepool.network_scope == "primary" ? 0 : coalesce(autoscaler_nodepool.network_id, 0)],
           flatten([
             for agent_nodepool in var.agent_nodepools : concat(
-              [coalesce(agent_nodepool.network_id, 0)],
+              [agent_nodepool.network_scope == "primary" ? 0 : coalesce(agent_nodepool.network_id, 0)],
               [
                 for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
-                coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
+                try(coalesce(agent_node.network_scope, agent_nodepool.network_scope), null) == "primary" ? 0 : coalesce(agent_node.network_id, agent_nodepool.network_id, 0)
               ]
             )
           ])
@@ -874,10 +873,7 @@ resource "terraform_data" "validation_contract" {
       condition = (
         var.node_transport_mode != "tailscale" ||
         var.nat_router == null ||
-        alltrue([
-          for autoscaler_nodepool in var.autoscaler_nodepools :
-          coalesce(autoscaler_nodepool.network_id, 0) == 0
-        ])
+        local.validation_autoscalers_all_primary_by_scope
       )
       error_message = "node_transport_mode=\"tailscale\" can combine with nat_router only when all autoscaler nodepools are on the primary Hetzner Network. The module NAT router does not provide egress for external Hetzner Networks."
     }
@@ -897,7 +893,7 @@ resource "terraform_data" "validation_contract" {
         alltrue([
           for autoscaler_nodepool in var.autoscaler_nodepools :
           (
-            coalesce(autoscaler_nodepool.network_id, 0) == 0 &&
+            autoscaler_nodepool.network_scope == "primary" &&
             var.nat_router != null
           ) ||
           var.autoscaler_enable_public_ipv4 ||
@@ -1098,24 +1094,8 @@ resource "terraform_data" "validation_contract" {
         var.node_transport_mode != "tailscale" ||
         var.tailscale_node_transport.routing.advertise_node_private_routes ||
         (
-          alltrue(flatten([
-            for agent_nodepool in var.agent_nodepools : concat(
-              [
-                agent_nodepool.count == null ||
-                agent_nodepool.count <= 0 ||
-                coalesce(agent_nodepool.network_id, 0) == 0
-              ],
-              [
-                for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
-                coalesce(agent_node.network_id, agent_nodepool.network_id, 0) == 0
-              ]
-            )
-          ])) &&
-          alltrue([
-            for autoscaler_nodepool in var.autoscaler_nodepools :
-            autoscaler_nodepool.max_nodes <= 0 ||
-            coalesce(autoscaler_nodepool.network_id, 0) == 0
-          ])
+          local.validation_static_agents_all_primary_by_scope &&
+          local.validation_autoscalers_all_primary_by_scope
         )
       )
       error_message = "embedded_registry_mirror with Tailscale multinetwork nodepools requires tailscale_node_transport.routing.advertise_node_private_routes = true so registry peer traffic can cross Hetzner Network islands."

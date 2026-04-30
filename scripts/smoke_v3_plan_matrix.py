@@ -391,6 +391,7 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
                 taints      = []
                 count       = 1
                 network_id  = %s
+                network_scope = "external"
               }
             ]
             """ % external_network_hcl,
@@ -431,6 +432,241 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
                 taints      = []
                 count       = 1
                 network_id  = hcloud_network.same_root_external.id
+                network_scope = "external"
+              }
+            ]
+            """,
+        ),
+        Scenario(
+            name="tailscale-same-root-network-invalid-no-routes",
+            root_hcl="""
+            resource "hcloud_network" "same_root_external" {
+              name     = "${var.cluster_name}-same-root-external"
+              ip_range = "10.254.0.0/16"
+            }
+            """,
+            extra_module_hcl="""
+            cni_plugin                = "flannel"
+            node_transport_mode       = "tailscale"
+            firewall_kube_api_source  = null
+            firewall_ssh_source       = null
+            tailscale_auth_key        = var.tailscale_auth_key
+
+            tailscale_node_transport = {
+              bootstrap_mode  = "cloud_init"
+              magicdns_domain = "example-tailnet.ts.net"
+              routing = {
+                advertise_node_private_routes = false
+              }
+            }
+            """,
+            expect_success=False,
+            expect_output=("advertise_node_private_routes",),
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name          = "agent"
+                server_type   = "cx23"
+                location      = "nbg1"
+                labels        = []
+                taints        = []
+                count         = 1
+                network_id    = hcloud_network.same_root_external.id
+                network_scope = "external"
+              }
+            ]
+            """,
+        ),
+        Scenario(
+            name="tailscale-same-root-network-invalid-missing-scope",
+            root_hcl="""
+            resource "hcloud_network" "same_root_external" {
+              name     = "${var.cluster_name}-same-root-external"
+              ip_range = "10.254.0.0/16"
+            }
+            """,
+            extra_module_hcl="""
+            cni_plugin                = "flannel"
+            node_transport_mode       = "tailscale"
+            firewall_kube_api_source  = null
+            firewall_ssh_source       = null
+            tailscale_auth_key        = var.tailscale_auth_key
+
+            tailscale_node_transport = {
+              bootstrap_mode  = "cloud_init"
+              magicdns_domain = "example-tailnet.ts.net"
+              routing = {
+                advertise_node_private_routes = true
+              }
+            }
+            """,
+            expect_success=False,
+            expect_output=("network_scope",),
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name        = "agent"
+                server_type = "cx23"
+                location    = "nbg1"
+                labels      = []
+                taints      = []
+                count       = 1
+                network_id  = hcloud_network.same_root_external.id
+              }
+            ]
+            """,
+        ),
+        Scenario(
+            name="tailscale-same-root-autoscaler-valid",
+            root_hcl="""
+            resource "hcloud_network" "same_root_external" {
+              name     = "${var.cluster_name}-same-root-autoscaler"
+              ip_range = "10.254.0.0/16"
+            }
+            """,
+            extra_module_hcl="""
+            cni_plugin                = "flannel"
+            node_transport_mode       = "tailscale"
+            firewall_kube_api_source  = null
+            firewall_ssh_source       = null
+            tailscale_auth_key        = var.tailscale_auth_key
+            tailscale_autoscaler_auth_key = var.tailscale_auth_key
+
+            tailscale_node_transport = {
+              bootstrap_mode  = "cloud_init"
+              magicdns_domain = "example-tailnet.ts.net"
+              routing = {
+                advertise_node_private_routes = true
+              }
+            }
+
+            autoscaler_nodepools = [
+              {
+                name          = "autoscaled-external"
+                server_type   = "cx23"
+                location      = "nbg1"
+                min_nodes     = 0
+                max_nodes     = 1
+                network_id    = hcloud_network.same_root_external.id
+                network_scope = "external"
+              }
+            ]
+            """,
+            expect_success=True,
+            expect_output=("hcloud_network.same_root_external",),
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name          = "agent"
+                server_type   = "cx23"
+                location      = "nbg1"
+                labels        = []
+                taints        = []
+                count         = 1
+                network_scope = "primary"
+              }
+            ]
+            """,
+        ),
+        Scenario(
+            name="tailscale-same-root-autoscaler-invalid-no-routes",
+            root_hcl="""
+            resource "hcloud_network" "same_root_external" {
+              name     = "${var.cluster_name}-same-root-autoscaler"
+              ip_range = "10.254.0.0/16"
+            }
+            """,
+            extra_module_hcl="""
+            cni_plugin                = "flannel"
+            node_transport_mode       = "tailscale"
+            firewall_kube_api_source  = null
+            firewall_ssh_source       = null
+            tailscale_auth_key        = var.tailscale_auth_key
+            tailscale_autoscaler_auth_key = var.tailscale_auth_key
+
+            tailscale_node_transport = {
+              bootstrap_mode  = "cloud_init"
+              magicdns_domain = "example-tailnet.ts.net"
+              routing = {
+                advertise_node_private_routes = false
+              }
+            }
+
+            autoscaler_nodepools = [
+              {
+                name          = "autoscaled-external"
+                server_type   = "cx23"
+                location      = "nbg1"
+                min_nodes     = 0
+                max_nodes     = 1
+                network_id    = hcloud_network.same_root_external.id
+                network_scope = "external"
+              }
+            ]
+            """,
+            expect_success=False,
+            expect_output=("advertise_node_private_routes",),
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name          = "agent"
+                server_type   = "cx23"
+                location      = "nbg1"
+                labels        = []
+                taints        = []
+                count         = 1
+                network_scope = "primary"
+              }
+            ]
+            """,
+        ),
+        Scenario(
+            name="tailscale-same-root-autoscaler-invalid-missing-scope",
+            root_hcl="""
+            resource "hcloud_network" "same_root_external" {
+              name     = "${var.cluster_name}-same-root-autoscaler"
+              ip_range = "10.254.0.0/16"
+            }
+            """,
+            extra_module_hcl="""
+            cni_plugin                = "flannel"
+            node_transport_mode       = "tailscale"
+            firewall_kube_api_source  = null
+            firewall_ssh_source       = null
+            tailscale_auth_key        = var.tailscale_auth_key
+            tailscale_autoscaler_auth_key = var.tailscale_auth_key
+
+            tailscale_node_transport = {
+              bootstrap_mode  = "cloud_init"
+              magicdns_domain = "example-tailnet.ts.net"
+              routing = {
+                advertise_node_private_routes = true
+              }
+            }
+
+            autoscaler_nodepools = [
+              {
+                name        = "autoscaled-external"
+                server_type = "cx23"
+                location    = "nbg1"
+                min_nodes   = 0
+                max_nodes   = 1
+                network_id  = hcloud_network.same_root_external.id
+              }
+            ]
+            """,
+            expect_success=False,
+            expect_output=("network_scope",),
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name          = "agent"
+                server_type   = "cx23"
+                location      = "nbg1"
+                labels        = []
+                taints        = []
+                count         = 1
+                network_scope = "primary"
               }
             ]
             """,
@@ -473,6 +709,7 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
                 taints      = []
                 count       = 1
                 network_id  = %s
+                network_scope = "external"
               }
             ]
             """ % external_network_hcl,
@@ -511,6 +748,7 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
                 taints      = []
                 count       = 1
                 network_id  = %s
+                network_scope = "external"
               }
             ]
             """ % external_network_hcl,

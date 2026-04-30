@@ -212,6 +212,7 @@ agent_nodepools = [
     taints      = []
     count       = 3
     # network_id omitted/null means the primary kube-hetzner Network.
+    # network_scope = "primary" when node_transport_mode = "tailscale"
   },
   {
     name        = "external-network"
@@ -220,7 +221,8 @@ agent_nodepools = [
     labels      = []
     taints      = []
     count       = 3
-    network_id  = 1234567
+    network_id    = 1234567
+    # network_scope = "external" when node_transport_mode = "tailscale"
   }
 ]
 ```
@@ -415,6 +417,9 @@ For multinetwork scale-out, keep
 keeps Kubernetes node IPs on Hetzner private addresses, advertises each node's
 Hetzner private `/32` route through Tailscale with subnet-route SNAT disabled,
 and requires Tailnet ACL route auto-approval for the configured node tags.
+Every active Tailscale agent/autoscaler nodepool must set
+`network_scope = "primary"` or `network_scope = "external"` so same-root
+external Network IDs still fail invalid configurations during `terraform plan`.
 Introduce multinetwork scale in a separate audited plan after the base v2-to-v3
 upgrade unless you are intentionally doing blue/green.
 

@@ -328,13 +328,17 @@ Current behavior:
   `network_id` is omitted or null. Set a positive Hetzner Network ID only for an
   external network, and use either Tailscale node transport or the Cilium public
   overlay preview for autoscaler external networks.
+- In `node_transport_mode = "tailscale"`, active agent and autoscaler nodepools
+  must also set `network_scope = "primary"` or `network_scope = "external"`.
+  This makes the topology plan-known when `network_id` comes from a same-root
+  `hcloud_network` resource.
 - In default mode, control planes may attach to external agent networks for
   compatibility with the existing private-network behavior.
 - In `node_transport_mode = "tailscale"`, control-plane fanout is disabled,
   Kubernetes keeps Hetzner private node IPs, and Tailscale can advertise each
   node's Hetzner private `/32` route with subnet-route SNAT disabled. Route
   advertisement can be disabled for single-primary-network clusters; it must
-  stay enabled for external `network_id` nodepools.
+  stay enabled for `network_scope = "external"` nodepools.
 - In `multinetwork_mode = "cilium_public_overlay"`, control-plane fanout is
   disabled and Cilium uses public IPv4/IPv6 transport with WireGuard encryption
   for pod-to-pod reachability across Hetzner Network islands.
@@ -349,7 +353,7 @@ Current behavior:
 
 Do not turn an existing v2 cluster into a large multinetwork cluster as part of
 the same first v3 apply. Upgrade cleanly first, then introduce Tailscale
-transport or new external `network_id` nodepools in a separate audited plan, or
+transport or new `network_scope = "external"` nodepools in a separate audited plan, or
 use blue/green.
 
 ## Post-upgrade verification checklist

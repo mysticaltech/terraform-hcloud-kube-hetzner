@@ -116,7 +116,7 @@ module "kube-hetzner" {
   # Tailscale node transport.
   # Use this for secure single-network clusters that should close public API/SSH,
   # or for production private multinetwork scale-out when agent/autoscaler
-  # nodepools use external network_id values.
+  # nodepools use explicit network_scope values and external network_id values.
   #
   # Kubernetes keeps Hetzner private node IPs. For multinetwork clusters, the
   # module advertises each node's Hetzner private /32 route into the Tailnet,
@@ -131,8 +131,9 @@ module "kube-hetzner" {
   # - cni_plugin = "flannel" unless Cilium is explicitly enabled as experimental
   # - flannel_backend is not "host-gw"
   # - Tailnet reserved CIDRs do not overlap cluster/service/network CIDRs
-  # - Tailnet ACLs must auto-approve advertised node-private routes for the users/groups/tags you use when external network_id nodepools are used
-  # - nat_router is used only with primary-network nodes, not external network_id nodepools
+  # - active agent/autoscaler nodepools set network_scope = "primary" or "external"
+  # - Tailnet ACLs must auto-approve advertised node-private routes for the users/groups/tags you use when external network_scope nodepools are used
+  # - nat_router is used only with primary-network nodes, not external network_scope nodepools
   # - managed Hetzner ingress uses public node targets; use Klipper/custom/none for private-only or NAT-router ingress
   # - +100-node and 10k-node reference layouts are in examples/tailscale-node-transport/
   #
@@ -166,7 +167,7 @@ module "kube-hetzner" {
   #   }
   #   routing = {
   #     # Single-network clusters may set this to false to avoid Tailnet route
-  #     # approvals. Keep true for external network_id nodepools.
+  #     # approvals. Keep true for network_scope = "external" nodepools.
   #     advertise_node_private_routes = true
   #   }
   # }
@@ -349,6 +350,14 @@ module "kube-hetzner" {
       # Optionally pin this nodepool to pre-existing Primary IP IDs.
       # primary_ipv4_id = 123456
       # primary_ipv6_id = 123457
+
+      # In node_transport_mode = "tailscale", every active agent nodepool must
+      # set network_scope explicitly so Terraform can validate the topology at plan time:
+      # network_scope = "primary"
+      #
+      # For external Hetzner Network shards:
+      # network_id    = 11959154
+      # network_scope = "external"
     },
     {
       name            = "agent-large",
@@ -574,7 +583,11 @@ module "kube-hetzner" {
   #    min_nodes   = 0
   #    max_nodes   = 5
   #    # min_nodes/max_nodes must be non-negative integers and min_nodes must be <= max_nodes
-  #    # network_id  = 11959154 # optional existing external Hetzner Network ID for multinetwork mode; omit/null for the primary network
+  #    # In node_transport_mode = "tailscale", every active autoscaler nodepool
+  #    # must set network_scope explicitly:
+  #    # network_scope = "primary" # use with omitted/null network_id
+  #    # network_id    = 11959154 # existing external Hetzner Network ID for multinetwork mode
+  #    # network_scope = "external"
   #    # subnet_ip_range = "10.0.0.0/24" # optional subnet range inside the selected private network
   #    labels      = {
   #      "node.kubernetes.io/role": "peak-workloads"

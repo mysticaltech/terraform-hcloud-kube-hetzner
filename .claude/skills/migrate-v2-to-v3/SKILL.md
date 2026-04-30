@@ -168,9 +168,13 @@ terraform show -json v3-upgrade.tfplan \
 - Tailscale mode keeps Kubernetes node IPs on Hetzner private addresses and
   can advertise node-private `/32` routes with Tailscale subnet-route SNAT
   disabled. Single-network clusters may disable route advertisement; external
-  `network_id` nodepools require route advertisement and Tailnet auto-approval.
+  `network_scope = "external"` nodepools require route advertisement and Tailnet
+  auto-approval.
 - External agent/autoscaler Network IDs must be positive Hetzner Network IDs.
-  Omit/null means the primary Network.
+  Omit/null means the primary Network. In Tailscale mode, active
+  agent/autoscaler nodepools must also set `network_scope = "primary"` or
+  `network_scope = "external"` so same-root external Network IDs validate
+  during `terraform plan`.
 - Do not add new optional v3 features such as `cilium_gateway_api_enabled`,
   `embedded_registry_mirror`, new Tailscale multinetwork shards, or external
   Cloudflare Access/Tunnel routing during the same first in-place v2-to-v3

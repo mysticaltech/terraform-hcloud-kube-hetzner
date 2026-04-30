@@ -1133,6 +1133,7 @@ variable "agent_nodepools" {
     primary_ipv4_id       = optional(number, null)
     primary_ipv6_id       = optional(number, null)
     network_id            = optional(number, null)
+    network_scope         = optional(string, null)
     keep_disk             = optional(bool)
     join_endpoint_type    = optional(string, "private")
     extra_write_files     = optional(list(any), [])
@@ -1174,6 +1175,7 @@ variable "agent_nodepools" {
       primary_ipv4_id           = optional(number, null)
       primary_ipv6_id           = optional(number, null)
       network_id                = optional(number)
+      network_scope             = optional(string, null)
       keep_disk                 = optional(bool)
       join_endpoint_type        = optional(string, null)
       extra_write_files         = optional(list(any), [])
@@ -1273,10 +1275,13 @@ variable "agent_nodepools" {
 
   validation {
     condition = alltrue([
-      for network_id in distinct([for agent_nodepool in var.agent_nodepools : coalesce(agent_nodepool.network_id, 0)]) :
+      for network_id in distinct([
+        for agent_nodepool in var.agent_nodepools :
+        agent_nodepool.network_scope == "primary" ? 0 : coalesce(agent_nodepool.network_id, 0)
+      ]) :
       sum([
         for agent_nodepool in var.agent_nodepools :
-        coalesce(agent_nodepool.network_id, 0) == network_id ? (length(coalesce(agent_nodepool.nodes, {})) + coalesce(agent_nodepool.count, 0)) : 0
+        (agent_nodepool.network_scope == "primary" ? 0 : coalesce(agent_nodepool.network_id, 0)) == network_id ? (length(coalesce(agent_nodepool.nodes, {})) + coalesce(agent_nodepool.count, 0)) : 0
       ]) <= 100
     ])
     error_message = "Each Hetzner private network supports at most 100 attached servers. Use different network_id values to spread larger clusters."
@@ -1292,6 +1297,32 @@ variable "agent_nodepools" {
       ])
     ])
     error_message = "agent_nodepools network_id values must be null/omitted for the primary kube-hetzner network or positive integer Hetzner Network IDs."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      (agent_nodepool.network_scope == null || contains(["primary", "external"], agent_nodepool.network_scope)) &&
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        agent_node.network_scope == null || contains(["primary", "external"], agent_node.network_scope)
+      ])
+    ])
+    error_message = "agent_nodepools network_scope must be null/omitted or one of: primary, external."
+  }
+
+  validation {
+    condition = alltrue([
+      for agent_nodepool in var.agent_nodepools :
+      (agent_nodepool.network_scope != "primary" || agent_nodepool.network_id == null) &&
+      (agent_nodepool.network_scope != "external" || agent_nodepool.network_id != null) &&
+      alltrue([
+        for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+        (try(coalesce(agent_node.network_scope, agent_nodepool.network_scope), null) != "primary" || agent_node.network_id == null) &&
+        (try(coalesce(agent_node.network_scope, agent_nodepool.network_scope), null) != "external" || try(coalesce(agent_node.network_id, agent_nodepool.network_id), null) != null)
+      ])
+    ])
+    error_message = "agent_nodepools network_scope=\"primary\" must not set network_id, and network_scope=\"external\" requires network_id."
   }
 
   validation {
@@ -1587,6 +1618,7 @@ variable "autoscaler_nodepools" {
     kubelet_args       = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
     os                 = optional(string)
     network_id         = optional(number, null)
+    network_scope      = optional(string, null)
     subnet_ip_range    = optional(string, null)
     join_endpoint_type = optional(string, null)
     taints = optional(list(object({
@@ -1692,6 +1724,23 @@ variable "autoscaler_nodepools" {
       autoscaler_nodepool.network_id == null || (autoscaler_nodepool.network_id > 0 && floor(autoscaler_nodepool.network_id) == autoscaler_nodepool.network_id)
     ])
     error_message = "autoscaler_nodepools network_id values must be null/omitted for the primary kube-hetzner network or positive integer Hetzner Network IDs."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      autoscaler_nodepool.network_scope == null || contains(["primary", "external"], autoscaler_nodepool.network_scope)
+    ])
+    error_message = "autoscaler_nodepools network_scope must be null/omitted or one of: primary, external."
+  }
+
+  validation {
+    condition = alltrue([
+      for autoscaler_nodepool in var.autoscaler_nodepools :
+      (autoscaler_nodepool.network_scope != "primary" || autoscaler_nodepool.network_id == null) &&
+      (autoscaler_nodepool.network_scope != "external" || autoscaler_nodepool.network_id != null)
+    ])
+    error_message = "autoscaler_nodepools network_scope=\"primary\" must not set network_id, and network_scope=\"external\" requires network_id."
   }
 
   validation {

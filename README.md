@@ -132,7 +132,7 @@ Only apply after reviewing all planned resource actions.
 | Private-only | `nat_router` plus private control-plane LB on the primary Network. |
 | Secure operator/API access | `node_transport_mode = "tailscale"` with public API/SSH firewall sources closed. |
 | Cloudflare-protected operator/app access | Keep Tailscale or Hetzner private transport underneath; put user-managed Cloudflare Access/Tunnel in front of kube API, SSH, Rancher, or ingress endpoints. |
-| More than 100 Cloud nodes | Tailscale node transport plus external `network_id` shards, one Hetzner Network per 100-node budget. |
+| More than 100 Cloud nodes | Tailscale node transport plus `network_scope = "external"` shards, one Hetzner Network per 100-node budget. |
 | Very large reference | Autoscaler-first Tailscale multinetwork; see the 200-node and 10k-node examples. |
 | Cilium Gateway API | Cilium, `enable_kube_proxy = false`, `cilium_gateway_api_enabled = true`. |
 | Heavy image-pull pressure | `embedded_registry_mirror.enabled = true` on trusted clusters. |
@@ -1154,10 +1154,21 @@ tailscale_node_transport = {
 # Tailscale mode deliberately rejects public world-open API/SSH defaults.
 firewall_kube_api_source = null
 firewall_ssh_source      = null
+
+# Every active Tailscale agent/autoscaler nodepool sets network_scope explicitly.
+# Use "primary" when network_id is omitted/null.
+# agent_nodepools = [{
+#   name = "agent", server_type = "cx23", location = "nbg1",
+#   labels = [], taints = [], count = 2, network_scope = "primary"
+# }]
 ```
 
-Multinetwork scale-out adds external `network_id` values and requires approved
-node-private routes:
+Multinetwork scale-out adds `network_scope = "external"` nodepools with
+external `network_id` values and requires approved node-private routes. Set
+`network_scope` explicitly in Tailscale mode so
+Terraform can validate primary-vs-external Network intent during `plan`, even
+when a `network_id` comes from an `hcloud_network` resource created in the same
+root.
 
 ```tf
 node_transport_mode = "tailscale"
@@ -1194,6 +1205,7 @@ agent_nodepools = [
     taints      = []
     count       = 50
     # network_id omitted/null means the primary kube-hetzner network.
+    network_scope = "primary"
   },
   {
     name        = "agent-small-b"
@@ -1202,7 +1214,8 @@ agent_nodepools = [
     labels      = []
     taints      = []
     count       = 50
-    network_id  = 11959154 # existing external private network id
+    network_id    = 11959154 # existing external private network id
+    network_scope = "external"
   },
 ]
 
@@ -1213,6 +1226,7 @@ autoscaler_nodepools = [
     location    = "nbg1"
     min_nodes   = 0
     max_nodes   = 50
+    network_scope = "primary"
   },
   {
     name        = "autoscaled-b"
@@ -1220,7 +1234,8 @@ autoscaler_nodepools = [
     location    = "nbg1"
     min_nodes   = 0
     max_nodes   = 50
-    network_id  = 11959154
+    network_id    = 11959154
+    network_scope = "external"
   },
 ]
 ```
@@ -1245,7 +1260,9 @@ The important constraints are enforced during `terraform plan`:
 - Control planes always stay on the primary kube-hetzner network and no longer
   accept `network_id`.
 - Static agents and autoscaler nodepools may use `network_id` to spread across
-  existing Hetzner private Networks.
+  existing Hetzner private Networks. In Tailscale mode, every active static
+  agent node, agent nodepool, and autoscaler nodepool must set
+  `network_scope = "primary"` or `network_scope = "external"`.
 - Control planes are not auto-attached to every external agent Network, avoiding
   Hetzner's 3-Networks-per-server limit.
 - The module can advertise each node's Hetzner private `/32` route through
@@ -1254,8 +1271,8 @@ The important constraints are enforced during `terraform plan`:
   source IP.
 - Single-network clusters may set
   `tailscale_node_transport.routing.advertise_node_private_routes = false` to
-  avoid Tailnet route approvals. External `network_id` nodepools require the
-  default `true`.
+  avoid Tailnet route approvals. Any nodepool with `network_scope = "external"`
+  requires the default `true`.
 - For multinetwork clusters, Tailnet ACLs must auto-approve node-private routes
   for the users, groups, or node tags you use, or the cluster will wait for
   manual route approval. Tags are optional in `auth_key` mode, but they are the

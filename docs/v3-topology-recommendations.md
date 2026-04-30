@@ -14,9 +14,9 @@ make the right Hetzner topology obvious before `terraform plan`.
 | Small dev or throwaway cluster | Single location, one control plane, one small agent pool, `ingress_controller = "none"` unless you need ingress | Fast, cheap, easy to destroy | HA, autoscaler, external Networks, and NAT unless the test needs them |
 | Normal production HA | 3 control planes, 2+ agents, primary Hetzner Network, public control-plane LB or explicit secure `control_plane_endpoint` | Simple HA with predictable Terraform state and Hetzner private networking | External Network shards before you hit the single-Network attachment budget |
 | Private-only NAT cluster | `nat_router` with private nodes and a private control-plane LB | Reduces public node exposure while keeping a simple private topology | External `network_id` shards; the module NAT router only covers the primary Network |
-| Single-network Tailscale | `node_transport_mode = "tailscale"`, keep all nodepools on the primary Network, `firewall_kube_api_source = null`, `firewall_ssh_source = null` | Tailnet operator access and kubeconfig without public API/SSH rules | Disabling public IPs unless you already provide private egress and external Tailscale bootstrap |
+| Single-network Tailscale | `node_transport_mode = "tailscale"`, `network_scope = "primary"` on active nodepools, `firewall_kube_api_source = null`, `firewall_ssh_source = null` | Tailnet operator access and kubeconfig without public API/SSH rules | Disabling public IPs unless you already provide private egress and external Tailscale bootstrap |
 | Cloudflare Access/Tunnel | User-managed Cloudflare Tunnel, Access policy, and DNS in front of kube API, SSH, Rancher, Grafana, or ingress hostnames | Strong operator/app access control without adding Cloudflare provider state to kube-hetzner | Treating Cloudflare Mesh/WARP as kube-hetzner node transport |
-| +100 Tailscale multinetwork | `node_transport_mode = "tailscale"`, one Hetzner Network per shard, `network_subnet_mode = "per_nodepool"`, route auto-approval in Tailnet policy | Hetzner Networks cap attached resources and do not route between Networks; Tailscale becomes the secure node transport | Cilium public overlay for production, or private Hetzner LBs that target nodes across disconnected Networks |
+| +100 Tailscale multinetwork | `node_transport_mode = "tailscale"`, `network_scope = "external"` with one Hetzner Network per shard, `network_subnet_mode = "per_nodepool"`, route auto-approval in Tailnet policy | Hetzner Networks cap attached resources and do not route between Networks; Tailscale becomes the secure node transport | Cilium public overlay for production, or private Hetzner LBs that target nodes across disconnected Networks |
 | 10k reference | Autoscaler-first Tailscale multinetwork, 100 nodes per Network shard, many external Network IDs, explicit quota planning | Terraform state stays smaller and each Network shard stays inside Hetzner's limits | One huge static Terraform server list, one project with too few placement groups, or a single Network |
 | RKE2 | `kubernetes_distribution = "rke2"` on Leap Micro, with exact version pinning for conservative production | Heavier distribution, useful when RKE2 behavior is required | Assuming every k3s-only addon behavior maps 1:1; test the preset |
 | Cilium dual-stack | `cni_plugin = "cilium"` plus dual-stack cluster/service CIDRs | Best advanced CNI path for IPv4/IPv6 | Flannel/Calico when you need Cilium-only features |
@@ -102,6 +102,13 @@ tailscale_node_transport = {
   }
 }
 ```
+
+In Tailscale mode, every active static agent and autoscaler nodepool must set
+`network_scope = "primary"` or `network_scope = "external"`. Use `"primary"`
+when `network_id` is omitted/null, and `"external"` with every external
+`network_id`. This is intentionally separate from the numeric ID so same-root
+`hcloud_network` resources still fail invalid configurations during
+`terraform plan` before Hetzner creates anything.
 
 Tailnet policy must auto-approve the advertised private routes for the tags or
 users used by the nodes. The module sets `--snat-subnet-routes=false` so CNI

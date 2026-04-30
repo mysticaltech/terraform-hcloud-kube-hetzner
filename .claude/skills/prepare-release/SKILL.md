@@ -237,6 +237,8 @@ For v3, additionally verify the Tailscale node-transport surfaces stay aligned:
 private multinetwork path, Flannel is first supported, Cilium is experimental,
 Calico is rejected, subnet-route SNAT is disabled when advertising routes,
 single-network examples may disable node-private route advertisement, and
+active Tailscale agent/autoscaler nodepools set `network_scope` explicitly so
+same-root external Network IDs are validated during `terraform plan`,
 external-overlay docs still describe only user-owned operator
 access/post-bootstrap features.
 

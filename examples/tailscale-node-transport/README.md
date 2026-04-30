@@ -26,8 +26,10 @@ Cloudflare Mesh/WARP is not a supported kube-hetzner node transport in v3.
 - You want kubeconfig to point at the first control plane's Tailnet endpoint.
 - You need more than one Hetzner Cloud Network because a single Network's
   attachment limit is not enough.
-- Agent or autoscaler nodepools may use `network_id` to spread nodes across
-  existing Hetzner private Networks.
+- Agent or autoscaler nodepools may use `network_id` plus
+  `network_scope = "external"` to spread nodes across existing Hetzner private
+  Networks. Use `network_scope = "primary"` for primary-Network Tailscale
+  nodepools.
 - You want Flannel to remain the CNI while Tailscale provides secure
   cross-network node reachability when needed.
 - You accept that Tailnet ACLs, tags, auth keys/OAuth clients, and route
@@ -79,15 +81,18 @@ agent_nodepools = [
     labels      = []
     taints      = []
     count       = 2
+    network_scope = "primary"
   }
 ]
 ```
 
 ## Multinetwork Scale-Out
 
-When any agent or autoscaler nodepool uses an external `network_id`, keep
-`advertise_node_private_routes = true` and make sure Tailnet policy auto-approves
-the relevant private routes.
+When any agent or autoscaler nodepool uses `network_scope = "external"` with an
+external `network_id`, keep `advertise_node_private_routes = true` and make
+sure Tailnet policy auto-approves the relevant private routes. Tailscale mode
+requires explicit `network_scope` on every active agent and autoscaler nodepool
+so these rules fail during `terraform plan`, including same-root Network IDs.
 
 ```hcl
 tailscale_node_transport = {
@@ -115,6 +120,7 @@ agent_nodepools = [
     labels      = []
     taints      = []
     count       = 50
+    network_scope = "primary"
   },
   {
     name        = "agents-secondary"
@@ -123,7 +129,8 @@ agent_nodepools = [
     labels      = []
     taints      = []
     count       = 50
-    network_id  = 11959154
+    network_id    = 11959154
+    network_scope = "external"
   },
 ]
 
@@ -134,6 +141,7 @@ autoscaler_nodepools = [
     location    = "nbg1"
     min_nodes   = 0
     max_nodes   = 50
+    network_scope = "primary"
   },
   {
     name        = "autoscaled-secondary"
@@ -141,7 +149,8 @@ autoscaler_nodepools = [
     location    = "nbg1"
     min_nodes   = 0
     max_nodes   = 50
-    network_id  = 11959154
+    network_id    = 11959154
+    network_scope = "external"
   },
 ]
 ```
@@ -206,8 +215,9 @@ embedded_registry_mirror = {
 ```
 
 Keep `tailscale_node_transport.routing.advertise_node_private_routes = true`
-when any nodepool uses an external `network_id`; the registry mirror peer ports
-need the same cross-Network private reachability as Kubernetes node traffic.
+when any nodepool uses `network_scope = "external"`; the registry mirror peer
+ports need the same cross-Network private reachability as Kubernetes node
+traffic.
 
 ## OAuth Mode
 
@@ -295,12 +305,15 @@ can be broader than the individual `/32` routes; keep them aligned with your
   datapath coverage promotes it. Calico is rejected for now.
 - Autoscaler nodepools require `bootstrap_mode = "cloud_init"` because
   Terraform cannot remote-exec into nodes that do not exist yet.
+- Every active Tailscale agent/autoscaler nodepool needs explicit
+  `network_scope = "primary"` or `network_scope = "external"` so same-root
+  external Network IDs can still be validated during `terraform plan`.
 - The module NAT router is only a primary-network egress path. Do not combine
   it with external-network Tailscale nodepools in this release; those nodepools
   need their own egress path.
 - Managed Hetzner private Load Balancers work for single-primary-network
   Tailscale clusters. They still cannot target private IPs across separate
-  nodepool Networks. With external `network_id` nodepools, use public LB
+  nodepool Networks. With `network_scope = "external"` nodepools, use public LB
   targets, Klipper/MetalLB, no/custom ingress, or your own load-balancing layer.
 - `firewall_kube_api_source` and `firewall_ssh_source` must be `null` or
   restricted to explicit CIDRs. World-open public API/SSH is rejected.

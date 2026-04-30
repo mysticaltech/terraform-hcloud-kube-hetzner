@@ -42,12 +42,13 @@ module "kube-hetzner" {
 
   agent_nodepools = [
     {
-      name        = "agent"
-      server_type = "cx23"
-      location    = "nbg1"
-      labels      = []
-      taints      = []
-      count       = 2
+      name          = "agent"
+      server_type   = "cx23"
+      location      = "nbg1"
+      labels        = []
+      taints        = []
+      count         = 2
+      network_scope = "primary"
     }
   ]
 

@@ -56,16 +56,18 @@ locals {
   autoscaler_network_shards = concat(
     [
       {
-        name       = "primary"
-        network_id = null
-        max_nodes  = 90
+        name          = "primary"
+        network_id    = null
+        network_scope = "primary"
+        max_nodes     = 90
       }
     ],
     [
       for index, network_id in var.external_network_ids : {
-        name       = format("external-%03d", index + 1)
-        network_id = network_id
-        max_nodes  = 100
+        name          = format("external-%03d", index + 1)
+        network_id    = network_id
+        network_scope = "external"
+        max_nodes     = 100
       }
     ]
   )
@@ -121,7 +123,7 @@ module "kube-hetzner" {
 
   # Optional for trusted large clusters: reduce duplicate image pulls by using
   # the k3s/RKE2 embedded Spegel registry mirror. Keep route advertisement above
-  # enabled when external network_id nodepools exist.
+  # enabled when network_scope = "external" nodepools exist.
   # embedded_registry_mirror = {
   #   enabled                  = true
   #   registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
@@ -147,6 +149,7 @@ module "kube-hetzner" {
       labels      = ["node.kubernetes.io/role=system"]
       taints      = []
       count       = 7
+      network_scope = "primary"
     }
   ]
 
@@ -157,7 +160,8 @@ module "kube-hetzner" {
       location    = "nbg1"
       min_nodes   = 0
       max_nodes   = shard.max_nodes
-      network_id  = shard.network_id
+      network_id    = shard.network_id
+      network_scope = shard.network_scope
       labels = {
         "kh/network-shard" = shard.name
       }

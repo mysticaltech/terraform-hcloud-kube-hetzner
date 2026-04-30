@@ -78,20 +78,20 @@ locals {
   validation_agent_locations = concat(
     [
       for nodepool in var.agent_nodepools : nodepool.location
-      if coalesce(nodepool.count, 0) > 0 && coalesce(nodepool.network_id, 0) == 0
+      if coalesce(nodepool.count, 0) > 0 && (nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == 0
     ],
     flatten([
       for nodepool in var.agent_nodepools : [
         for _, node in coalesce(nodepool.nodes, {}) :
         coalesce(node.location, nodepool.location)
-        if coalesce(node.network_id, nodepool.network_id, 0) == 0
+        if(try(coalesce(node.network_scope, nodepool.network_scope), null) == "primary" ? 0 : coalesce(node.network_id, nodepool.network_id, 0)) == 0
       ]
     ])
   )
 
   validation_autoscaler_locations = [
     for nodepool in var.autoscaler_nodepools : nodepool.location
-    if coalesce(nodepool.network_id, 0) == 0
+    if(nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == 0
   ]
 
   validation_nat_router_locations = var.nat_router == null ? [] : compact([
@@ -157,11 +157,11 @@ locals {
 
   validation_external_agent_network_ids = distinct(flatten([
     for nodepool in var.agent_nodepools : concat(
-      coalesce(nodepool.network_id, 0) == 0 ? [] : [coalesce(nodepool.network_id, 0)],
+      (nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == 0 ? [] : [coalesce(nodepool.network_id, 0)],
       [
         for _, node in coalesce(nodepool.nodes, {}) :
         coalesce(node.network_id, nodepool.network_id, 0)
-        if coalesce(node.network_id, nodepool.network_id, 0) != 0
+        if(try(coalesce(node.network_scope, nodepool.network_scope), null) == "primary" ? 0 : coalesce(node.network_id, nodepool.network_id, 0)) != 0
       ]
     )
   ]))
@@ -169,7 +169,45 @@ locals {
   validation_external_autoscaler_network_ids = distinct([
     for nodepool in var.autoscaler_nodepools :
     coalesce(nodepool.network_id, 0)
-    if coalesce(nodepool.network_id, 0) != 0
+    if(nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) != 0
+  ])
+
+  validation_static_agent_network_scopes = flatten([
+    for nodepool in var.agent_nodepools : concat(
+      [
+        for _ in range(max(0, floor(coalesce(nodepool.count, 0)))) :
+        coalesce(nodepool.network_scope, "__unset")
+      ],
+      [
+        for _, node in coalesce(nodepool.nodes, {}) :
+        coalesce(node.network_scope, nodepool.network_scope, "__unset")
+      ]
+    )
+  ])
+
+  validation_static_agent_network_scopes_are_explicit = alltrue([
+    for scope in local.validation_static_agent_network_scopes :
+    contains(["primary", "external"], scope)
+  ])
+
+  validation_static_agents_all_primary_by_scope = alltrue([
+    for scope in local.validation_static_agent_network_scopes :
+    scope == "primary"
+  ])
+
+  validation_autoscaler_network_scopes = [
+    for nodepool in var.autoscaler_nodepools :
+    nodepool.max_nodes <= 0 ? "primary" : coalesce(nodepool.network_scope, "__unset")
+  ]
+
+  validation_autoscaler_network_scopes_are_explicit = alltrue([
+    for scope in local.validation_autoscaler_network_scopes :
+    contains(["primary", "external"], scope)
+  ])
+
+  validation_autoscalers_all_primary_by_scope = alltrue([
+    for scope in local.validation_autoscaler_network_scopes :
+    scope == "primary"
   ])
 
   validation_referenced_network_ids = distinct(concat(
@@ -196,7 +234,7 @@ locals {
           [
             (
               nodepool.count == null ? 0 : (
-                coalesce(nodepool.network_id, 0) == network_id ||
+                (nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == network_id ||
                 contains(var.extra_network_ids, network_id)
                 ? nodepool.count
                 : 0
@@ -206,7 +244,7 @@ locals {
           [
             for _, node in coalesce(nodepool.nodes, {}) :
             (
-              coalesce(node.network_id, nodepool.network_id, 0) == network_id ||
+              (try(coalesce(node.network_scope, nodepool.network_scope), null) == "primary" ? 0 : coalesce(node.network_id, nodepool.network_id, 0)) == network_id ||
               contains(var.extra_network_ids, network_id)
               ? 1
               : 0
@@ -216,7 +254,7 @@ locals {
       ]))) + (
       sum(concat([0], [
         for nodepool in var.autoscaler_nodepools :
-        coalesce(nodepool.network_id, 0) == network_id ? nodepool.max_nodes : 0
+        (nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == network_id ? nodepool.max_nodes : 0
       ]))
       ) + (
       network_id == 0 && var.nat_router != null ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0

@@ -130,6 +130,16 @@ def validate_200_example(path: Path) -> ExampleCheck:
         "agents-secondary must be pinned to var.secondary_network_id.",
     )
     require(
+        re.search(r'name\s*=\s*"agents-primary".*?network_scope\s*=\s*"primary"', text, re.S)
+        is not None,
+        'agents-primary must set network_scope = "primary".',
+    )
+    require(
+        re.search(r'name\s*=\s*"agents-secondary".*?network_scope\s*=\s*"external"', text, re.S)
+        is not None,
+        'agents-secondary must set network_scope = "external".',
+    )
+    require(
         re.search(r"(?m)^\s*placement_group\s*=", text) is None,
         "200-node static example must leave placement_group unset so auto-sharding is active.",
     )
@@ -189,6 +199,19 @@ def validate_10000_example(path: Path) -> ExampleCheck:
     require(
         re.search(r"(?m)^\s*network_id\s*=\s*shard\.network_id\s*$", text) is not None,
         "Autoscaler nodepool must pass shard.network_id to the module.",
+    )
+    require(
+        re.search(r"(?m)^\s*network_scope\s*=\s*shard\.network_scope\s*$", text) is not None,
+        "Autoscaler nodepool must pass shard.network_scope to the module.",
+    )
+    require(
+        re.search(r'name\s*=\s*"primary".*?network_scope\s*=\s*"primary"', text, re.S) is not None,
+        'Primary autoscaler shard must set network_scope = "primary".',
+    )
+    require(
+        re.search(r'format\("external-%03d", index \+ 1\).*?network_scope\s*=\s*"external"', text, re.S)
+        is not None,
+        'External autoscaler shards must set network_scope = "external".',
     )
     require(
         re.search(r"(?m)^\s*min_nodes\s*=\s*0\s*$", text) is not None,

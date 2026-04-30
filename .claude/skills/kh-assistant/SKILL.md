@@ -281,7 +281,7 @@ Core rules:
 - Invert positive/negative booleans carefully.
 - Remove `network_id = 0`; omitted/null means the primary Network in v3.
 - Remove control-plane `network_id`; control planes stay on the primary Network.
-- For secure Tailnet access or private multinetwork scale, prefer `node_transport_mode = "tailscale"`. For v2-to-v3 upgrades, introduce large multinetwork scale in a separate audited plan after the base upgrade. Tailscale mode keeps Kubernetes node IPs on Hetzner private addresses and can advertise node-private `/32` routes with Tailscale subnet-route SNAT disabled.
+- For secure Tailnet access or private multinetwork scale, prefer `node_transport_mode = "tailscale"`. For v2-to-v3 upgrades, introduce large multinetwork scale in a separate audited plan after the base upgrade. Tailscale mode keeps Kubernetes node IPs on Hetzner private addresses and can advertise node-private `/32` routes with Tailscale subnet-route SNAT disabled. Active agent/autoscaler nodepools in Tailscale mode must set `network_scope = "primary"` or `network_scope = "external"` so invalid same-root external Network configs fail at plan time.
 - Do not suggest Calico with Tailscale node transport yet. Flannel is first supported; Cilium is still explicitly experimental in this transport mode.
 - For Cloudflare, recommend only the external Access/Tunnel pattern for kube API, SSH, Rancher, Grafana, or ingress. Do not suggest Cloudflare Mesh/WARP as kube-hetzner node transport and do not invent Cloudflare provider inputs.
 - Run `terraform fmt -recursive`, `terraform init -upgrade`, `terraform validate`, and `terraform plan -out=v3-upgrade.tfplan`.
@@ -452,17 +452,18 @@ tailscale_node_transport = {
     mode = "auth_key"
   }
   routing = {
-    # Single-network clusters may set false; external network_id nodepools need true.
+    # Single-network clusters may set false; network_scope = "external" nodepools need true.
     advertise_node_private_routes = false
   }
 }
 ```
 
 Rules to mention:
-- Tailnet ACLs must auto-approve advertised Hetzner node-private `/32` routes when external `network_id` nodepools are used.
+- Tailscale mode requires explicit `network_scope = "primary"` or `"external"` on every active agent/autoscaler nodepool. Use `"primary"` when `network_id` is omitted/null; use `"external"` with external `network_id`, including same-root `hcloud_network.*.id`.
+- Tailnet ACLs must auto-approve advertised Hetzner node-private `/32` routes when external `network_scope` nodepools are used.
 - The module disables Tailscale subnet-route SNAT for node/CNI traffic.
 - Flannel VXLAN is first supported; Cilium needs the experimental flag; Calico is rejected.
-- Managed Hetzner private LBs are fine for single-primary-network clusters; external `network_id` nodepools need public LB targets or non-Hetzner/private alternatives.
+- Managed Hetzner private LBs are fine for single-primary-network clusters; external `network_scope` nodepools need public LB targets or non-Hetzner/private alternatives.
 - The module NAT router only gives egress to the primary Hetzner Network; external-network Tailscale nodepools need public egress or an external bootstrap path.
 - Large examples live in `examples/tailscale-node-transport/large-scale-200.tf.example` and `examples/tailscale-node-transport/massive-10000-nodes.tf.example`.
 - The 200-node static example is `3 control planes + 97 primary agents + 100 agents on one external Network`; both Networks are exactly at Hetzner's 100-attachment limit and placement groups auto-shard to 21 groups.

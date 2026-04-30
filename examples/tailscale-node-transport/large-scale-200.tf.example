@@ -77,7 +77,7 @@ module "kube-hetzner" {
 
   # Optional for trusted large clusters: reduce duplicate image pulls by using
   # the k3s/RKE2 embedded Spegel registry mirror. Keep route advertisement above
-  # enabled when external network_id nodepools exist.
+  # enabled when network_scope = "external" nodepools exist.
   # embedded_registry_mirror = {
   #   enabled                  = true
   #   registries               = ["docker.io", "registry.k8s.io", "ghcr.io", "quay.io"]
@@ -103,6 +103,7 @@ module "kube-hetzner" {
       labels      = []
       taints      = []
       count       = 97
+      network_scope = "primary"
     },
     {
       name        = "agents-secondary"
@@ -111,7 +112,8 @@ module "kube-hetzner" {
       labels      = []
       taints      = []
       count       = 100
-      network_id  = var.secondary_network_id
+      network_id    = var.secondary_network_id
+      network_scope = "external"
     },
   ]
 }

@@ -455,7 +455,7 @@ locals {
           local.tailscale_advertise_node_private_route
         ),
         "__KH_TAILSCALE_PRIVATE_ROUTE_PROBE__",
-        local.network_gw_ipv4_by_network_id[coalesce(nodepool.network_id, 0) == 0 ? data.hcloud_network.k3s.id : nodepool.network_id]
+        local.network_gw_ipv4_by_network_id[local.autoscaler_effective_network_id_by_index[index] == 0 ? data.hcloud_network.k3s.id : local.autoscaler_effective_network_id_by_index[index]]
       ),
       "TS_HOSTNAME='__KH_TAILSCALE_HOSTNAME__'",
       "TS_HOSTNAME=\"$(curl -fsS --max-time 2 http://169.254.169.254/hetzner/v1/metadata/hostname 2>/dev/null || hostname -s)\""
@@ -1017,7 +1017,8 @@ EOT
         disable_ipv6 : !nodepool_obj.enable_public_ipv6 || local.use_nat_router,
         primary_ipv4_id : nodepool_obj.primary_ipv4_id,
         primary_ipv6_id : nodepool_obj.primary_ipv6_id,
-        network_id : coalesce(nodepool_obj.network_id, 0),
+        network_scope : nodepool_obj.network_scope,
+        network_id : nodepool_obj.network_scope == "primary" ? 0 : coalesce(nodepool_obj.network_id, 0),
         keep_disk : nodepool_obj.keep_disk,
         join_endpoint_type : nodepool_obj.join_endpoint_type,
         extra_write_files : nodepool_obj.extra_write_files,
@@ -1060,7 +1061,8 @@ EOT
           disable_ipv6 : !nodepool_obj.enable_public_ipv6 || local.use_nat_router,
           primary_ipv4_id : nodepool_obj.primary_ipv4_id,
           primary_ipv6_id : nodepool_obj.primary_ipv6_id,
-          network_id : coalesce(nodepool_obj.network_id, 0),
+          network_scope : nodepool_obj.network_scope,
+          network_id : nodepool_obj.network_scope == "primary" ? 0 : coalesce(nodepool_obj.network_id, 0),
           keep_disk : nodepool_obj.keep_disk,
           join_endpoint_type : nodepool_obj.join_endpoint_type,
           extra_write_files : nodepool_obj.extra_write_files,
@@ -1074,7 +1076,8 @@ EOT
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
           disable_ipv4 : !coalesce(node_obj.enable_public_ipv4, nodepool_obj.enable_public_ipv4) || local.use_nat_router,
           disable_ipv6 : !coalesce(node_obj.enable_public_ipv6, nodepool_obj.enable_public_ipv6) || local.use_nat_router,
-          network_id : coalesce(node_obj.network_id, nodepool_obj.network_id, 0),
+          network_scope : try(coalesce(node_obj.network_scope, nodepool_obj.network_scope), null),
+          network_id : try(coalesce(node_obj.network_scope, nodepool_obj.network_scope), null) == "primary" ? 0 : coalesce(node_obj.network_id, nodepool_obj.network_id, 0),
           extra_write_files : concat(nodepool_obj.extra_write_files, coalesce(node_obj.extra_write_files, [])),
           extra_runcmd : concat(nodepool_obj.extra_runcmd, coalesce(node_obj.extra_runcmd, [])),
           attached_volumes : concat(nodepool_obj.attached_volumes, coalesce(node_obj.attached_volumes, [])),
@@ -1182,7 +1185,7 @@ EOT
     },
     {
       for index, nodepool in var.autoscaler_nodepools :
-      "autoscaler:${index}" => coalesce(nodepool.network_id, 0)
+      "autoscaler:${index}" => local.autoscaler_effective_network_id_by_index[index]
     }
   )
 
