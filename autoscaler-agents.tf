@@ -42,6 +42,7 @@ locals {
       ipv4_subnet_id                             = data.hcloud_network.k3s.id
       snapshot_id                                = local.first_nodepool_snapshot_id
       cluster_config                             = base64encode(jsonencode(local.cluster_config))
+      cluster_config_sha256                      = sha256(jsonencode(local.cluster_config))
       firewall_id                                = hcloud_firewall.k3s.id
       cluster_name                               = local.cluster_prefix
       node_pools                                 = var.autoscaler_nodepools
