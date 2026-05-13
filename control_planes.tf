@@ -103,7 +103,7 @@ resource "hcloud_load_balancer_service" "control_plane" {
   listen_port      = "6443"
 
   health_check {
-    protocol = "https"
+    protocol = "http"
     port     = 6443
     interval = tonumber(trimsuffix(var.load_balancer_health_check_interval, "s"))
     timeout  = tonumber(trimsuffix(var.load_balancer_health_check_timeout, "s"))
@@ -111,7 +111,7 @@ resource "hcloud_load_balancer_service" "control_plane" {
 
     http {
       path         = "/readyz"
-      tls          = false
+      tls          = true
       status_codes = ["200", "401"]
     }
   }
