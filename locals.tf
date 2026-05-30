@@ -219,7 +219,7 @@ locals {
       var.enable_cert_manager || var.enable_rancher ? ["cert_manager.yaml"] : [],
       var.enable_rancher ? ["rancher.yaml"] : [],
       var.rancher_registration_manifest_url != "" ? [var.rancher_registration_manifest_url] : [],
-      local.gateway_api_enabled ? ["https://github.com/kubernetes-sigs/gateway-api/releases/download/${local.gateway_api_version}/standard-install.yaml"] : []
+      local.gateway_api_enabled ? ["https://github.com/kubernetes-sigs/gateway-api/releases/download/${coalesce(local.gateway_api_version, "none")}/standard-install.yaml"] : []
     ),
     patches = concat([
       {
