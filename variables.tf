@@ -1153,6 +1153,18 @@ variable "csi_driver_smb_values" {
   description = "Additional helm values file to pass to csi-driver-smb as 'valuesContent' at the HelmChart."
 }
 
+variable "gateway_api_enabled" {
+  type        = bool
+  default     = false
+  description = "Enable the Kubernetes Gateway API CRDs (standard channel). Default is false."
+}
+
+variable "gateway_api_version" {
+  type        = string
+  default     = null
+  description = "Version of the Gateway API CRDs. See https://github.com/kubernetes-sigs/gateway-api/releases for available versions."
+}
+
 variable "enable_cert_manager" {
   type        = bool
   default     = true

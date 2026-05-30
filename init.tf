@@ -295,6 +295,7 @@ resource "terraform_data" "kustomization" {
       coalesce(var.longhorn_version, "N/A"),
       coalesce(var.rancher_version, "N/A"),
       coalesce(var.sys_upgrade_controller_version, "N/A"),
+      coalesce(var.gateway_api_version, "N/A"),
     ])
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"

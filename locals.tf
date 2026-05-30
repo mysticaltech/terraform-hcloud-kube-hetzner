@@ -17,10 +17,12 @@ locals {
   # k3s endpoint used for agent registration, respects control_plane_endpoint override
   k3s_endpoint = coalesce(var.control_plane_endpoint, "https://${var.use_control_plane_lb ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address}:6443")
 
-  ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : jsondecode(data.http.hetzner_ccm_release[0].response_body).tag_name
-  csi_version    = length(data.http.hetzner_csi_release) == 0 ? var.hetzner_csi_version : jsondecode(data.http.hetzner_csi_release[0].response_body).tag_name
-  kured_version  = length(data.http.kured_release) == 0 ? var.kured_version : jsondecode(data.http.kured_release[0].response_body).tag_name
-  calico_version = length(data.http.calico_release) == 0 ? var.calico_version : jsondecode(data.http.calico_release[0].response_body).tag_name
+  ccm_version         = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : jsondecode(data.http.hetzner_ccm_release[0].response_body).tag_name
+  csi_version         = length(data.http.hetzner_csi_release) == 0 ? var.hetzner_csi_version : jsondecode(data.http.hetzner_csi_release[0].response_body).tag_name
+  kured_version       = length(data.http.kured_release) == 0 ? var.kured_version : jsondecode(data.http.kured_release[0].response_body).tag_name
+  calico_version      = length(data.http.calico_release) == 0 ? var.calico_version : jsondecode(data.http.calico_release[0].response_body).tag_name
+  gateway_api_enabled = var.gateway_api_enabled || var.traefik_provider_kubernetes_gateway_enabled
+  gateway_api_version = length(data.http.gateway_api_release) == 0 ? var.gateway_api_version : jsondecode(data.http.gateway_api_release[0].response_body).tag_name
 
   # Determine kured YAML suffix based on version (>= 1.20.0 uses -combined.yaml, < 1.20.0 uses -dockerhub.yaml)
   kured_yaml_suffix = provider::semvers::compare(local.kured_version, "1.20.0") >= 0 ? "combined" : "dockerhub"
@@ -216,7 +218,8 @@ locals {
       var.enable_csi_driver_smb ? ["csi-driver-smb.yaml"] : [],
       var.enable_cert_manager || var.enable_rancher ? ["cert_manager.yaml"] : [],
       var.enable_rancher ? ["rancher.yaml"] : [],
-      var.rancher_registration_manifest_url != "" ? [var.rancher_registration_manifest_url] : []
+      var.rancher_registration_manifest_url != "" ? [var.rancher_registration_manifest_url] : [],
+      local.gateway_api_enabled ? ["https://github.com/kubernetes-sigs/gateway-api/releases/download/${local.gateway_api_version}/standard-install.yaml"] : []
     ),
     patches = concat([
       {

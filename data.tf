@@ -34,6 +34,15 @@ data "http" "calico_release" {
   }
 }
 
+data "http" "gateway_api_release" {
+  count = (var.gateway_api_enabled || var.traefik_provider_kubernetes_gateway_enabled) && var.gateway_api_version == null ? 1 : 0
+  url   = "https://api.github.com/repos/kubernetes-sigs/gateway-api/releases/latest"
+
+  request_headers = {
+    Accept = "application/vnd.github+json"
+  }
+}
+
 data "hcloud_ssh_keys" "keys_by_selector" {
   count         = length(var.ssh_hcloud_key_label) > 0 ? 1 : 0
   with_selector = var.ssh_hcloud_key_label
