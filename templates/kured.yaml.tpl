@@ -14,6 +14,8 @@ spec:
         name: kured
     spec:
       serviceAccountName: kured
+      tolerations:
+        - operator: Exists
       containers:
         - name: kured
           command:
