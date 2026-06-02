@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Clarified Cluster Autoscaler scale-down behavior for pods using local storage and the safe overrides available for intentional eviction (#2187).
 - Clarified that `ingress_controller = "nginx"` installs Kubernetes ingress-nginx, not the F5 NGINX Ingress Controller; use `ingress_controller = "none"` when installing F5 independently (#2204).
+- Fixed the `kube.tf.example` HA control-plane example so every nodepool name is unique and the example validates as a root Terraform configuration.
 
 ---
 
