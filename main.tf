@@ -37,7 +37,12 @@ data "hcloud_image" "microos_x86_snapshot" {
 }
 
 data "hcloud_image" "microos_arm_snapshot" {
-  count             = var.microos_arm_snapshot_id == "" && local.uses_microos_arm_snapshot ? 1 : 0
+  count = (
+    var.microos_arm_snapshot_id == "" &&
+    local.uses_microos_arm_snapshot &&
+    local.arm_nodes_count > 0
+  ) ? 1 : 0
+
   with_selector     = "microos-snapshot=yes"
   with_architecture = "arm"
   most_recent       = true
