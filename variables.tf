@@ -650,6 +650,13 @@ variable "traefik_provider_kubernetes_gateway_enabled" {
   description = "Should traefik enable the kubernetes gateway provider. Default is false."
 }
 
+variable "gateway_api_version" {
+  type        = string
+  nullable    = false
+  default     = "v1.5.1"
+  description = "Version of the Kubernetes Gateway API CRDs to install when traefik_provider_kubernetes_gateway_enabled is true. See https://github.com/kubernetes-sigs/gateway-api/releases for available versions."
+}
+
 variable "traefik_resource_limits" {
   type        = bool
   default     = true
