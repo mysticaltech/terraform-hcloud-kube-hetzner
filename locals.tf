@@ -209,6 +209,7 @@ locals {
       ],
       var.hetzner_ccm_use_helm ? ["hcloud-ccm-helm.yaml"] : ["ccm-networks.yaml"],
       var.disable_hetzner_csi ? [] : ["hcloud-csi.yaml"],
+      var.traefik_provider_kubernetes_gateway_enabled ? ["https://github.com/kubernetes-sigs/gateway-api/releases/download/${var.gateway_api_version}/standard-install.yaml"] : [],
       lookup(local.ingress_controller_install_resources, var.ingress_controller, []),
       lookup(local.cni_install_resources, var.cni_plugin, []),
       var.cni_plugin == "flannel" ? ["flannel-rbac.yaml"] : [],

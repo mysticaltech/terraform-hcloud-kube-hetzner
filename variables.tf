@@ -650,6 +650,18 @@ variable "traefik_provider_kubernetes_gateway_enabled" {
   description = "Should traefik enable the kubernetes gateway provider. Default is false."
 }
 
+variable "gateway_api_version" {
+  type        = string
+  nullable    = false
+  default     = "v1.5.1"
+  description = "Version of the Kubernetes Gateway API CRDs to install when traefik_provider_kubernetes_gateway_enabled is true. See https://github.com/kubernetes-sigs/gateway-api/releases for available versions."
+
+  validation {
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$", var.gateway_api_version))
+    error_message = "gateway_api_version must be a Gateway API release tag like v1.5.1."
+  }
+}
+
 variable "traefik_resource_limits" {
   type        = bool
   default     = true

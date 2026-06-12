@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### 🐛 Bug Fixes
+
+- **Traefik Gateway API CRDs** - Install the Kubernetes Gateway API standard CRDs before Traefik when `traefik_provider_kubernetes_gateway_enabled` is enabled, preventing Helm install failures for `GatewayClass` and `Gateway` resources (#2211).
 
 ---
 

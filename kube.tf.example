@@ -643,6 +643,10 @@ module "kube-hetzner" {
   # The default is false.
   # traefik_provider_kubernetes_gateway_enabled = true
 
+  # Kubernetes Gateway API CRD version to install when traefik_provider_kubernetes_gateway_enabled is true.
+  # The default is "v1.5.1".
+  # gateway_api_version = "v1.5.1"
+
   # Enable or disable default resource requests and limits for traefik. Values requested are 100m & 50Mi and limits 300m & 150Mi.
   # The default is true.
   # traefik_resource_limits = false
