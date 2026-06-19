@@ -12,7 +12,7 @@ jobs:
     name: Scan terraform files with tfsec
     steps:
       - name: Clone repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: tfsec
         uses: aquasecurity/tfsec-pr-commenter-action@v1.3.1
@@ -33,7 +33,7 @@ jobs:
     name: Validate terraform configuration
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: terraform validate
         uses: dflook/terraform-validate@v2.2.3
@@ -43,7 +43,7 @@ jobs:
     name: Check formatting of terraform files
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: terraform fmt
         uses: dflook/terraform-fmt-check@v2.2.3
