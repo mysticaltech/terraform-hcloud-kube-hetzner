@@ -83,6 +83,12 @@ variable "authentication_config" {
   default     = ""
 }
 
+variable "kube_apiserver_args" {
+  description = "Additional raw kube-apiserver args appended to the control-plane config.yaml (kube-apiserver-arg), e.g. [\"service-account-issuer=https://...\", \"service-account-jwks-uri=https://...\"]. Applied in-place via the k3s config-update script (no node recreation)."
+  type        = list(string)
+  default     = []
+}
+
 variable "hcloud_ssh_key_id" {
   description = "If passed, a key already registered within hetzner is used. Otherwise, a new one will be created by the module."
   type        = string

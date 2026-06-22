@@ -614,7 +614,8 @@ locals {
       "audit-log-maxage=${var.k3s_audit_log_maxage}",
       "audit-log-maxbackup=${var.k3s_audit_log_maxbackup}",
       "audit-log-maxsize=${var.k3s_audit_log_maxsize}"
-    ] : []
+    ] : [],
+    var.kube_apiserver_args
   )
 
   cilium_values_default = <<EOT
