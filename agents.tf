@@ -154,15 +154,18 @@ resource "terraform_data" "agents" {
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
     inline = concat(var.enable_longhorn || var.enable_iscsid ? ["systemctl enable --now iscsid"] : [], [
-      "timeout 120 systemctl start k3s-agent 2> /dev/null",
       <<-EOT
-      timeout 120 bash <<EOF
-        until systemctl status k3s-agent > /dev/null; do
-          systemctl start k3s-agent 2> /dev/null
-          echo "Waiting for the k3s agent to start..."
-          sleep 2
-        done
-      EOF
+      # Clear any failed unit state left by a prior attempt so the start is not
+      # blocked by start-limit rate limiting, then kick the agent off without
+      # blocking and wait for it to actually settle.
+      systemctl reset-failed k3s-agent 2> /dev/null || true
+      systemctl start --no-block k3s-agent
+      if ! timeout 600 bash -c 'until systemctl is-active --quiet k3s-agent; do echo "Waiting for the k3s agent to start..."; sleep 5; done'; then
+        echo "ERROR: k3s-agent did not become active within 600s. Dumping diagnostics:" >&2
+        systemctl status k3s-agent --no-pager -l || true
+        journalctl -u k3s-agent -n 80 --no-pager || true
+        exit 1
+      fi
       EOT
     ])
   }
@@ -170,7 +173,15 @@ resource "terraform_data" "agents" {
   depends_on = [
     terraform_data.first_control_plane,
     terraform_data.agent_config,
-    hcloud_network_subnet.agent
+    hcloud_network_subnet.agent,
+    # CCM (deployed by the kustomization) is what untaints freshly-joined
+    # agents. Without this edge, agents start concurrently with the
+    # kustomization and race the untaint, so k3s-agent never settles and the
+    # start provisioner times out (exit 124) on a fresh single apply.
+    # No cycle: terraform_data.kustomization depends only on control_planes,
+    # the load balancer, rancher_bootstrap, longhorn_volume and
+    # kube_system_secrets - none of which depend on terraform_data.agents.
+    terraform_data.kustomization
   ]
 }
 moved {
