@@ -160,7 +160,7 @@ resource "terraform_data" "agents" {
       # blocking and wait for it to actually settle.
       systemctl reset-failed k3s-agent 2> /dev/null || true
       systemctl start --no-block k3s-agent
-      if ! timeout 600 bash -c 'until systemctl is-active --quiet k3s-agent; do echo "Waiting for the k3s agent to start..."; sleep 5; done'; then
+      if ! timeout 600 bash -c 'until systemctl is-active --quiet k3s-agent; do if systemctl is-failed --quiet k3s-agent; then exit 1; fi; echo "Waiting for the k3s agent to start..."; sleep 5; done'; then
         echo "ERROR: k3s-agent did not become active within 600s. Dumping diagnostics:" >&2
         systemctl status k3s-agent --no-pager -l || true
         journalctl -u k3s-agent -n 80 --no-pager || true
