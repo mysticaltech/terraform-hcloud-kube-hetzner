@@ -1852,7 +1852,8 @@ EOT
       "audit-log-maxage=${var.audit_log_max_age}",
       "audit-log-maxbackup=${var.audit_log_max_backups}",
       "audit-log-maxsize=${var.audit_log_max_size}"
-    ] : []
+    ] : [],
+    var.kube_apiserver_args
   )
 
   cilium_values_default = <<EOT
