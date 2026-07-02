@@ -1,5 +1,19 @@
 locals {
   user_kustomization_templates = try(fileset(var.extra_kustomize_folder, "**/*.yaml.tpl"), toset([]))
+
+  # tofu hides a remote-exec provisioner's output whenever anything in its config or
+  # connection is sensitive. When ssh_private_key is sensitive (e.g. sourced from a
+  # secrets manager), the deploy connection suppresses the `kubectl apply -k` output and
+  # errors entirely, so a failed reconcile is opaque. The keys are only used to open the
+  # SSH session — never echoed to stdout, and provisioner connections are not written to
+  # state — so stripping the sensitive mark here reveals the apply output without leaking
+  # anything (sensitive marks control display only, not what is stored in state).
+  # `try(nonsensitive(x), x)` strips the mark whether or not x is currently sensitive and
+  # never errors. Secrets in extra_kustomize_deployment_commands stay suppressed via their
+  # own provisioner.
+  kustomize_deploy_conn_private_key         = try(nonsensitive(var.ssh_private_key), var.ssh_private_key)
+  kustomize_deploy_conn_agent_identity      = try(nonsensitive(local.ssh_agent_identity), local.ssh_agent_identity)
+  kustomize_deploy_conn_bastion_private_key = try(nonsensitive(local.ssh_bastion.bastion_private_key), local.ssh_bastion.bastion_private_key)
 }
 
 resource "terraform_data" "kustomization_user" {
@@ -48,15 +62,15 @@ resource "terraform_data" "kustomization_user_deploy" {
 
   connection {
     user           = "root"
-    private_key    = var.ssh_private_key
-    agent_identity = local.ssh_agent_identity
+    private_key    = local.kustomize_deploy_conn_private_key
+    agent_identity = local.kustomize_deploy_conn_agent_identity
     host           = local.first_control_plane_ip
     port           = var.ssh_port
 
     bastion_host        = local.ssh_bastion.bastion_host
     bastion_port        = local.ssh_bastion.bastion_port
     bastion_user        = local.ssh_bastion.bastion_user
-    bastion_private_key = local.ssh_bastion.bastion_private_key
+    bastion_private_key = local.kustomize_deploy_conn_bastion_private_key
 
   }
 
