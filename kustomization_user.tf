@@ -61,13 +61,27 @@ resource "terraform_data" "kustomization_user_deploy" {
   }
 
   # Remove templates after rendering, and apply changes.
+  # `kubectl apply -k` runs in its own provisioner so that a non-zero exit fails this
+  # step directly. Previously it shared one remote-exec script with
+  # extra_kustomize_deployment_commands; since remote-exec has no `set -e` and the exit
+  # code is that of the LAST command, a failed apply was masked whenever a trailing
+  # command succeeded — tofu then reported success while nothing reconciled.
   provisioner "remote-exec" {
     # Debugging: "sh -c 'for file in $(find /var/user_kustomize -type f -name \"*.yaml\" | sort -n); do echo \"\n### Template $${file}.tpl after rendering:\" && cat $${file}; done'",
-    inline = compact([
+    inline = [
       "rm -f /var/user_kustomize/**/*.yaml.tpl",
       "echo 'Applying user kustomization...'",
       "kubectl apply -k /var/user_kustomize/ --wait=true",
-      var.extra_kustomize_deployment_commands
+    ]
+  }
+
+  # User-supplied post-apply commands run only after a successful apply. The leading
+  # "true" keeps inline non-empty when the variable is unset (compact() would otherwise
+  # produce an empty list).
+  provisioner "remote-exec" {
+    inline = compact([
+      "true",
+      var.extra_kustomize_deployment_commands,
     ])
   }
 
