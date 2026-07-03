@@ -16,6 +16,32 @@ variable "hcloud_token" {
   sensitive = true
 }
 
+# Server type and location used to build each snapshot. Override these when the defaults are
+# unavailable in your project (Hetzner availability varies by location and over time), e.g.:
+#   packer build -var x86_server_type=cpx31 -var x86_location=fsn1 <template>.pkr.hcl
+# To build only one architecture (e.g. no ARM capacity available), use -only with the
+# corresponding source name. Any server type works as long as its disk is >= 40GiB.
+variable "x86_server_type" {
+  type    = string
+  default = "cx23"
+}
+
+variable "x86_location" {
+  type    = string
+  default = "nbg1"
+}
+
+variable "arm_server_type" {
+  type    = string
+  default = "cax11"
+}
+
+variable "arm_location" {
+  type    = string
+  default = "fsn1"
+}
+
+
 variable "leap_micro_version" {
   type        = string
   default     = "6.2"
@@ -253,8 +279,8 @@ EOF
 source "hcloud" "leapmicro-x86-snapshot" {
   image       = "ubuntu-24.04"
   rescue      = "linux64"
-  location    = "nbg1"
-  server_type = "cx23" # disk size of >= 40GiB is needed to install the Leap Micro image
+  location    = var.x86_location
+  server_type = var.x86_server_type # disk size of >= 40GiB is needed to install the Leap Micro image
   snapshot_labels = {
     leapmicro-snapshot        = "yes"
     creator                   = "kube-hetzner"
@@ -271,8 +297,8 @@ source "hcloud" "leapmicro-x86-snapshot" {
 source "hcloud" "leapmicro-arm-snapshot" {
   image       = "ubuntu-24.04"
   rescue      = "linux64"
-  location    = "nbg1"
-  server_type = "cax11" # disk size of >= 40GiB is needed to install the Leap Micro image
+  location    = var.arm_location
+  server_type = var.arm_server_type # disk size of >= 40GiB is needed to install the Leap Micro image
   snapshot_labels = {
     leapmicro-snapshot        = "yes"
     creator                   = "kube-hetzner"
