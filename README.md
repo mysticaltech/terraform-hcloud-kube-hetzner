@@ -220,6 +220,18 @@ packer init hcloud-microos-snapshots.pkr.hcl
 packer build hcloud-microos-snapshots.pkr.hcl
 hcloud context create <project-name>
 ```
+
+> **Server availability**: the snapshot build uses small default server types (`cx23` for x86, `cax11` for ARM). Hetzner availability varies by location and over time — if the build fails with `unsupported location for server type` or `resource_unavailable`, override the build servers without editing the template:
+>
+> ```sh
+> packer build -var x86_server_type=cpx31 -var x86_location=fsn1 hcloud-microos-snapshots.pkr.hcl
+> ```
+>
+> And if one architecture has no capacity at all (or you don't need it), build just the other one:
+>
+> ```sh
+> packer build -only=hcloud.microos-x86-snapshot hcloud-microos-snapshots.pkr.hcl
+> ```
 </details>
 
 <table>

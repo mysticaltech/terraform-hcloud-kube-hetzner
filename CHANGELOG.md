@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 
 - **Traefik Gateway API CRDs** - Install the Kubernetes Gateway API standard CRDs before Traefik when `traefik_provider_kubernetes_gateway_enabled` is enabled, preventing Helm install failures for `GatewayClass` and `Gateway` resources (#2211).
+- **Agent Startup Race on Fresh Deploys** - Agent nodes now start only after the kustomization that deploys the Hetzner CCM, fixing consistent `exit 124` timeouts on fresh single-apply deployments. The agent start is also observable now: on failure it dumps `systemctl status` and journal output instead of failing silently (#2215, #2220).
+- **User Kustomization Failures No Longer Masked** - A failed `kubectl apply -k` in the user kustomization deploy now fails the apply loudly instead of being masked by trailing `extra_kustomize_deployment_commands` (#2225).
+- **Packer Snapshot Build Overrides** - The MicroOS snapshot template now exposes `x86_server_type`, `x86_location`, `arm_server_type`, and `arm_location` packer variables, so builds can be pointed at available server types/locations with `-var` instead of editing the template when Hetzner capacity shifts (#2214).
 
 ---
 
