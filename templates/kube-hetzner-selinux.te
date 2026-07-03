@@ -18,7 +18,7 @@ require {
     class bpf map_create;
     class io_uring sqpoll;
     class anon_inode { create map read write };
-    class tcp_socket name_connect;
+    class tcp_socket { name_connect read write };
     class chr_file { open read write };
     class blk_file getattr;
 }
@@ -67,6 +67,11 @@ allow container_t container_share_t:file { read write create unlink };
 allow container_t container_runtime_exec_t:file { read execute execute_no_trans open };
 allow container_t container_runtime_t:unix_stream_socket { connectto read write };
 allow container_t kernel_t:system module_request;
+# Needed by liveness/readiness probes of CSI drivers (e.g. hcloud-csi) whose probe
+# sockets are kernel-labeled; without it the probes fail with connection reset and
+# the pods crash-loop under enforcing SELinux. Matches the rule already shipped in
+# the v3 Leap Micro policy (k8s-custom-policies.te).
+allow container_t kernel_t:tcp_socket { read write };
 allow container_t var_log_t:dir { add_name write remove_name watch read };
 allow container_t var_log_t:file { create lock open read setattr write unlink getattr };
 allow container_t var_lib_t:dir { add_name remove_name write read create };
