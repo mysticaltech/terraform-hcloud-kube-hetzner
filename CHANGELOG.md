@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+---
+
+## [2.20.1] - 2026-07-04
+
 ### ⚠️ Upgrade Notes
 
 - This is a pure bug-fix patch: existing clusters should see a **no-op `terraform plan`** after upgrading (verified against v2.20.0 — no resource changes, no recreation). The agent-startup and kustomization fixes take effect on fresh applies and node replacements; the SELinux fix applies to newly provisioned/replaced nodes only.
