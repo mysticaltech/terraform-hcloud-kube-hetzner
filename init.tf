@@ -555,15 +555,17 @@ resource "terraform_data" "kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
-    system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
-    system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
-    system_upgrade_enable_eviction = tostring(var.system_upgrade_enable_eviction)
+    cilium_egress_gateway_ha         = var.cilium_egress_gateway_ha_enabled
+    enable_kured                     = tostring(var.enable_kured)
+    enable_system_upgrade_controller = tostring(var.enable_system_upgrade_controller)
+    system_upgrade_schedule_window   = jsonencode(var.system_upgrade_schedule_window)
+    system_upgrade_use_drain         = tostring(var.system_upgrade_use_drain)
+    system_upgrade_enable_eviction   = tostring(var.system_upgrade_enable_eviction)
     rendered_addons_sha = sha256(join("\n---kube-hetzner---\n", compact([
       local.kustomization_backup_yaml,
-      data.http.kured_manifest.response_body,
-      data.http.system_upgrade_controller_manifest.response_body,
-      data.http.system_upgrade_controller_crd.response_body,
+      var.enable_kured ? data.http.kured_manifest.response_body : "",
+      var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest.response_body : "",
+      var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_crd.response_body : "",
       local.gateway_api_standard_crds_manifest,
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
@@ -619,7 +621,7 @@ resource "terraform_data" "kustomization" {
         "${path.module}/templates/cilium_egress_gateway_ha.yaml.tpl",
         {}
       ),
-      templatefile(
+      var.enable_system_upgrade_controller ? templatefile(
         "${path.module}/templates/plans.yaml.tpl",
         {
           channel          = var.k3s_channel
@@ -628,7 +630,7 @@ resource "terraform_data" "kustomization" {
           drain            = var.system_upgrade_use_drain
           upgrade_window   = var.system_upgrade_schedule_window
         }
-      ),
+      ) : "",
       templatefile(
         "${path.module}/templates/longhorn.yaml.tpl",
         {
@@ -671,12 +673,12 @@ resource "terraform_data" "kustomization" {
           values                  = indent(4, local.rancher_values)
         }
       ),
-      templatefile(
+      var.enable_kured ? templatefile(
         "${path.module}/templates/kured.yaml.tpl",
         {
           options = local.kured_options
         }
-      ),
+      ) : "",
     ])))
   }
 
@@ -703,17 +705,17 @@ resource "terraform_data" "kustomization" {
 
   # Upload remote addon manifests as local kustomize resources to avoid release-asset fetch issues on the control plane.
   provisioner "file" {
-    content     = data.http.kured_manifest.response_body
+    content     = var.enable_kured ? data.http.kured_manifest.response_body : ""
     destination = "/var/post_install/kured-base.yaml"
   }
 
   provisioner "file" {
-    content     = data.http.system_upgrade_controller_manifest.response_body
+    content     = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest.response_body : ""
     destination = "/var/post_install/system-upgrade-controller.yaml"
   }
 
   provisioner "file" {
-    content     = data.http.system_upgrade_controller_crd.response_body
+    content     = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_crd.response_body : ""
     destination = "/var/post_install/system-upgrade-controller-crd.yaml"
   }
 
@@ -821,7 +823,7 @@ resource "terraform_data" "kustomization" {
 
   # Upload the system upgrade controller plans config
   provisioner "file" {
-    content = templatefile(
+    content = var.enable_system_upgrade_controller ? templatefile(
       "${path.module}/templates/plans.yaml.tpl",
       {
         channel          = var.k3s_channel
@@ -829,7 +831,7 @@ resource "terraform_data" "kustomization" {
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
         upgrade_window   = var.system_upgrade_schedule_window
-    })
+    }) : ""
     destination = "/var/post_install/plans.yaml"
   }
 
@@ -897,12 +899,12 @@ resource "terraform_data" "kustomization" {
   }
 
   provisioner "file" {
-    content = templatefile(
+    content = var.enable_kured ? templatefile(
       "${path.module}/templates/kured.yaml.tpl",
       {
         options = local.kured_options
       }
-    )
+    ) : ""
     destination = "/var/post_install/kured.yaml"
   }
 
@@ -952,11 +954,13 @@ resource "terraform_data" "kustomization" {
       local.cluster_has_ipv6 ? [] : [
         replace(local.ipv4_only_coredns_aaaa_filter_script, "__KUBECTL__", "kubectl")
       ],
-      [
+      var.enable_system_upgrade_controller ? [
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "kubectl -n system-upgrade wait --for=condition=available --timeout=900s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml",
+      ] : [],
+      [
         # Work around stale cainjector leader leases after interrupted cert-manager helm installs.
         "kubectl -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true"
       ],
@@ -1057,15 +1061,17 @@ resource "terraform_data" "rke2_kustomization" {
     options = join("\n", [
       for option, value in local.kured_options : "${option}=${value}"
     ])
-    cilium_egress_gateway_ha       = var.cilium_egress_gateway_ha_enabled
-    system_upgrade_schedule_window = jsonencode(var.system_upgrade_schedule_window)
-    system_upgrade_use_drain       = tostring(var.system_upgrade_use_drain)
-    system_upgrade_enable_eviction = tostring(var.system_upgrade_enable_eviction)
+    cilium_egress_gateway_ha         = var.cilium_egress_gateway_ha_enabled
+    enable_kured                     = tostring(var.enable_kured)
+    enable_system_upgrade_controller = tostring(var.enable_system_upgrade_controller)
+    system_upgrade_schedule_window   = jsonencode(var.system_upgrade_schedule_window)
+    system_upgrade_use_drain         = tostring(var.system_upgrade_use_drain)
+    system_upgrade_enable_eviction   = tostring(var.system_upgrade_enable_eviction)
     rendered_addons_sha = sha256(join("\n---kube-hetzner---\n", compact([
       local.kustomization_backup_yaml,
-      data.http.kured_manifest.response_body,
-      data.http.system_upgrade_controller_manifest.response_body,
-      data.http.system_upgrade_controller_crd.response_body,
+      var.enable_kured ? data.http.kured_manifest.response_body : "",
+      var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest.response_body : "",
+      var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_crd.response_body : "",
       local.gateway_api_standard_crds_manifest,
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
@@ -1121,7 +1127,7 @@ resource "terraform_data" "rke2_kustomization" {
         "${path.module}/templates/cilium_egress_gateway_ha.yaml.tpl",
         {}
       ),
-      templatefile(
+      var.enable_system_upgrade_controller ? templatefile(
         "${path.module}/templates/plans_rke2.yaml.tpl",
         {
           channel          = var.rke2_channel
@@ -1130,7 +1136,7 @@ resource "terraform_data" "rke2_kustomization" {
           drain            = var.system_upgrade_use_drain
           upgrade_window   = var.system_upgrade_schedule_window
         }
-      ),
+      ) : "",
       templatefile(
         "${path.module}/templates/longhorn.yaml.tpl",
         {
@@ -1173,12 +1179,12 @@ resource "terraform_data" "rke2_kustomization" {
           values                  = indent(4, local.rancher_values)
         }
       ),
-      templatefile(
+      var.enable_kured ? templatefile(
         "${path.module}/templates/kured.yaml.tpl",
         {
           options = local.kured_options
         }
-      ),
+      ) : "",
     ])))
   }
 
@@ -1203,17 +1209,17 @@ resource "terraform_data" "rke2_kustomization" {
 
   # Upload remote addon manifests as local kustomize resources to avoid release-asset fetch issues on the control plane.
   provisioner "file" {
-    content     = data.http.kured_manifest.response_body
+    content     = var.enable_kured ? data.http.kured_manifest.response_body : ""
     destination = "/var/post_install/kured-base.yaml"
   }
 
   provisioner "file" {
-    content     = data.http.system_upgrade_controller_manifest.response_body
+    content     = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest.response_body : ""
     destination = "/var/post_install/system-upgrade-controller.yaml"
   }
 
   provisioner "file" {
-    content     = data.http.system_upgrade_controller_crd.response_body
+    content     = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_crd.response_body : ""
     destination = "/var/post_install/system-upgrade-controller-crd.yaml"
   }
 
@@ -1316,7 +1322,7 @@ resource "terraform_data" "rke2_kustomization" {
 
   # Upload the system upgrade controller plans config
   provisioner "file" {
-    content = templatefile(
+    content = var.enable_system_upgrade_controller ? templatefile(
       "${path.module}/templates/plans_rke2.yaml.tpl",
       {
         channel          = var.rke2_channel
@@ -1324,7 +1330,7 @@ resource "terraform_data" "rke2_kustomization" {
         disable_eviction = !var.system_upgrade_enable_eviction
         drain            = var.system_upgrade_use_drain
         upgrade_window   = var.system_upgrade_schedule_window
-    })
+    }) : ""
     destination = "/var/post_install/plans.yaml"
   }
 
@@ -1392,12 +1398,12 @@ resource "terraform_data" "rke2_kustomization" {
   }
 
   provisioner "file" {
-    content = templatefile(
+    content = var.enable_kured ? templatefile(
       "${path.module}/templates/kured.yaml.tpl",
       {
         options = local.kured_options
       }
-    )
+    ) : ""
     destination = "/var/post_install/kured.yaml"
   }
 
@@ -1452,11 +1458,13 @@ resource "terraform_data" "rke2_kustomization" {
       [
         # Work around stale cainjector leader leases after interrupted cert-manager helm installs.
         "${local.kubectl_cli} -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true",
+      ],
+      var.enable_system_upgrade_controller ? [
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "${local.kubectl_cli} -n system-upgrade wait --for=condition=available --timeout=360s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml"
-      ],
+      ] : [],
       local.skip_ingress_lb_wait ? [] : [
         <<-EOT
       timeout 360 bash <<EOF

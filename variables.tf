@@ -2172,7 +2172,21 @@ variable "system_upgrade_use_drain" {
 variable "automatically_upgrade_kubernetes" {
   type        = bool
   default     = true
-  description = "Whether to automatically upgrade k3s based on the selected channel."
+  description = "Whether to automatically upgrade Kubernetes based on the selected channel. This controls the upgrade node label and upgrade activity; it does not control deployment of the system-upgrade-controller. If enable_system_upgrade_controller is false while this remains true, nodes can keep harmless inert upgrade labels because no controller/plans act on them."
+}
+
+variable "enable_system_upgrade_controller" {
+  type        = bool
+  default     = true
+  nullable    = false
+  description = "Whether to include the system-upgrade-controller, its CRDs, and upgrade plans in the module kustomization used for automated Kubernetes upgrades. Set to false to skip deploying it on new clusters or on the next kustomization re-run, for example when it is managed externally (GitOps/ArgoCD). Disabling this does not prune/remove system-upgrade-controller resources already applied to an existing cluster. If automatically_upgrade_kubernetes is true while this is false, nodes can keep harmless inert upgrade labels because no controller/plans act on them."
+}
+
+variable "enable_kured" {
+  type        = bool
+  default     = true
+  nullable    = false
+  description = "Whether to include kured (the Kubernetes Reboot Daemon) in the module kustomization used to perform safe, HA-aware node reboots after OS updates. Set to false to skip deploying it on new clusters or on the next kustomization re-run, for example when it is managed externally (GitOps/ArgoCD). Disabling this does not prune/remove kured resources already applied to an existing cluster. WARNING: if automatically_upgrade_os is true while this is false, host transactional-update timers remain active but there is no module-managed reboot orchestration."
 }
 
 variable "system_upgrade_schedule_window" {
@@ -2226,7 +2240,7 @@ variable "system_upgrade_schedule_window" {
 variable "automatically_upgrade_os" {
   type        = bool
   default     = true
-  description = "Whether to enable or disable automatic os updates. Defaults to true. Should be disabled for single-node clusters"
+  description = "Whether to enable or disable automatic OS updates through the host transactional-update timer. Defaults to true. Should be disabled for single-node clusters. This does not control deployment of kured. WARNING: if enable_kured is false while this remains true, updates can keep running but there is no module-managed reboot orchestration."
 }
 
 variable "extra_firewall_rules" {
@@ -2787,6 +2801,7 @@ variable "user_kustomizations" {
     kustomize_parameters = optional(map(any), {})
     pre_commands         = optional(string, "")
     post_commands        = optional(string, "")
+    apply_options        = optional(list(string), [])
   }))
   default = {
     "1" = {
@@ -2794,6 +2809,7 @@ variable "user_kustomizations" {
       kustomize_parameters = {}
       pre_commands         = ""
       post_commands        = ""
+      apply_options        = []
     }
   }
   description = "Map of Kustomization-set entries, where key is the order number."
@@ -2804,6 +2820,16 @@ variable "user_kustomizations" {
       can(regex("^[0-9]+$", key)) && tonumber(key) > 0
     ])
     error_message = "All keys in user_kustomizations must be positive numeric strings (e.g., '1', '2')."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for _, kustomization in var.user_kustomizations : [
+        for option in kustomization.apply_options :
+        can(regex("^--[A-Za-z0-9][A-Za-z0-9-]*(=[^\\s'\"$;&|<>`\\\\]*)?$", option))
+      ]
+    ]))
+    error_message = "Every user_kustomizations apply_options entry must be a single kubectl flag token, for example \"--server-side\" or \"--field-manager=kube-hetzner\". Whitespace and shell metacharacters are not allowed."
   }
 }
 

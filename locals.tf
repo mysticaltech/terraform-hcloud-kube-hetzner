@@ -644,11 +644,11 @@ EOT
     apiVersion = "kustomize.config.k8s.io/v1beta1"
     kind       = "Kustomization"
     resources = concat(
-      [
-        "kured-base.yaml",
+      var.enable_kured ? ["kured-base.yaml"] : [],
+      var.enable_system_upgrade_controller ? [
         "system-upgrade-controller.yaml",
         "system-upgrade-controller-crd.yaml"
-      ],
+      ] : [],
       ["hcloud-ccm-helm.yaml"],
       local.gateway_api_standard_crds_resources,
       var.enable_load_balancer_monitoring ? ["load_balancer_monitoring.yaml"] : [],
@@ -663,21 +663,21 @@ EOT
       var.enable_rancher ? ["rancher.yaml"] : [],
       var.rancher_registration_manifest_url != "" ? [var.rancher_registration_manifest_url] : []
     ),
-    patches = [
-      {
-        target = {
-          group     = "apps"
-          version   = "v1"
-          kind      = "Deployment"
-          name      = "system-upgrade-controller"
-          namespace = "system-upgrade"
+    patches = concat(
+      var.enable_system_upgrade_controller ? [
+        {
+          target = {
+            group     = "apps"
+            version   = "v1"
+            kind      = "Deployment"
+            name      = "system-upgrade-controller"
+            namespace = "system-upgrade"
+          }
+          patch = file("${path.module}/kustomize/system-upgrade-controller.yaml")
         }
-        patch = file("${path.module}/kustomize/system-upgrade-controller.yaml")
-      },
-      {
-        path = "kured.yaml"
-      }
-    ]
+      ] : [],
+      var.enable_kured ? [{ path = "kured.yaml" }] : []
+    )
   })
 
   apply_k3s_selinux = [<<-EOT
@@ -1575,7 +1575,7 @@ for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.ena
   [ -n "$ns" ] && wait_namespace_jobs "$ns" 900
 done
 
-for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} system-upgrade; do
+for ns in kube-system ${var.enable_cert_manager ? "cert-manager" : ""} ${var.enable_longhorn ? var.longhorn_namespace : ""} ${local.ingress_controller_namespace} ${var.enable_system_upgrade_controller ? "system-upgrade" : ""}; do
   [ -n "$ns" ] && wait_namespace_deployments "$ns" 600
 done
 

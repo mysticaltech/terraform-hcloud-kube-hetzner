@@ -957,6 +957,27 @@ module "kube-hetzner" {
   # The default is "true" (in HA setup i.e. at least 3 control plane nodes & 2 agents, just keep it enabled since it works flawlessly).
   # automatically_upgrade_kubernetes = false
 
+  # Note: automatically_upgrade_kubernetes only controls the upgrade node label and upgrade activity; the
+  # system-upgrade-controller (with its CRDs and plans) is still deployed. To skip deploying it entirely
+  # (e.g. when managing it externally via GitOps/ArgoCD), set the flag below to false. The default is "true".
+  # If automatically_upgrade_kubernetes remains true while this is false, nodes may keep harmless inert upgrade
+  # labels because no controller/plans act on them.
+  #
+  # Disabling this after it was deployed does not remove existing resources; kubectl apply does not prune.
+  # Manual cleanup if you want it gone from an existing cluster:
+  # kubectl -n system-upgrade delete plan k3s-agent k3s-server rke2-agent rke2-server --ignore-not-found
+  # kubectl -n system-upgrade delete deployment system-upgrade-controller --ignore-not-found
+  # kubectl -n system-upgrade delete configmap default-controller-env --ignore-not-found
+  # kubectl -n system-upgrade delete serviceaccount system-upgrade --ignore-not-found
+  # kubectl -n system-upgrade delete role system-upgrade-controller --ignore-not-found
+  # kubectl -n system-upgrade delete rolebinding system-upgrade --ignore-not-found
+  # kubectl delete clusterrole system-upgrade-controller system-upgrade-controller-drainer --ignore-not-found
+  # kubectl delete clusterrolebinding system-upgrade system-upgrade-drainer --ignore-not-found
+  # kubectl delete namespace system-upgrade --ignore-not-found
+  # Optional after all Plan resources are gone:
+  # kubectl delete crd plans.upgrade.cattle.io --ignore-not-found
+  # enable_system_upgrade_controller = false
+
   # By default nodes are drained before k3s upgrade, which will delete and transfer all pods to other nodes.
   # Set this to false to cordon nodes instead, which just prevents scheduling new pods on the node during upgrade
   # and keeps all pods running. This may be useful if you have pods which are known to be slow to start e.g.
@@ -973,6 +994,19 @@ module "kube-hetzner" {
   # The default is "true" (in HA setup it works wonderfully well, with automatic roll-back to the previous snapshot in case of an issue).
   # IMPORTANT! For non-HA clusters i.e. when the number of control-plane nodes is < 3, you have to turn it off.
   # automatically_upgrade_os = false
+
+  # Note: automatically_upgrade_os only toggles the host transactional-update timer; the kured DaemonSet is still
+  # deployed. To skip deploying kured entirely (e.g. when managing reboots externally via GitOps/ArgoCD), set the
+  # flag below to false. The default is "true".
+  # WARNING: if automatically_upgrade_os remains true while this is false, transactional-update timers stay active
+  # with no module-managed reboot orchestration. Disable automatically_upgrade_os too, or manage reboots externally.
+  #
+  # Disabling this after it was deployed does not remove existing resources; kubectl apply does not prune.
+  # Manual cleanup if you want it gone from an existing cluster:
+  # kubectl -n kube-system delete ds kured --ignore-not-found
+  # kubectl -n kube-system delete serviceaccount kured role kured rolebinding kured --ignore-not-found
+  # kubectl delete clusterrole kured clusterrolebinding kured --ignore-not-found
+  # enable_kured = false
 
   # If you need more control over kured and the reboot behaviour, you can pass additional options to kured.
   # For example limiting reboots to certain timeframes. For all options see: https://kured.dev/docs/configuration/
@@ -1416,6 +1450,7 @@ module "kube-hetzner" {
   # - kustomize_parameters: Key-value map for passing variables into Kustomization. Applies only to the Kustomization-set in the object, but to all files defined in the source_folder of the "set". Defaults to {}.
   # - pre_commands: Commands to be executed before applying the Kustomization ("kubectl apply -k"). Defaults to "".
   # - post_commands: Commands to be executed after applying the Kustomization ("kubectl apply -k"). You can use it to wait for CRD deployment etc. Defaults to "".
+  # - apply_options: Additional kubectl apply flag tokens for this Kustomization-set. Use this for large CRDs that exceed the client-side apply annotation size limit, e.g. ["--server-side", "--field-manager=kube-hetzner", "--force-conflicts"]. Defaults to [].
   # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
   # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
   # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
@@ -1427,6 +1462,7 @@ module "kube-hetzner" {
   #     kustomize_parameters = { myvar = "myvalue" }
   #     pre_commands         = ""
   #     post_commands        = "kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true"
+  #     apply_options        = ["--server-side", "--field-manager=kube-hetzner", "--force-conflicts"]
   #   }
   # }
   # See working examples for extra manifests or a HelmChart in examples/kustomization_user_deploy/README.md
