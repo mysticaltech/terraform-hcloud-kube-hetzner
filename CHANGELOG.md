@@ -67,6 +67,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🐛 Bug Fixes
 
+- **NAT Router Reconciliation Safety** - Reworked the NAT router reconcile provisioner so fresh v3 routers no longer write script text into `sshd_config.d/kube-hetzner.conf` through unterminated nested heredocs, preventing sshd from failing and permanently cutting off the router. Found by the v3 live gate.
 - **Size-Aware Control-Plane Kubelet Reservations** - Control-plane nodepools that still use the legacy kubelet reservation default now compute `kube-reserved` memory from the selected Hetzner server type, preventing small RKE2 control planes such as `cx23` from rejecting scheduler static pods during bootstrap. Added an RKE2 validation guardrail for parseable reservations above 50% of server RAM. Credits the live-gate finding from fresh v3 RKE2 cluster validation.
 - **SSH Authorized Keys Upgrade Safety** - Host SSH reconciliation now preserves out-of-band root authorized keys by default while revoking module-managed keys removed from `ssh_public_key` or `ssh_additional_public_keys`. Set `ssh_authorized_keys_exclusive = true` for strict replacement with only module-managed keys.
 - **NAT Router Failover Peer Scoping** - NAT routers now carry the standard cluster identity labels and redundant failover peer discovery filters by `role=nat_router,cluster=<cluster_name>`, preventing foreign NAT routers in the same Hetzner project from being selected.
