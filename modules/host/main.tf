@@ -216,21 +216,34 @@ resource "terraform_data" "ssh_authorized_keys" {
 
       install -d -m 0700 /root/.ssh
 
+      authorized_keys="/root/.ssh/authorized_keys"
+      sidecar="/root/.ssh/authorized_keys.kube-hetzner"
+      current_keys="$(mktemp)"
+      preserved_keys="$(mktemp)"
+      reconciled_keys="$(mktemp)"
+      trap 'rm -f "$current_keys" "$preserved_keys" "$reconciled_keys" /tmp/authorized_keys' EXIT
+
+      awk 'NF > 0 && !seen[$0]++ { print }' /tmp/authorized_keys > "$current_keys"
+
       if [ "${var.ssh_authorized_keys_exclusive}" = "true" ]; then
-        install -m 0600 /tmp/authorized_keys /root/.ssh/authorized_keys
+        install -m 0600 "$current_keys" "$authorized_keys"
       else
-        merged="$(mktemp)"
-        if [ -f /root/.ssh/authorized_keys ]; then
-          awk 'NF > 0 && !seen[$0]++ { print }' /root/.ssh/authorized_keys /tmp/authorized_keys > "$merged"
+        if [ -f "$authorized_keys" ]; then
+          if [ -f "$sidecar" ]; then
+            awk 'NR == FNR { previous[$0] = 1; next } NF > 0 && !previous[$0] { print }' "$sidecar" "$authorized_keys" > "$preserved_keys"
+          else
+            awk 'NF > 0 { print }' "$authorized_keys" > "$preserved_keys"
+          fi
         else
-          awk 'NF > 0 && !seen[$0]++ { print }' /tmp/authorized_keys > "$merged"
+          : > "$preserved_keys"
         fi
-        install -m 0600 "$merged" /root/.ssh/authorized_keys
-        rm -f "$merged"
+
+        awk 'NF > 0 && !seen[$0]++ { print }' "$preserved_keys" "$current_keys" > "$reconciled_keys"
+        install -m 0600 "$reconciled_keys" "$authorized_keys"
       fi
 
-      chown root:root /root/.ssh /root/.ssh/authorized_keys
-      rm -f /tmp/authorized_keys
+      install -m 0600 "$current_keys" "$sidecar"
+      chown root:root /root/.ssh "$authorized_keys" "$sidecar"
       EOT
       ,
     ]

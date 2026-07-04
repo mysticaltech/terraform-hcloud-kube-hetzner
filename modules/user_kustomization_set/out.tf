@@ -1,5 +1,5 @@
 output "source_files_sha" {
-  value = nonsensitive(local.source_files_sha)
+  value = local.source_files_sha
 }
 
 output "parameters_sha" {
@@ -24,7 +24,7 @@ output "files_count" {
 }
 
 output "changes_sha" {
-  value = nonsensitive(sha256(join("", [
+  value = sha256(join("", [
     local.source_files_sha, local.parameters_sha, local.pre_commands_string_sha, local.post_commands_string_sha, local.apply_options_sha
-  ])))
+  ]))
 }

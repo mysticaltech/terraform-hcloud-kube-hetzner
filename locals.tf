@@ -1640,19 +1640,7 @@ EOT
     var.enable_longhorn ? [
       {
         namespace = var.longhorn_namespace
-        name      = "longhorn-admission-webhook"
-      },
-      {
-        namespace = var.longhorn_namespace
-        name      = "longhorn-conversion-webhook"
-      },
-      {
-        namespace = var.longhorn_namespace
         name      = "longhorn-driver-deployer"
-      },
-      {
-        namespace = var.longhorn_namespace
-        name      = "longhorn-recovery-backend"
       },
       {
         namespace = var.longhorn_namespace

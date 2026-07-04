@@ -16,7 +16,7 @@ resource "terraform_data" "validate_source_folder" {
 resource "terraform_data" "install_scripts" {
 
   triggers_replace = merge({
-    source_files_sha         = nonsensitive(local.source_files_sha)
+    source_files_sha         = local.source_files_sha
     parameters_sha           = local.parameters_sha
     pre_commands_string_sha  = local.pre_commands_string_sha
     post_commands_string_sha = local.post_commands_string_sha
@@ -56,7 +56,7 @@ resource "terraform_data" "install_scripts" {
   }
 
   provisioner "file" {
-    content     = templatefile("${path.module}/templates/apply-options.sh.tpl", { options = nonsensitive(var.apply_options) })
+    content     = templatefile("${path.module}/templates/apply-options.sh.tpl", { options = var.apply_options })
     destination = local.apply_options_file
   }
 
@@ -64,7 +64,7 @@ resource "terraform_data" "install_scripts" {
 }
 
 resource "terraform_data" "user_kustomization_template_files" {
-  for_each = nonsensitive(local.source_folder_files)
+  for_each = local.source_folder_files
 
   lifecycle {
     replace_triggered_by = [

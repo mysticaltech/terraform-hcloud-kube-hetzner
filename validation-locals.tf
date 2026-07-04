@@ -163,20 +163,23 @@ locals {
   validation_control_plane_reserved_memory_matches_by_node = {
     for node_key, reserved_args in local.validation_control_plane_reserved_arg_values_by_node :
     node_key => {
-      kube_reserved = try(regex("(^|,)memory=([0-9]+)(Ki|Mi|Gi|K|M|G)(,|$)", element(reserved_args.kube_reserved, length(reserved_args.kube_reserved) - 1)), null)
-      system_reserved = try(
+      kube_reserved = length(reserved_args.kube_reserved) > 0 ? try(
+        regex("(^|,)memory=([0-9]+)(Ki|Mi|Gi|K|M|G)(,|$)", element(reserved_args.kube_reserved, length(reserved_args.kube_reserved) - 1)),
+        null
+      ) : null
+      system_reserved = length(reserved_args.system_reserved) > 0 ? try(
         regex("(^|,)memory=([0-9]+)(Ki|Mi|Gi|K|M|G)(,|$)", element(reserved_args.system_reserved, length(reserved_args.system_reserved) - 1)),
         null
-      )
+      ) : null
     }
   }
 
   validation_control_plane_reserved_memory_mi_by_node = {
     for node_key, matches in local.validation_control_plane_reserved_memory_matches_by_node :
-    node_key => try(
-      tonumber(matches.kube_reserved[1]) * local.validation_kubelet_reserved_memory_unit_to_mi[matches.kube_reserved[2]] +
-      tonumber(matches.system_reserved[1]) * local.validation_kubelet_reserved_memory_unit_to_mi[matches.system_reserved[2]],
-      null
+    node_key => (
+      matches.kube_reserved == null && matches.system_reserved == null ? null :
+      coalesce(try(tonumber(matches.kube_reserved[1]) * local.validation_kubelet_reserved_memory_unit_to_mi[matches.kube_reserved[2]], null), 0) +
+      coalesce(try(tonumber(matches.system_reserved[1]) * local.validation_kubelet_reserved_memory_unit_to_mi[matches.system_reserved[2]], null), 0)
     )
   }
 

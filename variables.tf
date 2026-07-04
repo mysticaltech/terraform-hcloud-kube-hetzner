@@ -172,7 +172,7 @@ variable "ssh_additional_public_keys" {
 }
 
 variable "ssh_authorized_keys_exclusive" {
-  description = "Whether to manage /root/.ssh/authorized_keys exclusively on cluster nodes. The default false merges ssh_public_key and ssh_additional_public_keys into the existing file, preserving unknown out-of-band keys. Set true to replace the file with only module-managed keys."
+  description = "Whether to manage /root/.ssh/authorized_keys exclusively on cluster nodes. The default false preserves unknown out-of-band keys while revoking module-managed keys removed from ssh_public_key or ssh_additional_public_keys. Set true to replace the file with only module-managed keys."
   type        = bool
   default     = false
   nullable    = false

@@ -52,11 +52,12 @@ Before applying a v3 plan:
 - Treat private-only, Robot/vSwitch, existing-network, external-network,
   Tailscale/overlay, Longhorn/volume-heavy, autoscaler, and multinetwork
   clusters as high-risk upgrade topologies.
-- Out-of-band root SSH keys survive by default in v3: kube-hetzner now merges
-  `ssh_public_key` and `ssh_additional_public_keys` into
-  `/root/.ssh/authorized_keys` without deleting unknown existing lines. Set
-  `ssh_authorized_keys_exclusive = true` only if you want strict replacement
-  semantics with exactly the module-managed keys.
+- Out-of-band root SSH keys survive by default in v3: kube-hetzner preserves
+  unknown existing `/root/.ssh/authorized_keys` lines while revoking
+  module-managed keys removed from `ssh_public_key` or
+  `ssh_additional_public_keys`. Set `ssh_authorized_keys_exclusive = true`
+  only if you want strict replacement semantics with exactly the
+  module-managed keys.
 - Prefer blue/green migration when the plan is hard to explain.
 
 ### What the first v3 apply does to existing nodes

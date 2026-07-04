@@ -59,7 +59,7 @@ module "kube-hetzner" {
   ssh_private_key = file("~/.ssh/id_ed25519")
   # You can add additional SSH public Keys to grant other team members root access to your cluster nodes.
   # ssh_additional_public_keys = []
-  # By default, kube-hetzner merges these keys into /root/.ssh/authorized_keys and preserves unknown out-of-band keys.
+  # By default, kube-hetzner preserves unknown out-of-band keys and revokes module-managed keys removed from config.
   # Set this to true only if Terraform should replace authorized_keys with exactly the module-managed keys.
   # ssh_authorized_keys_exclusive = true
 
