@@ -1,15 +1,19 @@
 locals {
-  source_folder       = trimspace(var.source_folder)
+  # Folder paths are not secrets; strip the sensitivity inherited from the
+  # kustomizations map so validation error messages remain displayable.
+  source_folder       = try(nonsensitive(trimspace(var.source_folder)), trimspace(var.source_folder))
   source_folder_files = local.source_folder == "" ? toset([]) : try(fileset(local.source_folder, "**/*.tpl"), toset([]))
   kustomization_template_files = setintersection(local.source_folder_files, toset([
     "kustomization.yaml.tpl",
     "kustomization.yml.tpl",
     "Kustomization.tpl"
   ]))
-  entry_label = var.entry_key != "" ? "user_kustomizations[\"${var.entry_key}\"]" : "user_kustomization_set"
+  entry_key_plain   = try(nonsensitive(var.entry_key), var.entry_key)
+  allow_empty_plain = try(nonsensitive(var.allow_empty), var.allow_empty)
+  entry_label       = local.entry_key_plain != "" ? "user_kustomizations[\"${local.entry_key_plain}\"]" : "user_kustomization_set"
   source_folder_validation_error = (
-    local.source_folder == "" ? (var.allow_empty ? "" : "${local.entry_label}.source_folder must be set, or allow_empty = true must be used for an intentional empty set.") : (
-      length(local.source_folder_files) == 0 ? (var.allow_empty ? "" : "${local.entry_label}.source_folder (${jsonencode(local.source_folder)}) does not exist, is not readable, or contains no *.tpl template files. Fix the path or set allow_empty = true only for an intentional empty set.") : (
+    local.source_folder == "" ? (local.allow_empty_plain ? "" : "${local.entry_label}.source_folder must be set, or allow_empty = true must be used for an intentional empty set.") : (
+      length(local.source_folder_files) == 0 ? (local.allow_empty_plain ? "" : "${local.entry_label}.source_folder (${jsonencode(local.source_folder)}) does not exist, is not readable, or contains no *.tpl template files. Fix the path or set allow_empty = true only for an intentional empty set.") : (
         length(local.kustomization_template_files) == 0 ? "${local.entry_label}.source_folder (${jsonencode(local.source_folder)}) must contain kustomization.yaml.tpl, kustomization.yml.tpl, or Kustomization.tpl so kubectl apply -k has a rendered entrypoint." : ""
       )
     )
