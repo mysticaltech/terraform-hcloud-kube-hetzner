@@ -20,11 +20,11 @@ env:
   SNAPSHOT_ID_X86: ${{ secrets.SNAPSHOT_ID_X86 }}
   LEAPMICRO_SNAPSHOT_ID_ARM: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM }}
   LEAPMICRO_SNAPSHOT_ID_X86: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 }}
+  LEAPMICRO_SNAPSHOT_ID_ARM_RKE2: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM_RKE2 }}
+  LEAPMICRO_SNAPSHOT_ID_X86_RKE2: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86_RKE2 }}
   EXPECTED_NODE_OS: leapmicro
   TF_VAR_microos_arm_snapshot_id: ${{ secrets.SNAPSHOT_ID_ARM }}
   TF_VAR_microos_x86_snapshot_id: ${{ secrets.SNAPSHOT_ID_X86 }}
-  TF_VAR_leapmicro_arm_snapshot_id: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM }}
-  TF_VAR_leapmicro_x86_snapshot_id: ${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 }}
 
 jobs:
   tests:
@@ -41,22 +41,63 @@ jobs:
     steps:
       - name: Add env mask
         run: |
-          echo "::add-mask::${{ secrets.HCLOUD_TOKEN }}"
-          echo "::add-mask::${{ secrets.HCLOUD_CONTEXT }}"
-          echo "::add-mask::${{ secrets.SNAPSHOT_ID_ARM }}"
-          echo "::add-mask::${{ secrets.SNAPSHOT_ID_X86 }}"
-          echo "::add-mask::${{ secrets.LEAPMICRO_SNAPSHOT_ID_ARM }}"
-          echo "::add-mask::${{ secrets.LEAPMICRO_SNAPSHOT_ID_X86 }}"
+          for secret_value in \
+            "$HCLOUD_TOKEN" \
+            "$HCLOUD_CONTEXT" \
+            "$SNAPSHOT_ID_ARM" \
+            "$SNAPSHOT_ID_X86" \
+            "$LEAPMICRO_SNAPSHOT_ID_ARM" \
+            "$LEAPMICRO_SNAPSHOT_ID_X86" \
+            "$LEAPMICRO_SNAPSHOT_ID_ARM_RKE2" \
+            "$LEAPMICRO_SNAPSHOT_ID_X86_RKE2"; do
+            if [ -n "$secret_value" ]; then
+              echo "::add-mask::$secret_value"
+            fi
+          done
 
       - name: Check prerequisites
         id: prerequisites
         run: |
-          if [ -z "$LEAPMICRO_SNAPSHOT_ID_ARM" ] || [ -z "$LEAPMICRO_SNAPSHOT_ID_X86" ]; then
-            echo "::error::Leap Micro CI requires LEAPMICRO_SNAPSHOT_ID_ARM and LEAPMICRO_SNAPSHOT_ID_X86. Refusing to fall back to MicroOS snapshots because that would make coverage reporting dishonest."
+          PRESET_NAME="${{ matrix.preset }}"
+          case "$PRESET_NAME" in
+            rke2)
+              leapmicro_arm_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_ARM_RKE2"
+              leapmicro_x86_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_X86_RKE2"
+              required_names="LEAPMICRO_SNAPSHOT_ID_ARM_RKE2 and LEAPMICRO_SNAPSHOT_ID_X86_RKE2"
+              ;;
+            *)
+              leapmicro_arm_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_ARM"
+              leapmicro_x86_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_X86"
+              required_names="LEAPMICRO_SNAPSHOT_ID_ARM and LEAPMICRO_SNAPSHOT_ID_X86"
+              ;;
+          esac
+
+          if [ -z "$leapmicro_arm_snapshot_id" ] || [ -z "$leapmicro_x86_snapshot_id" ]; then
+            echo "::error::Leap Micro CI preset ${PRESET_NAME} requires ${required_names}. Refusing to fall back to MicroOS snapshots because that would make coverage reporting dishonest."
             exit 1
           fi
 
           echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Select Leap Micro snapshots
+        if: steps.prerequisites.outputs.enabled == 'true'
+        run: |
+          PRESET_NAME="${{ matrix.preset }}"
+          case "$PRESET_NAME" in
+            rke2)
+              leapmicro_arm_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_ARM_RKE2"
+              leapmicro_x86_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_X86_RKE2"
+              ;;
+            *)
+              leapmicro_arm_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_ARM"
+              leapmicro_x86_snapshot_id="$LEAPMICRO_SNAPSHOT_ID_X86"
+              ;;
+          esac
+
+          {
+            echo "TF_VAR_leapmicro_arm_snapshot_id=${leapmicro_arm_snapshot_id}"
+            echo "TF_VAR_leapmicro_x86_snapshot_id=${leapmicro_x86_snapshot_id}"
+          } >> "$GITHUB_ENV"
 
       - name: Checkout
         if: steps.prerequisites.outputs.enabled == 'true'
@@ -84,7 +125,10 @@ jobs:
         run: |
           IAC_BIN="${{ matrix.engine }}"
           PRESET_NAME="${{ matrix.preset }}"
-          TEST_CLUSTER_NAME="kh-ci-${IAC_BIN}-${PRESET_NAME//_/-}-${{ github.run_id }}-${{ github.run_attempt }}"
+          PRESET_SLUG="${PRESET_NAME//_/-}"
+          PRESET_SLUG="$(printf '%s' "$PRESET_SLUG" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
+          # Hetzner hostnames are max 63 chars; cluster_name must leave >=24 chars for "-<pool>-<suffix>".
+          TEST_CLUSTER_NAME="kh-ci-${IAC_BIN:0:2}-${PRESET_SLUG:0:4}-${GITHUB_RUN_ID: -6}${GITHUB_RUN_ATTEMPT}"
           TEST_DIR="${RUNNER_TEMP}/kube-hetzner-${IAC_BIN}-${PRESET_NAME}"
           echo "TEST_CLUSTER_NAME=${TEST_CLUSTER_NAME}" >> "$GITHUB_ENV"
           echo "TEST_DIR=${TEST_DIR}" >> "$GITHUB_ENV"

@@ -137,6 +137,77 @@ locals {
     local.validation_autoscaler_server_types
   )
 
+  validation_hcloud_server_name_max_length          = 63
+  validation_static_random_server_name_suffix_chars = 4  # "-abc" from modules/host random_string.server length 3.
+  validation_autoscaler_server_name_suffix_chars    = 17 # "-%x" from cluster-autoscaler Hetzner rand.Int63(), max 16 hex chars.
+  validation_node_name_cluster_prefix               = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
+
+  validation_control_plane_server_name_contracts = [
+    for node_key, node in local.control_plane_nodes : {
+      role           = "control-plane"
+      pool           = node.nodepool_name
+      node           = node_key
+      base           = "${local.validation_node_name_cluster_prefix}${node.nodepool_name}"
+      base_length    = length("${local.validation_node_name_cluster_prefix}${node.nodepool_name}")
+      suffix_length  = node.append_random_suffix ? local.validation_static_random_server_name_suffix_chars : 0
+      max_length     = length("${local.validation_node_name_cluster_prefix}${node.nodepool_name}") + (node.append_random_suffix ? local.validation_static_random_server_name_suffix_chars : 0)
+      base_budget    = local.validation_hcloud_server_name_max_length - (node.append_random_suffix ? local.validation_static_random_server_name_suffix_chars : 0)
+      suffix_pattern = node.append_random_suffix ? "-abc" : "<none>"
+    }
+  ]
+
+  validation_agent_server_name_contracts = [
+    for node_key, node in local.agent_nodes : {
+      role           = "agent"
+      pool           = node.nodepool_name
+      node           = node_key
+      base           = "${local.validation_node_name_cluster_prefix}${node.nodepool_name}${try(node.node_name_suffix, "")}"
+      base_length    = length("${local.validation_node_name_cluster_prefix}${node.nodepool_name}${try(node.node_name_suffix, "")}")
+      suffix_length  = node.append_random_suffix ? local.validation_static_random_server_name_suffix_chars : 0
+      max_length     = length("${local.validation_node_name_cluster_prefix}${node.nodepool_name}${try(node.node_name_suffix, "")}") + (node.append_random_suffix ? local.validation_static_random_server_name_suffix_chars : 0)
+      base_budget    = local.validation_hcloud_server_name_max_length - (node.append_random_suffix ? local.validation_static_random_server_name_suffix_chars : 0)
+      suffix_pattern = node.append_random_suffix ? "-abc" : "<none>"
+    }
+  ]
+
+  validation_autoscaler_server_name_contracts = [
+    for nodepool in var.autoscaler_nodepools : {
+      role           = "autoscaler"
+      pool           = nodepool.name
+      node           = nodepool.name
+      base           = "${local.validation_node_name_cluster_prefix}${nodepool.name}"
+      base_length    = length("${local.validation_node_name_cluster_prefix}${nodepool.name}")
+      suffix_length  = local.validation_autoscaler_server_name_suffix_chars
+      max_length     = length("${local.validation_node_name_cluster_prefix}${nodepool.name}") + local.validation_autoscaler_server_name_suffix_chars
+      base_budget    = local.validation_hcloud_server_name_max_length - local.validation_autoscaler_server_name_suffix_chars
+      suffix_pattern = "-<16-hex>"
+    }
+  ]
+
+  validation_generated_server_name_contracts = concat(
+    local.validation_control_plane_server_name_contracts,
+    local.validation_agent_server_name_contracts,
+    local.validation_autoscaler_server_name_contracts
+  )
+
+  validation_generated_server_name_errors = [
+    for contract in local.validation_generated_server_name_contracts :
+    format(
+      "%s pool \"%s\" node \"%s\" can generate a %d-character Hetzner server name: base \"%s\" is %d chars plus suffix %s (%d chars). Maximum is %d, so the base budget here is %d chars.",
+      contract.role,
+      contract.pool,
+      contract.node,
+      contract.max_length,
+      contract.base,
+      contract.base_length,
+      contract.suffix_pattern,
+      contract.suffix_length,
+      local.validation_hcloud_server_name_max_length,
+      contract.base_budget
+    )
+    if contract.max_length > local.validation_hcloud_server_name_max_length
+  ]
+
   validation_kubelet_reserved_memory_unit_to_mi = {
     "Ki" = 0.0009765625
     "Mi" = 1

@@ -23,6 +23,11 @@ resource "terraform_data" "validation_contract" {
     }
 
     precondition {
+      condition     = length(local.validation_generated_server_name_errors) == 0
+      error_message = join("\n", concat(["Generated Hetzner server names must be 63 characters or fewer."], local.validation_generated_server_name_errors))
+    }
+
+    precondition {
       condition = (
         local.kubernetes_distribution != "rke2" ||
         alltrue([
