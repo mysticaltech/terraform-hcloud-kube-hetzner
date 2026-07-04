@@ -2213,6 +2213,23 @@ controller:
     "use-forwarded-headers": "true"
     "compute-full-forwarded-for": "true"
     "use-proxy-protocol": "${!local.using_klipper_lb}"
+  # Bootstrap scheduling help is intentionally hook-scoped: the LB-IP wait only
+  # needs Helm to finish creating the Service, while controller tolerations would
+  # permanently change where the data-plane Deployment can run.
+  admissionWebhooks:
+    patch:
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+        - key: "node.cloudprovider.kubernetes.io/uninitialized"
+          operator: "Exists"
+          effect: "NoSchedule"
 %{if !local.using_klipper_lb}
   service:
     annotations:
@@ -2351,6 +2368,21 @@ controller:
       "load-balancer.hetzner.cloud/hostname": "${var.load_balancer_hostname}"
 %{endif~}
 %{endif~}
+crdjob:
+  # HAProxy's CRD hook is also hook-scoped; keep bootstrap tolerations off the
+  # controller Deployment so the data plane stays on the user topology.
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "node-role.kubernetes.io/master"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "CriticalAddonsOnly"
+      operator: "Exists"
+    - key: "node.cloudprovider.kubernetes.io/uninitialized"
+      operator: "Exists"
+      effect: "NoSchedule"
   EOT
 
 haproxy_values = module.values_merger_haproxy.values
