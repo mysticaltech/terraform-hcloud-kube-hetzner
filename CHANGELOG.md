@@ -144,6 +144,36 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ---
 
+## [2.21.0] - 2026-07-04
+
+### ⚠️ Upgrade Notes
+
+- **One-time kustomization re-run**: the kustomization trigger state now includes the new deploy toggles and the rendered `kustomization.yaml` hash, so the first `terraform apply` after upgrading re-runs the post-install kustomization once (an idempotent `kubectl apply -k` — no resources are destroyed or recreated). Verified on a live fresh-apply gate: all nodes Ready, upgrade tooling deployed under defaults, toggle flips correctly re-run the kustomization.
+- Both new features preserve existing behavior at their defaults (`kustomize_apply_options = ["--wait=true"]`, both toggles `true`).
+
+### 🚀 New Features
+
+- **Configurable User Kustomization Apply Flags** - Added `kustomize_apply_options` for passing validated `kubectl apply` flags such as server-side apply to user kustomizations. Defaults to `["--wait=true"]` to preserve existing behavior (#2218).
+- **Optional Upgrade Tooling Deployment** - Added `enable_kured` and `enable_system_upgrade_controller` toggles for clusters that manage reboot orchestration or system-upgrade-controller externally. Disabling these flags omits the resources from future kustomization applies but does not prune already-deployed kured/system-upgrade-controller objects from existing clusters; remove those manually if needed. The kustomization trigger state now includes these toggles and the rendered `kustomization.yaml` hash, so existing clusters will see one idempotent `kubectl apply -k` re-run on upgrade; future toggle flips correctly re-run the kustomization provisioners (#2223).
+
+---
+
+## [2.20.1] - 2026-07-04
+
+### ⚠️ Upgrade Notes
+
+- This is a pure bug-fix patch: existing clusters should see a **no-op `terraform plan`** after upgrading (verified against v2.20.0 — no resource changes, no recreation). The agent-startup and kustomization fixes take effect on fresh applies and node replacements; the SELinux fix applies to newly provisioned/replaced nodes only.
+
+### 🐛 Bug Fixes
+
+- **Traefik Gateway API CRDs** - Install the Kubernetes Gateway API standard CRDs before Traefik when `traefik_provider_kubernetes_gateway_enabled` is enabled, preventing Helm install failures for `GatewayClass` and `Gateway` resources (#2211).
+- **Agent Startup Race on Fresh Deploys** - Agent nodes now start only after the kustomization that deploys the Hetzner CCM, fixing consistent `exit 124` timeouts on fresh single-apply deployments. The agent start is also observable now: on failure it dumps `systemctl status` and journal output instead of failing silently (#2215, #2220).
+- **User Kustomization Failures No Longer Masked** - A failed `kubectl apply -k` in the user kustomization deploy now fails the apply loudly instead of being masked by trailing `extra_kustomize_deployment_commands` (#2225).
+- **Packer Snapshot Build Overrides** - The MicroOS snapshot template now exposes `x86_server_type`, `x86_location`, `arm_server_type`, and `arm_location` packer variables, so builds can be pointed at available server types/locations with `-var` instead of editing the template when Hetzner capacity shifts (#2214).
+- **SELinux: CSI Liveness Probes** - Added `allow container_t kernel_t:tcp_socket { read write }` to the kube-hetzner SELinux policy, fixing hcloud-csi-driver (and similar CSI) crash-loops caused by liveness-probe denials under enforcing SELinux. Applies to newly provisioned/replaced nodes; on existing nodes either replace nodes or apply the module manually as described in #2203.
+
+---
+
 ## [2.20.0] - 2026-06-02
 
 ### ⚠️ Upgrade Notes
