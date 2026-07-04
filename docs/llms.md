@@ -1723,6 +1723,26 @@ Excellent! Let's continue our meticulous dissection.
   * **Multiple Providers:** The structure allows defining multiple `jwt` issuers or other authentication mechanisms.
   * **Reference:** The Kubernetes authentication documentation link is crucial.
 
+```terraform
+  # Additional raw kube-apiserver flags appended to the control-plane config.yaml (kube-apiserver-arg).
+  # Useful for apiserver options that have no dedicated module variable, e.g. OIDC workload-identity
+  # issuance. Entries are "flag=value" WITHOUT a leading "--".
+  # Appended AFTER module-generated apiserver args (auth/audit); duplicate k3s/rke2 config flag keys
+  # are last-wins, so this can intentionally override module defaults as an escape hatch.
+  #
+  # kube_apiserver_args = [
+  #   "service-account-issuer=https://my-cluster.example.com",
+  #   "service-account-jwks-uri=https://my-cluster.example.com/openid/v1/jwks",
+  # ]
+```
+
+* **`kube_apiserver_args` (List of Strings, Optional, Default: `[]`):**
+  * **Purpose:** Appends arbitrary flags to the control-plane `config.yaml`'s `kube-apiserver-arg` list, for apiserver options that do not have their own module variable (for example `service-account-issuer` / `service-account-jwks-uri` to enable OIDC workload identity / projected service-account-token federation).
+  * **Format:** A list of `"flag=value"` strings **without** the leading `--` (the same convention k3s/rke2 use inside `config.yaml`). Null, empty, whitespace-only, leading/trailing-whitespace, and `--flag=value` entries are rejected by input validations.
+  * **How it applies:** The values are appended **after** the module's own apiserver flags (e.g. those derived from `authentication_config` / `audit_policy_config`) in the rendered `config.yaml`. k3s/rke2 duplicate config flag keys are last-wins, so user entries can intentionally override module defaults as an escape hatch. Changes apply **in-place** through the existing config-update provisioner — the k3s/rke2 service is restarted on each control-plane node, **no node is recreated**.
+  * **Relationship to `control_plane_exec_args`:** `control_plane_exec_args` passes flags on the `k3s server` command line; `kube_apiserver_args` writes them into `config.yaml`. Prefer this variable for apiserver flags you may want to change on an existing cluster without touching the systemd unit's exec line.
+  * **Caution:** These are passed through verbatim. Invalid or conflicting apiserver flags can prevent the API server from starting — validate values against your Kubernetes version.
+
 ---
 
 **Section 2.15: k3s Server and Agent Execution Arguments**

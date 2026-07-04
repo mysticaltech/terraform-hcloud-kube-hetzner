@@ -40,6 +40,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🚀 New Features
 
+- **Raw kube-apiserver Args Passthrough** - Added `kube_apiserver_args` (list of strings, default `[]`) to append arbitrary apiserver flags to the control-plane `config.yaml` `kube-apiserver-arg` (e.g. `service-account-issuer` / `service-account-jwks-uri` for OIDC workload identity) for options without a dedicated module variable. Applied in-place via the existing config-update provisioner (k3s/rke2 service restart, no control-plane node recreation); entries must omit the leading `--`, enforced by input validation.
 - **Leap Micro Support (Stable Default OS)** - Added `os` selector for control plane, agent, and autoscaler nodepools (plus per-node agent overrides). New nodepools default to `leapmicro`; existing nodepools remain on MicroOS by default on upgrade to avoid recreation. New variables: `leapmicro_x86_snapshot_id`, `leapmicro_arm_snapshot_id`. Added packer template `packer-template/hcloud-leapmicro-snapshots.pkr.hcl` and automatic OS detection via the `kube-hetzner/os` server label.
 - **Agent Floating IP Family Selection** - Added `floating_ip_type` (`ipv4`/`ipv6`) to agent nodepools and node overrides, including IPv6-aware NetworkManager reconfiguration logic.
 - **Cilium Egress Gateway HA Reconciler** - New `cilium_egress_gateway_ha_enabled` option to deploy a lightweight controller that keeps labeled `CiliumEgressGatewayPolicy` objects pinned to a Ready egress node.

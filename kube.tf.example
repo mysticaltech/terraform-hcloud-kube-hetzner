@@ -1113,6 +1113,17 @@ module "kube-hetzner" {
   #         prefix: "oidc:"
   #   EOT
 
+  # Additional raw kube-apiserver flags appended to the control-plane config.yaml (kube-apiserver-arg),
+  # for apiserver options without a dedicated module variable (e.g. OIDC workload identity issuance).
+  # Entries are appended AFTER module-generated apiserver args (auth/audit). k3s/rke2 duplicate config
+  # flag keys are last-wins, so this intentionally lets you override module defaults as an escape hatch.
+  # Entries are "flag=value" WITHOUT a leading "--". Applied in-place via the config-update script
+  # (k3s/rke2 service restart, no control-plane node recreation). Defaults to [].
+  # kube_apiserver_args = [
+  #   "service-account-issuer=https://my-cluster.example.com",
+  #   "service-account-jwks-uri=https://my-cluster.example.com/openid/v1/jwks",
+  # ]
+
   # Set to true if util-linux breaks on the OS (temporary regression fixed in util-linux v2.41.1).
   # prefer_bundled_bin = true
 
