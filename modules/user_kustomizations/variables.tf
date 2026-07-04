@@ -20,6 +20,7 @@ variable "kustomizations_map" {
     kustomize_parameters = optional(map(any), {})
     pre_commands         = optional(string, "")
     post_commands        = optional(string, "")
+    apply_options        = optional(list(string), [])
   }))
   default     = {}
   description = "Map of kustomization entries, where key is the order number."

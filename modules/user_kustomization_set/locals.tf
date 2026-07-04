@@ -9,4 +9,7 @@ locals {
   parameters_sha           = nonsensitive(sha256(jsonencode(var.template_parameters)))
   pre_commands_string_sha  = nonsensitive(sha256(var.pre_commands_string))
   post_commands_string_sha = nonsensitive(sha256(var.post_commands_string))
+  apply_options_sha        = nonsensitive(sha256(jsonencode(var.apply_options)))
+  apply_options_folder     = "${dirname(var.destination_folder)}/.kube-hetzner-apply-options"
+  apply_options_file       = "${local.apply_options_folder}/${basename(var.destination_folder)}.sh"
 }

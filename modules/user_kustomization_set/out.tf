@@ -14,6 +14,10 @@ output "post_commands_string_sha" {
   value = local.post_commands_string_sha
 }
 
+output "apply_options_sha" {
+  value = local.apply_options_sha
+}
+
 output "files_count" {
   description = "Number of template files found in the source folder."
   value       = length(local.source_folder_files)
@@ -21,6 +25,6 @@ output "files_count" {
 
 output "changes_sha" {
   value = nonsensitive(sha256(join("", [
-    local.source_files_sha, local.parameters_sha, local.pre_commands_string_sha, local.post_commands_string_sha
+    local.source_files_sha, local.parameters_sha, local.pre_commands_string_sha, local.post_commands_string_sha, local.apply_options_sha
   ])))
 }

@@ -14,6 +14,7 @@ module "user_kustomization_set" {
 
   pre_commands_string  = var.kustomizations_map[each.key].pre_commands
   post_commands_string = var.kustomizations_map[each.key].post_commands
+  apply_options        = nonsensitive(var.kustomizations_map[each.key].apply_options)
   replacement_triggers = var.replacement_triggers
 }
 
@@ -46,6 +47,7 @@ resource "terraform_data" "kustomization_user_deploy" {
 
       for dest_key in $sorted_dest_keys; do
         dest_folder="${local.base_destination_folder}/$dest_key"
+        options_file="${local.base_destination_folder}/.kube-hetzner-apply-options/$dest_key.sh"
 
         if [ -d "$dest_folder" ]; then
           echo "Running pre-install script from $dest_folder"
@@ -53,7 +55,10 @@ resource "terraform_data" "kustomization_user_deploy" {
 
           if [ -s "$dest_folder/kustomization.yaml" ] || [ -s "$dest_folder/kustomization.yml" ] || [ -s "$dest_folder/Kustomization" ]; then
             echo "Applying kustomization from $dest_folder"
-            ${var.kubectl_cli} apply -k "$dest_folder"
+            apply_options=()
+            # shellcheck source=/dev/null
+            source "$options_file"
+            ${var.kubectl_cli} apply "$${apply_options[@]}" -k "$dest_folder"
           else
             echo "No valid kustomization file found in $dest_folder, skipping apply."
           fi

@@ -9,6 +9,7 @@ resource "terraform_data" "install_scripts" {
     parameters_sha           = local.parameters_sha
     pre_commands_string_sha  = local.pre_commands_string_sha
     post_commands_string_sha = local.post_commands_string_sha
+    apply_options_sha        = local.apply_options_sha
   }, var.replacement_triggers)
 
   connection {
@@ -27,7 +28,9 @@ resource "terraform_data" "install_scripts" {
   provisioner "remote-exec" {
     inline = [
       "rm -rf ${jsonencode(var.destination_folder)}",
-      "mkdir -p ${jsonencode(var.destination_folder)}"
+      "mkdir -p ${jsonencode(var.destination_folder)}",
+      "mkdir -p ${jsonencode(local.apply_options_folder)}",
+      "rm -f ${jsonencode(local.apply_options_file)}"
     ]
   }
 
@@ -39,6 +42,11 @@ resource "terraform_data" "install_scripts" {
   provisioner "file" {
     content     = templatefile("${path.module}/templates/bash.sh.tpl", { commands = var.post_commands_string })
     destination = "${var.destination_folder}/postinstall.sh"
+  }
+
+  provisioner "file" {
+    content     = templatefile("${path.module}/templates/apply-options.sh.tpl", { options = nonsensitive(var.apply_options) })
+    destination = local.apply_options_file
   }
 }
 

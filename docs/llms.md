@@ -2433,6 +2433,7 @@ Locked and loaded! Let's continue the detailed exploration.
   # - kustomize_parameters: Key-value map for passing variables into Kustomization. Applies only to the Kustomization-set in the object, but to all files defined in the source_folder of the "set". Defaults to {}.
   # - pre_commands: Commands to be executed before applying the Kustomization ("kubectl apply -k"). Defaults to "".
   # - post_commands: Commands to be executed after applying the Kustomization ("kubectl apply -k"). You can use it to wait for CRD deployment etc. Defaults to "".
+  # - apply_options: Additional kubectl apply flag tokens for this Kustomization-set. Use this for large CRDs that exceed the client-side apply annotation size limit, e.g. ["--server-side", "--field-manager=kube-hetzner", "--force-conflicts"]. Defaults to [].
   # -- An example to wait for deployments in all namespaces: `kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true` (The `|| true` is necessary to prevent the script from exiting on a timeout if you want the sequence to continue.)
   # -- It is recommended to use more specific `kubectl wait` commands depending on the case, for example filtering for a certain deployment or pod.
   # -- You can pass full bash-compatible scripts into the `post_commands`-variable with EOT
@@ -2444,15 +2445,17 @@ Locked and loaded! Let's continue the detailed exploration.
   #     kustomize_parameters = { myvar = "myvalue" }
   #     pre_commands         = ""
   #     post_commands        = "kubectl wait --for=condition=Available deployment --all -A --timeout=120s || true"
+  #     apply_options        = ["--server-side", "--field-manager=kube-hetzner", "--force-conflicts"]
   #   }
   # }
 ```
 
 * **`user_kustomizations` (Map of Objects, Optional):**
-  * **Purpose:** Allows you to specify Kustomization sets that are run sequentially, with each set containing its own source_folder, pre_commands, post_commands and kustomize_parameters
+  * **Purpose:** Allows you to specify Kustomization sets that are run sequentially, with each set containing its own source_folder, pre_commands, post_commands, apply_options and kustomize_parameters
   * **Use Cases:**
     * Some applications deployed via Helm or Kustomize install CustomResourceDefinitions (CRDs) first, and then CustomResources (CRs) that depend on those CRDs. There can be a race condition if the CRs are applied before the CRDs are fully registered. You could add a command here to wait for CRDs to become available (e.g., `kubectl wait --for condition=established crd/mycrd.example.com --timeout=120s`).
     * The `user_kustomizations`-map allows you to define steps of install where e.g. the first step installs CRDs, checks for their proper existence and then second step that install further CRs.
+    * Set `apply_options = ["--server-side", "--field-manager=kube-hetzner", "--force-conflicts"]` on a single step when large CRDs exceed the client-side apply annotation size limit.
 
 * **Documentation Pointer:** This directs users to example usage of the "extra manifests" feature, which is crucial for extending the module's capabilities with custom deployments.
 
@@ -3114,12 +3117,13 @@ The following variables have been added to the `kube-hetzner` module since the i
   #     kustomize_parameters = {}
   #     pre_commands         = ""
   #     post_commands        = ""
+  #     apply_options        = ["--server-side", "--field-manager=kube-hetzner", "--force-conflicts"]
   #   }
   # }
 ```
 
 * **`user_kustomizations` (Map of Objects, Optional):**
-  * **Purpose:** Defines ordered Kustomize deployment sets with per-set template parameters and optional pre/post commands.
+  * **Purpose:** Defines ordered Kustomize deployment sets with per-set template parameters, optional pre/post commands, and per-set kubectl apply options.
   * **Migration Note:** The legacy `extra_kustomize_*` inputs were removed; migrate to `user_kustomizations`.
 
 **MicroOS Snapshot Control**

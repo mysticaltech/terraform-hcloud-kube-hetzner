@@ -47,6 +47,12 @@ variable "post_commands_string" {
   sensitive = true
 }
 
+variable "apply_options" {
+  type        = list(string)
+  default     = []
+  description = "Validated kubectl apply flag tokens for this kustomization set."
+}
+
 variable "replacement_triggers" {
   type        = map(string)
   default     = {}
