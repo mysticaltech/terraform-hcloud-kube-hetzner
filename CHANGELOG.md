@@ -64,6 +64,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🐛 Bug Fixes
 
+- **Agent Bootstrap Ordering** - Ordered agents after k3s/RKE2 kustomization bootstrap, moved post-install readiness waits after agent join, and kept observable agent start failures for default multi-node clusters (#2215, #2220, #2221).
 - **Control Plane LB Health Check** - Kept the control-plane load balancer health check on HTTP protocol with TLS enabled for the Kubernetes `/readyz` endpoint, avoiding invalid Hetzner `https` protocol validation failures (#2188, #2199, #2200, #2205).
 - **Autoscaler Large Configs and DRA RBAC** - Cluster Autoscaler now reads the generated Hetzner cluster config from a Secret-backed file, uses server-side apply for its manifest, and has read-only RBAC for Kubernetes Dynamic Resource Allocation resources (#2194, #2195, #2202).
 - **Kured on Tainted Nodes** - Added a universal toleration to Kured so OS reboot management still runs on tainted nodes (#2196).

@@ -33,7 +33,7 @@ module "user_kustomizations" {
   }
 
   depends_on = [
-    terraform_data.kustomization,
-    terraform_data.rke2_kustomization,
+    terraform_data.post_install_readiness,
+    terraform_data.rke2_post_install_readiness,
   ]
 }

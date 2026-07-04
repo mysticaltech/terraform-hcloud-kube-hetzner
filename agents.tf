@@ -301,27 +301,33 @@ resource "terraform_data" "agents" {
   # Start the k3s agent and wait for it to have started
   provisioner "remote-exec" {
     inline = concat(["systemctl enable --now iscsid"], local.kubernetes_distribution == "rke2" ? [
-      "timeout 120 systemctl start rke2-agent 2> /dev/null",
       "systemctl enable rke2-agent",
       <<-EOT
-      timeout 120 bash <<EOF
-        until systemctl status rke2-agent > /dev/null; do
-          systemctl start rke2-agent 2> /dev/null
-          echo "Waiting for the rke2 agent to start..."
-          sleep 2
-        done
-      EOF
+      # Clear any failed unit state left by a prior attempt so the start is not
+      # blocked by start-limit rate limiting, then kick the agent off without
+      # blocking and wait for it to actually settle.
+      systemctl reset-failed rke2-agent 2> /dev/null || true
+      systemctl start --no-block rke2-agent
+      if ! timeout 600 bash -c 'until systemctl is-active --quiet rke2-agent; do if systemctl is-failed --quiet rke2-agent; then exit 1; fi; echo "Waiting for the rke2 agent to start..."; sleep 5; done'; then
+        echo "ERROR: rke2-agent did not become active within 600s. Dumping diagnostics:" >&2
+        systemctl status rke2-agent --no-pager -l || true
+        journalctl -u rke2-agent -n 80 --no-pager || true
+        exit 1
+      fi
       EOT
       ] : [
-      "timeout 120 systemctl start k3s-agent 2> /dev/null",
       <<-EOT
-      timeout 120 bash <<EOF
-        until systemctl status k3s-agent > /dev/null; do
-          systemctl start k3s-agent 2> /dev/null
-          echo "Waiting for the k3s agent to start..."
-          sleep 2
-        done
-      EOF
+      # Clear any failed unit state left by a prior attempt so the start is not
+      # blocked by start-limit rate limiting, then kick the agent off without
+      # blocking and wait for it to actually settle.
+      systemctl reset-failed k3s-agent 2> /dev/null || true
+      systemctl start --no-block k3s-agent
+      if ! timeout 600 bash -c 'until systemctl is-active --quiet k3s-agent; do if systemctl is-failed --quiet k3s-agent; then exit 1; fi; echo "Waiting for the k3s agent to start..."; sleep 5; done'; then
+        echo "ERROR: k3s-agent did not become active within 600s. Dumping diagnostics:" >&2
+        systemctl status k3s-agent --no-pager -l || true
+        journalctl -u k3s-agent -n 80 --no-pager || true
+        exit 1
+      fi
       EOT
     ])
   }
@@ -333,7 +339,14 @@ resource "terraform_data" "agents" {
     terraform_data.agent_config,
     hcloud_load_balancer_service.control_plane,
     hcloud_load_balancer_service.control_plane_rke2_supervisor,
-    hcloud_network_subnet.control_plane
+    hcloud_network_subnet.control_plane,
+    # CCM (deployed by the distribution-specific kustomization bootstrap) is
+    # what untaints freshly-joined agents. Without this edge, agents start
+    # concurrently with the kustomization and race the untaint, so the agent
+    # never settles and the start provisioner times out (exit 124) on a fresh
+    # single apply. The k3s/RKE2 resources are count-gated; only one exists.
+    terraform_data.kustomization,
+    terraform_data.rke2_kustomization,
   ]
 }
 moved {

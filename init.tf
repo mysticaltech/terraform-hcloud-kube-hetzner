@@ -958,8 +958,7 @@ resource "terraform_data" "kustomization" {
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
         "kubectl -n system-upgrade apply -f /var/post_install/plans.yaml",
         # Work around stale cainjector leader leases after interrupted cert-manager helm installs.
-        "kubectl -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true",
-        replace(local.post_install_readiness_wait_script, "__KUBECTL__", "kubectl")
+        "kubectl -n kube-system delete lease cert-manager-cainjector-leader-election --ignore-not-found || true"
       ],
       local.skip_ingress_lb_wait ? [] : [
         <<-EOT
@@ -981,6 +980,44 @@ resource "terraform_data" "kustomization" {
     terraform_data.kube_system_secrets
   ]
 }
+
+resource "terraform_data" "post_install_readiness" {
+  count = local.kubernetes_distribution == "k3s" ? 1 : 0
+
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.kustomization,
+      terraform_data.agents,
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.first_control_plane_ip
+    port           = var.ssh_port
+    timeout        = "10m" # Extended timeout to handle network migrations during upgrades
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -ex",
+      replace(local.post_install_readiness_wait_script, "__KUBECTL__", "kubectl")
+    ]
+  }
+
+  depends_on = [
+    terraform_data.kustomization,
+    terraform_data.agents,
+  ]
+}
+
 resource "terraform_data" "rke2_kustomization" {
   count = local.kubernetes_distribution == "rke2" ? 1 : 0
   triggers_replace = {
@@ -1418,8 +1455,7 @@ resource "terraform_data" "rke2_kustomization" {
         "echo 'Waiting for the system-upgrade-controller deployment to become available...'",
         "${local.kubectl_cli} -n system-upgrade wait --for=condition=available --timeout=360s deployment/system-upgrade-controller",
         "sleep 7", # important as the system upgrade controller CRDs sometimes don't get ready right away, especially with Cilium.
-        "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml",
-        replace(local.post_install_readiness_wait_script, "__KUBECTL__", local.kubectl_cli)
+        "${local.kubectl_cli} -n system-upgrade apply -f /var/post_install/plans.yaml"
       ],
       local.skip_ingress_lb_wait ? [] : [
         <<-EOT
@@ -1442,6 +1478,43 @@ resource "terraform_data" "rke2_kustomization" {
     terraform_data.kube_system_secrets
   ]
 }
+
+resource "terraform_data" "rke2_post_install_readiness" {
+  count = local.kubernetes_distribution == "rke2" ? 1 : 0
+
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.rke2_kustomization,
+      terraform_data.agents,
+    ]
+  }
+
+  connection {
+    user           = "root"
+    private_key    = var.ssh_private_key
+    agent_identity = local.ssh_agent_identity
+    host           = local.first_control_plane_ip
+    port           = var.ssh_port
+
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -ex",
+      replace(local.post_install_readiness_wait_script, "__KUBECTL__", local.kubectl_cli)
+    ]
+  }
+
+  depends_on = [
+    terraform_data.rke2_kustomization,
+    terraform_data.agents,
+  ]
+}
+
 moved {
   from = null_resource.rke2_kustomization
   to   = terraform_data.rke2_kustomization
