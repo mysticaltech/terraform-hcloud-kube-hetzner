@@ -177,6 +177,18 @@ variable "authentication_config" {
   default     = ""
 }
 
+variable "kube_apiserver_args" {
+  description = "Additional raw kube-apiserver flags appended to the control-plane config.yaml (kube-apiserver-arg), e.g. [\"service-account-issuer=https://...\", \"service-account-jwks-uri=https://...\"] for OIDC workload identity. Applied in-place via the existing config-update script (k3s/rke2 service restart, no control-plane node recreation). Entries are \"flag=value\" without a leading \"--\"."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for arg in var.kube_apiserver_args : !startswith(trimspace(coalesce(arg, "")), "--")])
+    error_message = "kube_apiserver_args entries must be specified without a leading \"--\" (use \"service-account-issuer=https://...\", not \"--service-account-issuer=https://...\")."
+  }
+}
+
 variable "hcloud_ssh_key_id" {
   description = "If passed, a key already registered within hetzner is used. Otherwise, a new one will be created by the module."
   type        = string
