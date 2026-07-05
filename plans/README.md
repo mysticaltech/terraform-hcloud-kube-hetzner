@@ -36,3 +36,4 @@ Dependency edges: 007→001, 008→001, 008→004 (same data sources — 004 lan
 - **DIRECTION-02 (destroy-time LB cleanup)**: already implemented and live-proven during the same session (staging `e506cc4` parentage).
 - **DOCS-01/02, DX-01, DEPS-01/03, TEST-02**: valid; deferred this round to keep the batch reviewable. DOCS fixes are safe candidates for any idle cycle.
 - **CORRECTNESS-02** → became spike 010 (breaking-change class).
+- **Cloudflare Zero Trust**: rejected as a NODE TRANSPORT (all node-to-node traffic would relay through Cloudflare's edge — unacceptable latency for etcd/CNI vs Tailscale's direct WireGuard paths). Accepted as a future ACCESS-PLANE direction: cloudflared tunnel + Access for kube-API/SSH with zero public ports; the node_transport_mode enum seam remains open if ever revisited.
