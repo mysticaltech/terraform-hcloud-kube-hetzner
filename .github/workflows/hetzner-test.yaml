@@ -192,6 +192,128 @@ jobs:
             exit 1
           fi
 
+      - name: Report SELinux AVC denials
+        if: steps.prerequisites.outputs.enabled == 'true'
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          set +e
+
+          KUBECONFIG_FILE="${TEST_CLUSTER_NAME}_kubeconfig.yaml"
+          KUBECTL=(kubectl --kubeconfig "${TEST_DIR}/${KUBECONFIG_FILE}")
+          report() {
+            printf 'SELINUX AVC DENIALS (node %s): %s\n' "$1" "$2"
+          }
+          check() {
+            printf 'SELINUX AVC CHECK (node %s): %s\n' "$1" "$2"
+          }
+
+          node_jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+          nodes="$(
+            "${KUBECTL[@]}" get nodes -o "jsonpath=${node_jsonpath}" \
+              2>/dev/null || true
+          )"
+
+          if [ -z "$nodes" ]; then
+            echo "SELINUX AVC DENIALS: unable to list nodes"
+            exit 0
+          fi
+
+          for node in $nodes; do
+            pod_suffix="$(
+              printf '%s' "$node" |
+                tr '[:upper:]' '[:lower:]' |
+                tr -c 'a-z0-9-' '-' |
+                sed 's/^-*//; s/-*$//'
+            )"
+            pod="$(printf 'kh-avc-%.56s' "$pod_suffix" | sed 's/-*$//')"
+
+            "${KUBECTL[@]}" -n kube-system delete pod "$pod" \
+              --ignore-not-found --wait=false >/dev/null 2>&1 || true
+
+            cat <<YAML | "${KUBECTL[@]}" apply -f - >/dev/null 2>&1 || {
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ${pod}
+            namespace: kube-system
+          spec:
+            automountServiceAccountToken: false
+            restartPolicy: Never
+            terminationGracePeriodSeconds: 0
+            nodeName: ${node}
+            tolerations:
+              - operator: Exists
+            containers:
+              - name: avc-report
+                image: busybox:1.36
+                imagePullPolicy: IfNotPresent
+                command:
+                  - sh
+                  - -c
+                  - |
+                    if [ -r /host/var/log/audit/audit.log ]; then
+                      grep 'avc:  denied' /host/var/log/audit/audit.log || true
+                    else
+                      echo '__KH_AUDIT_LOG_MISSING__'
+                    fi
+                securityContext:
+                  privileged: true
+                  readOnlyRootFilesystem: true
+                  runAsUser: 0
+                volumeMounts:
+                  - name: host-root
+                    mountPath: /host
+                    readOnly: true
+            volumes:
+              - name: host-root
+                hostPath:
+                  path: /
+                  type: Directory
+          YAML
+              report "$node" "unable to start inspector pod"
+              continue
+            }
+
+            phase=""
+            for _ in $(seq 1 60); do
+              phase="$(
+                "${KUBECTL[@]}" -n kube-system get pod "$pod" \
+                  -o jsonpath='{.status.phase}' 2>/dev/null || true
+              )"
+              case "$phase" in
+                Succeeded|Failed)
+                  break
+                  ;;
+              esac
+              sleep 2
+            done
+
+            logs="$("${KUBECTL[@]}" -n kube-system logs "$pod" 2>&1 || true)"
+            avcs="$(printf '%s\n' "$logs" | grep 'avc:  denied' || true)"
+            if [ -n "$avcs" ]; then
+              count="$(printf '%s\n' "$avcs" | wc -l | tr -d ' ')"
+            else
+              count=0
+            fi
+
+            report "$node" "$count"
+            if [ "$count" -gt 0 ]; then
+              printf '%s\n' "$avcs"
+            elif printf '%s\n' "$logs" | grep -q \
+              '__KH_AUDIT_LOG_MISSING__'; then
+              check "$node" "audit log not readable or absent"
+            elif [ "$phase" != "Succeeded" ]; then
+              check "$node" "inspector pod phase ${phase:-unknown}; logs follow"
+              printf '%s\n' "$logs"
+            fi
+
+            "${KUBECTL[@]}" -n kube-system delete pod "$pod" \
+              --ignore-not-found --wait=false >/dev/null 2>&1 || true
+          done
+
+          true
+
       - name: Destroy cluster
         if: steps.prerequisites.outputs.enabled == 'true' && always()
         run: |
