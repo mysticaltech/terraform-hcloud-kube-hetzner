@@ -68,8 +68,8 @@ module "control_planes" {
   audit_policy_update_script    = local.k3s_audit_policy_update_script
   cloudinit_write_files_common  = local.cloudinit_write_files_common
   cloudinit_runcmd_common       = local.cloudinit_runcmd_common
-  cloudinit_write_files_extra   = each.value.extra_write_files
-  cloudinit_runcmd_extra        = concat(local.tailscale_cloud_init_bootstrap_enabled ? [local.tailscale_bootstrap_script_static_control_plane_by_node[each.key]] : [], each.value.extra_runcmd)
+  cloudinit_write_files_extra   = concat(each.value.extra_write_files, local.node_annotation_write_files_by_scope["control-plane:${each.key}"])
+  cloudinit_runcmd_extra        = concat(local.tailscale_cloud_init_bootstrap_enabled ? [local.tailscale_bootstrap_script_static_control_plane_by_node[each.key]] : [], each.value.extra_runcmd, length(each.value.annotations) == 0 ? [] : local.node_annotations_enable_runcmd)
   swap_size                     = each.value.swap_size
   zram_size                     = each.value.zram_size
   keep_disk_size                = coalesce(each.value.keep_disk, var.keep_disk_control_plane_nodes)

@@ -904,7 +904,7 @@ variable "primary_ip_pool" {
 }
 
 variable "control_plane_nodepools" {
-  description = "Number of control plane nodes."
+  description = "Control plane nodepools. Optional annotations are Kubernetes Node annotations applied once by a node-local systemd oneshot when each node joins; later map changes affect only newly created or replaced nodes and do not remove annotations from existing Nodes. Per-node annotations merge with and override nodepool annotations."
   type = list(object({
     name                  = string
     server_type           = string
@@ -913,6 +913,7 @@ variable "control_plane_nodepools" {
     floating_ip           = optional(bool, false)
     floating_ip_id        = optional(number, null)
     labels                = list(string)
+    annotations           = optional(map(string), {})
     hcloud_labels         = optional(map(string), {})
     taints                = list(string)
     count                 = optional(number, null)
@@ -949,6 +950,7 @@ variable "control_plane_nodepools" {
       floating_ip           = optional(bool)
       floating_ip_id        = optional(number, null)
       labels                = optional(list(string))
+      annotations           = optional(map(string), {})
       hcloud_labels         = optional(map(string), {})
       taints                = optional(list(string))
       append_random_suffix  = optional(bool)
@@ -1016,6 +1018,46 @@ variable "control_plane_nodepools" {
       can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", control_plane_nodepool.name))
     ])
     error_message = "Names in control_plane_nodepools must use lowercase alphanumeric characters and dashes, and must not start or end with a dash."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for control_plane_nodepool in var.control_plane_nodepools : concat(
+        [
+          for key, _ in control_plane_nodepool.annotations :
+          length(split("/", key)) <= 2 &&
+          can(regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$", key)) &&
+          (length(split("/", key)) == 1 || length(split("/", key)[0]) <= 253)
+        ],
+        flatten([
+          for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) : [
+            for key, _ in control_plane_node.annotations :
+            length(split("/", key)) <= 2 &&
+            can(regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$", key)) &&
+            (length(split("/", key)) == 1 || length(split("/", key)[0]) <= 253)
+          ]
+        ])
+      )
+    ]))
+    error_message = "control_plane_nodepools annotations keys must be valid Kubernetes qualified names: optional DNS-1123 prefix and '/', then a name of 1-63 alphanumeric, '.', '_' or '-' characters starting and ending alphanumeric."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for control_plane_nodepool in var.control_plane_nodepools : concat(
+        [
+          for _, value in control_plane_nodepool.annotations :
+          !can(regex("[\\r\\n]", value))
+        ],
+        flatten([
+          for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) : [
+            for _, value in control_plane_node.annotations :
+            !can(regex("[\\r\\n]", value))
+          ]
+        ])
+      )
+    ]))
+    error_message = "control_plane_nodepools annotations values must be single-line strings without carriage returns or newlines."
   }
 
   validation {
@@ -1144,7 +1186,7 @@ variable "control_plane_nodepools" {
 }
 
 variable "agent_nodepools" {
-  description = "Number of agent nodes."
+  description = "Agent nodepools. Optional annotations are Kubernetes Node annotations applied once by a node-local systemd oneshot when each node joins; later map changes affect only newly created or replaced nodes and do not remove annotations from existing Nodes. Per-node annotations merge with and override nodepool annotations."
   type = list(object({
     name                  = string
     server_type           = string
@@ -1155,6 +1197,7 @@ variable "agent_nodepools" {
     floating_ip_id        = optional(number, null)
     floating_ip_rdns      = optional(string, null)
     labels                = list(string)
+    annotations           = optional(map(string), {})
     hcloud_labels         = optional(map(string), {})
     taints                = list(string)
     longhorn_volume_size  = optional(number)
@@ -1198,6 +1241,7 @@ variable "agent_nodepools" {
       floating_ip_id            = optional(number, null)
       floating_ip_rdns          = optional(string, null)
       labels                    = optional(list(string))
+      annotations               = optional(map(string), {})
       hcloud_labels             = optional(map(string), {})
       taints                    = optional(list(string))
       longhorn_volume_size      = optional(number)
@@ -1277,6 +1321,46 @@ variable "agent_nodepools" {
       can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", agent_nodepool.name))
     ])
     error_message = "Names in agent_nodepools must use lowercase alphanumeric characters and dashes, and must not start or end with a dash."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for agent_nodepool in var.agent_nodepools : concat(
+        [
+          for key, _ in agent_nodepool.annotations :
+          length(split("/", key)) <= 2 &&
+          can(regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$", key)) &&
+          (length(split("/", key)) == 1 || length(split("/", key)[0]) <= 253)
+        ],
+        flatten([
+          for _, agent_node in coalesce(agent_nodepool.nodes, {}) : [
+            for key, _ in agent_node.annotations :
+            length(split("/", key)) <= 2 &&
+            can(regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$", key)) &&
+            (length(split("/", key)) == 1 || length(split("/", key)[0]) <= 253)
+          ]
+        ])
+      )
+    ]))
+    error_message = "agent_nodepools annotations keys must be valid Kubernetes qualified names: optional DNS-1123 prefix and '/', then a name of 1-63 alphanumeric, '.', '_' or '-' characters starting and ending alphanumeric."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for agent_nodepool in var.agent_nodepools : concat(
+        [
+          for _, value in agent_nodepool.annotations :
+          !can(regex("[\\r\\n]", value))
+        ],
+        flatten([
+          for _, agent_node in coalesce(agent_nodepool.nodes, {}) : [
+            for _, value in agent_node.annotations :
+            !can(regex("[\\r\\n]", value))
+          ]
+        ])
+      )
+    ]))
+    error_message = "agent_nodepools annotations values must be single-line strings without carriage returns or newlines."
   }
 
   validation {
@@ -1648,7 +1732,7 @@ variable "cluster_autoscaler_metrics_firewall_source" {
 }
 
 variable "autoscaler_nodepools" {
-  description = "Cluster autoscaler nodepools."
+  description = "Cluster autoscaler nodepools. Optional annotations are Kubernetes Node annotations applied once by autoscaler node cloud-init when each node joins; later map changes affect only newly created or replaced autoscaler nodes and do not remove annotations from existing Nodes."
   type = list(object({
     name               = string
     server_type        = string
@@ -1656,6 +1740,7 @@ variable "autoscaler_nodepools" {
     min_nodes          = number
     max_nodes          = number
     labels             = optional(map(string), {})
+    annotations        = optional(map(string), {})
     server_labels      = optional(map(string), {})
     kubelet_args       = optional(list(string), ["kube-reserved=cpu=50m,memory=300Mi,ephemeral-storage=1Gi", "system-reserved=cpu=250m,memory=300Mi"])
     os                 = optional(string)
@@ -1720,6 +1805,28 @@ variable "autoscaler_nodepools" {
       can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", autoscaler_nodepool.name))
     ])
     error_message = "Names in autoscaler_nodepools must use lowercase alphanumeric characters and dashes, and must not start or end with a dash."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for autoscaler_nodepool in var.autoscaler_nodepools : [
+        for key, _ in autoscaler_nodepool.annotations :
+        length(split("/", key)) <= 2 &&
+        can(regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*/)?[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?$", key)) &&
+        (length(split("/", key)) == 1 || length(split("/", key)[0]) <= 253)
+      ]
+    ]))
+    error_message = "autoscaler_nodepools annotations keys must be valid Kubernetes qualified names: optional DNS-1123 prefix and '/', then a name of 1-63 alphanumeric, '.', '_' or '-' characters starting and ending alphanumeric."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for autoscaler_nodepool in var.autoscaler_nodepools : [
+        for _, value in autoscaler_nodepool.annotations :
+        !can(regex("[\\r\\n]", value))
+      ]
+    ]))
+    error_message = "autoscaler_nodepools annotations values must be single-line strings without carriage returns or newlines."
   }
 
   validation {

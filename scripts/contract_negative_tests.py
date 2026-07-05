@@ -55,6 +55,24 @@ CASES = [
         expected_substring="not valid YAML",
     ),
     Case(
+        name="bad-node-annotation-key",
+        var_file=FIXTURE_DIR / "bad-node-annotation-key.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="agent_nodepools annotations keys must be valid Kubernetes qualified names",
+    ),
+    Case(
+        name="bad-agent-node-annotation-key",
+        var_file=FIXTURE_DIR / "bad-agent-node-annotation-key.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="agent_nodepools annotations keys must be valid Kubernetes qualified names",
+    ),
+    Case(
+        name="bad-node-annotation-value",
+        var_file=FIXTURE_DIR / "bad-node-annotation-value.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="agent_nodepools annotations values must be single-line strings",
+    ),
+    Case(
         name="rke2-overreserved",
         var_file=FIXTURE_DIR / "rke2-overreserved.tfvars.fixture",
         target="module.sut.terraform_data.validation_contract",

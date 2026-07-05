@@ -1,0 +1,17 @@
+agent_nodepools = [
+  {
+    name        = "agent"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    annotations = {
+      "example.com/storage-tier" = <<-EOT
+        fast
+        disk
+      EOT
+    }
+    taints = []
+    count  = 1
+    os     = "leapmicro"
+  }
+]

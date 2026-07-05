@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -58,11 +59,19 @@ def strip_ansi(value: str) -> str:
 
 
 def hcl_json(value: Any) -> str:
-    return json.dumps(value, indent=2, sort_keys=True)
+    return (
+        json.dumps(value, indent=2, sort_keys=True)
+        .replace("${", "$${")
+        .replace("%{", "%%{")
+    )
 
 
 def hcl_value(value: Any) -> str:
-    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    return (
+        json.dumps(value, separators=(",", ":"), sort_keys=True)
+        .replace("${", "$${")
+        .replace("%{", "%%{")
+    )
 
 
 def hcl_string(value: Path | str) -> str:
@@ -488,6 +497,157 @@ def run_cloudinit_checks(scratch: TerraformScratch) -> None:
         )
 
 
+def node_annotation_write_files(scratch: TerraformScratch) -> list[dict[str, str]]:
+    annotations = {
+        "node.longhorn.io/default-disks-config": '[{"path":"/var/lib/longhorn","allowScheduling":true}]',
+        "example.com/storage-tier": "fast local disk",
+    }
+    payload = "\n".join(
+        f"{base64.b64encode(key.encode()).decode()} {base64.b64encode(value.encode()).decode()}"
+        for key, value in sorted(annotations.items())
+    )
+    return [
+        {
+            "path": "/etc/kube-hetzner/node-annotations.b64",
+            "owner": "root:root",
+            "permissions": "0600",
+            "encoding": "base64",
+            "content": base64.b64encode(f"{payload}\n".encode()).decode(),
+        },
+        {
+            "path": "/usr/local/bin/kh-annotate-node.sh",
+            "owner": "root:root",
+            "permissions": "0755",
+            "content": scratch.render_string(
+                scratch.write_template(
+                    "node_annotations_apply_script_cloudinit",
+                    extract_heredoc("node_annotations_apply_script"),
+                )
+            ),
+        },
+        {
+            "path": "/etc/systemd/system/kh-annotate-node.service",
+            "owner": "root:root",
+            "permissions": "0644",
+            "content": extract_heredoc("node_annotations_systemd_unit"),
+        },
+    ]
+
+
+def render_cloudinit_with_vars(render_vars: dict[str, Any], template_path: Path) -> tuple[str, Any]:
+    temp_dir = Path(tempfile.mkdtemp(prefix="kh-render-annotations-"))
+    try:
+        scratch = TerraformScratch(temp_dir, render_vars)
+        return scratch.render_string(template_path), scratch.render_yaml(template_path)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def assert_node_annotation_payload(name: str, document: Any, rendered: str) -> None:
+    if not isinstance(document, dict):
+        fail(name, "decoded cloud-init is not a mapping")
+
+    write_files = document.get("write_files")
+    if not isinstance(write_files, list):
+        fail(name, "write_files is not a list")
+
+    by_path = {
+        entry.get("path"): entry
+        for entry in write_files
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+    for path in (
+        "/etc/kube-hetzner/node-annotations.b64",
+        "/usr/local/bin/kh-annotate-node.sh",
+        "/etc/systemd/system/kh-annotate-node.service",
+    ):
+        if path not in by_path:
+            fail(name, f"missing annotation write_files entry {path}")
+
+    payload_entry = by_path["/etc/kube-hetzner/node-annotations.b64"]
+    if payload_entry.get("encoding") != "base64":
+        fail(name, "annotation payload file is not base64-encoded")
+    payload = base64.b64decode(str(payload_entry["content"])).decode()
+    decoded = {}
+    for line in payload.splitlines():
+        key_b64, value_b64 = line.split(" ", 1)
+        decoded[base64.b64decode(key_b64).decode()] = base64.b64decode(value_b64).decode()
+
+    if decoded != {
+        "example.com/storage-tier": "fast local disk",
+        "node.longhorn.io/default-disks-config": '[{"path":"/var/lib/longhorn","allowScheduling":true}]',
+    }:
+        fail(name, f"decoded annotation payload was {decoded!r}")
+
+    script = str(by_path["/usr/local/bin/kh-annotate-node.sh"].get("content", ""))
+    unit = str(by_path["/etc/systemd/system/kh-annotate-node.service"].get("content", ""))
+    if "/var/lib/rancher/k3s/agent/kubelet.kubeconfig" not in script:
+        fail(name, "script does not reference the k3s kubelet kubeconfig")
+    if "/var/lib/rancher/rke2/agent/kubelet.kubeconfig" not in script:
+        fail(name, "script does not reference the rke2 kubelet kubeconfig")
+    if "--overwrite" not in script or 'node "$node_name"' not in script:
+        fail(name, "script does not annotate the local node with overwrite")
+    if "WantedBy=k3s.service k3s-agent.service rke2-server.service rke2-agent.service" not in unit:
+        fail(name, "systemd unit is not wanted by the k3s/rke2 node services")
+
+    runcmd = document.get("runcmd")
+    if not isinstance(runcmd, list):
+        fail(name, "runcmd is not a list")
+    if "systemctl enable kh-annotate-node.service" not in runcmd:
+        fail(name, "runcmd does not enable the annotation unit")
+    if "systemctl enable --now kh-annotate-node.service" in runcmd:
+        fail(name, "runcmd starts the annotation unit too early")
+
+    for raw in (
+        "node.longhorn.io/default-disks-config",
+        '[{"path":"/var/lib/longhorn","allowScheduling":true}]',
+    ):
+        if raw in rendered:
+            fail(name, f"raw annotation text leaked into rendered cloud-init: {raw}")
+
+    print_pass(name, "annotation payload, script, unit, and enable-only runcmd render correctly")
+
+
+def run_node_annotation_cloudinit_checks(scratch: TerraformScratch) -> None:
+    templates = [
+        REPO_ROOT / "modules/host/templates/cloudinit.yaml.tpl",
+        REPO_ROOT / "templates/autoscaler-cloudinit.yaml.tpl",
+    ]
+    for template_path in templates:
+        rendered, _ = render_cloudinit_with_vars(base_render_vars(), template_path)
+        for forbidden in ("kh-annotate-node", "node-annotations.b64"):
+            if forbidden in rendered:
+                fail(
+                    f"node annotations empty {template_path.relative_to(REPO_ROOT)}",
+                    f"empty annotation map rendered {forbidden}",
+                )
+        print_pass(
+            f"node annotations empty {template_path.relative_to(REPO_ROOT)}",
+            "empty annotation map renders no annotation unit or payload",
+        )
+
+    write_files = node_annotation_write_files(scratch)
+    runcmd = ["systemctl daemon-reload", "systemctl enable kh-annotate-node.service"]
+
+    host_vars = base_render_vars()
+    host_vars["cloudinit_write_files_extra"] = write_files
+    host_vars["cloudinit_runcmd_extra"] = runcmd
+    rendered, document = render_cloudinit_with_vars(
+        host_vars,
+        REPO_ROOT / "modules/host/templates/cloudinit.yaml.tpl",
+    )
+    assert_node_annotation_payload("node annotations host cloud-init", document, rendered)
+
+    autoscaler_vars = base_render_vars()
+    autoscaler_vars["cloudinit_write_files_common"] += scratch.yamlencode(write_files)
+    autoscaler_vars["cloudinit_runcmd_common"] += scratch.yamlencode(runcmd)
+    rendered, document = render_cloudinit_with_vars(
+        autoscaler_vars,
+        REPO_ROOT / "templates/autoscaler-cloudinit.yaml.tpl",
+    )
+    assert_node_annotation_payload("node annotations autoscaler cloud-init", document, rendered)
+
+
 def split_yaml_documents(manifest: str) -> list[str]:
     documents: list[str] = []
     current: list[str] = []
@@ -749,6 +909,7 @@ def main() -> int:
         run_helm_checks(scratch)
         run_shell_checks(scratch)
         run_cloudinit_checks(scratch)
+        run_node_annotation_cloudinit_checks(scratch)
         run_autoscaler_manifest_checks(scratch)
         run_kubeconfig_checks(scratch)
         run_kustomization_path_checks(scratch)

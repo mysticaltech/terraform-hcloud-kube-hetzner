@@ -985,6 +985,7 @@ EOT
         server_type : nodepool_obj.server_type,
         location : nodepool_obj.location,
         labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+        annotations : nodepool_obj.annotations,
         hcloud_labels : nodepool_obj.hcloud_labels,
         taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints)),
         kubelet_args : jsonencode(nodepool_obj.kubelet_args) == jsonencode(local.control_plane_schema_default_kubelet_args) ? try(local.control_plane_size_aware_kubelet_args_by_server_type[nodepool_obj.server_type], local.control_plane_safe_fallback_kubelet_args) : nodepool_obj.kubelet_args,
@@ -1026,6 +1027,7 @@ EOT
           floating_ip : nodepool_obj.floating_ip,
           floating_ip_id : nodepool_obj.floating_ip_id,
           labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+          annotations : nodepool_obj.annotations,
           hcloud_labels : nodepool_obj.hcloud_labels,
           taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints)),
           kubelet_args : jsonencode(nodepool_obj.kubelet_args) == jsonencode(local.control_plane_schema_default_kubelet_args) ? try(local.control_plane_size_aware_kubelet_args_by_server_type[nodepool_obj.server_type], local.control_plane_safe_fallback_kubelet_args) : nodepool_obj.kubelet_args,
@@ -1052,6 +1054,7 @@ EOT
         { for key, value in node_obj : key => value if value != null },
         {
           labels : concat(local.default_control_plane_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
+          annotations : merge(nodepool_obj.annotations, coalesce(node_obj.annotations, {})),
           hcloud_labels : merge(nodepool_obj.hcloud_labels, coalesce(node_obj.hcloud_labels, {})),
           taints : compact(concat(local.default_control_plane_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
           disable_ipv4 : !coalesce(node_obj.enable_public_ipv4, nodepool_obj.enable_public_ipv4) || local.use_nat_router,
@@ -1090,6 +1093,7 @@ EOT
         floating_ip_rdns : lookup(nodepool_obj, "floating_ip_rdns", false),
         location : nodepool_obj.location,
         labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+        annotations : nodepool_obj.annotations,
         hcloud_labels : nodepool_obj.hcloud_labels,
         taints : compact(concat(local.default_agent_taints, nodepool_obj.taints)),
         kubelet_args : jsonencode(nodepool_obj.kubelet_args) == jsonencode(local.agent_schema_default_kubelet_args) ? try(local.agent_size_aware_kubelet_args_by_server_type[nodepool_obj.server_type], local.agent_schema_default_kubelet_args) : nodepool_obj.kubelet_args,
@@ -1134,6 +1138,7 @@ EOT
           floating_ip_rdns : lookup(nodepool_obj, "floating_ip_rdns", false),
           location : nodepool_obj.location,
           labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels),
+          annotations : nodepool_obj.annotations,
           hcloud_labels : nodepool_obj.hcloud_labels,
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints)),
           kubelet_args : jsonencode(nodepool_obj.kubelet_args) == jsonencode(local.agent_schema_default_kubelet_args) ? try(local.agent_size_aware_kubelet_args_by_server_type[nodepool_obj.server_type], local.agent_schema_default_kubelet_args) : nodepool_obj.kubelet_args,
@@ -1162,6 +1167,7 @@ EOT
         { for key, value in node_obj : key => value if value != null },
         {
           labels : concat(local.default_agent_labels, nodepool_obj.swap_size != "" || nodepool_obj.zram_size != "" ? local.swap_node_label : [], nodepool_obj.labels, coalesce(node_obj.labels, [])),
+          annotations : merge(nodepool_obj.annotations, coalesce(node_obj.annotations, {})),
           hcloud_labels : merge(nodepool_obj.hcloud_labels, coalesce(node_obj.hcloud_labels, {})),
           taints : compact(concat(local.default_agent_taints, nodepool_obj.taints, coalesce(node_obj.taints, []))),
           disable_ipv4 : !coalesce(node_obj.enable_public_ipv4, nodepool_obj.enable_public_ipv4) || local.use_nat_router,
@@ -1199,6 +1205,184 @@ EOT
   autoscaler_effective_kubelet_args = [
     for index, nodepool in var.autoscaler_nodepools :
     concat(local.kubelet_arg, nodepool.swap_size != "" || nodepool.zram_size != "" ? ["fail-swap-on=false"] : [], var.global_kubelet_args, var.autoscaler_kubelet_args, local.autoscaler_nodepool_kubelet_args[index])
+  ]
+
+  node_annotations_apply_script = <<-EOT
+#!/bin/bash
+set -euo pipefail
+
+ANNOTATIONS_FILE="/etc/kube-hetzner/node-annotations.b64"
+DEADLINE=$((SECONDS + 600))
+SLEEP_SECONDS=15
+
+log() {
+  echo "kh-annotate-node: $*"
+}
+
+decode_b64() {
+  printf '%s' "$1" | base64 -d
+}
+
+find_kubeconfig() {
+  if [ -r /var/lib/rancher/k3s/agent/kubelet.kubeconfig ] && { systemctl is-active --quiet k3s || systemctl is-active --quiet k3s-agent; }; then
+    printf '%s\n' /var/lib/rancher/k3s/agent/kubelet.kubeconfig
+    return 0
+  fi
+
+  if [ -r /var/lib/rancher/rke2/agent/kubelet.kubeconfig ] && { systemctl is-active --quiet rke2-server || systemctl is-active --quiet rke2-agent; }; then
+    printf '%s\n' /var/lib/rancher/rke2/agent/kubelet.kubeconfig
+    return 0
+  fi
+
+  return 1
+}
+
+find_kubectl() {
+  if command -v kubectl >/dev/null 2>&1; then
+    kubectl_cmd=(kubectl)
+    return 0
+  fi
+
+  if command -v k3s >/dev/null 2>&1; then
+    kubectl_cmd=(k3s kubectl)
+    return 0
+  fi
+
+  if [ -x /var/lib/rancher/rke2/bin/kubectl ]; then
+    kubectl_cmd=(/var/lib/rancher/rke2/bin/kubectl)
+    return 0
+  fi
+
+  if [ -x /opt/rke2/bin/kubectl ]; then
+    kubectl_cmd=(/opt/rke2/bin/kubectl)
+    return 0
+  fi
+
+  if [ -x /var/lib/rancher/k3s/data/current/bin/kubectl ]; then
+    kubectl_cmd=(/var/lib/rancher/k3s/data/current/bin/kubectl)
+    return 0
+  fi
+
+  return 1
+}
+
+if [ ! -s "$ANNOTATIONS_FILE" ]; then
+  log "no annotation payload found; nothing to apply"
+  exit 0
+fi
+
+annotation_args=()
+annotation_count=0
+while IFS=' ' read -r key_b64 value_b64 extra; do
+  [ -n "$key_b64" ] || continue
+  if [ -n "$extra" ]; then
+    log "invalid annotation payload line with more than two fields"
+    exit 1
+  fi
+
+  key="$(decode_b64 "$key_b64")"
+  value="$(decode_b64 "$value_b64")"
+  annotation_args+=("$key=$value")
+  annotation_count=$((annotation_count + 1))
+done < "$ANNOTATIONS_FILE"
+
+if [ "$annotation_count" -eq 0 ]; then
+  log "annotation payload decoded to zero annotations; nothing to apply"
+  exit 0
+fi
+
+node_name="$(hostname)"
+
+while [ "$SECONDS" -le "$DEADLINE" ]; do
+  kubeconfig=""
+  if kubeconfig="$(find_kubeconfig)" && find_kubectl; then
+    if "$${kubectl_cmd[@]}" --kubeconfig "$kubeconfig" annotate --overwrite node "$node_name" "$${annotation_args[@]}"; then
+      log "applied $annotation_count annotation(s) to node $node_name"
+      exit 0
+    fi
+  else
+    log "waiting for active k3s/rke2 service, kubelet kubeconfig, and kubectl"
+  fi
+
+  sleep "$SLEEP_SECONDS"
+done
+
+log "timed out after 600s applying annotations to node $node_name"
+exit 1
+EOT
+
+  node_annotations_systemd_unit = <<-EOT
+[Unit]
+Description=Apply kube-hetzner declarative Kubernetes Node annotations
+Documentation=https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/issues/2198
+After=network-online.target k3s.service k3s-agent.service rke2-server.service rke2-agent.service
+Wants=network-online.target
+ConditionPathExists=/etc/kube-hetzner/node-annotations.b64
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/kh-annotate-node.sh
+
+[Install]
+WantedBy=k3s.service k3s-agent.service rke2-server.service rke2-agent.service
+EOT
+
+  node_annotations_enable_runcmd = [
+    "systemctl daemon-reload",
+    "systemctl enable kh-annotate-node.service",
+  ]
+
+  node_annotations_by_cloudinit_scope = merge(
+    {
+      for node_key, node in local.control_plane_nodes :
+      "control-plane:${node_key}" => node.annotations
+    },
+    {
+      for node_key, node in local.agent_nodes :
+      "agent:${node_key}" => node.annotations
+    },
+    {
+      for index, nodepool in var.autoscaler_nodepools :
+      "autoscaler:${index}" => nodepool.annotations
+    },
+  )
+
+  node_annotation_write_files_by_scope = {
+    for scope, annotations in local.node_annotations_by_cloudinit_scope :
+    scope => length(annotations) == 0 ? [] : [
+      {
+        path        = "/etc/kube-hetzner/node-annotations.b64"
+        owner       = "root:root"
+        permissions = "0600"
+        encoding    = "base64"
+        content = base64encode(format("%s\n", join("\n", [
+          for key in sort(keys(annotations)) : "${base64encode(key)} ${base64encode(annotations[key])}"
+        ])))
+      },
+      {
+        path        = "/usr/local/bin/kh-annotate-node.sh"
+        owner       = "root:root"
+        permissions = "0755"
+        content     = local.node_annotations_apply_script
+      },
+      {
+        path        = "/etc/systemd/system/kh-annotate-node.service"
+        owner       = "root:root"
+        permissions = "0644"
+        content     = local.node_annotations_systemd_unit
+      },
+    ]
+  }
+
+  autoscaler_node_annotation_write_files_yaml = [
+    for index, _ in var.autoscaler_nodepools :
+    length(local.node_annotation_write_files_by_scope["autoscaler:${index}"]) == 0 ? "" : yamlencode(local.node_annotation_write_files_by_scope["autoscaler:${index}"])
+  ]
+
+  autoscaler_node_annotation_runcmd_yaml = [
+    for index, _ in var.autoscaler_nodepools :
+    length(local.node_annotation_write_files_by_scope["autoscaler:${index}"]) == 0 ? "" : yamlencode(local.node_annotations_enable_runcmd)
   ]
 
   default_autoscaler_os = length(local.existing_servers_info) == 0 ? "leapmicro" : (

@@ -218,8 +218,8 @@ data "cloudinit_config" "autoscaler_config" {
           local.install_k8s_agent,
           local.kubernetes_distribution == "rke2" ? ["systemctl start rke2-agent", "systemctl enable rke2-agent"] : ["systemctl start k3s-agent"]
         ))
-        cloudinit_write_files_common        = local.cloudinit_write_files_common
-        cloudinit_runcmd_common             = local.cloudinit_runcmd_common,
+        cloudinit_write_files_common        = join("", [local.cloudinit_write_files_common, local.autoscaler_node_annotation_write_files_yaml[count.index]])
+        cloudinit_runcmd_common             = join("", [local.cloudinit_runcmd_common, local.autoscaler_node_annotation_runcmd_yaml[count.index]])
         private_ipv4_default_route          = !var.autoscaler_enable_public_ipv4 || local.use_nat_router
         public_ipv4_default_route           = var.autoscaler_enable_public_ipv4 && !local.use_nat_router
         public_ipv6_default_route           = var.autoscaler_enable_public_ipv6 && !local.use_nat_router
@@ -271,8 +271,8 @@ data "cloudinit_config" "autoscaler_config_rke2" {
           : {}
         ))
         install_k8s_agent_script            = join("\n", concat(local.install_k8s_agent, ["systemctl start rke2-agent", "systemctl enable rke2-agent"]))
-        cloudinit_write_files_common        = local.cloudinit_write_files_common
-        cloudinit_runcmd_common             = local.cloudinit_runcmd_common
+        cloudinit_write_files_common        = join("", [local.cloudinit_write_files_common, local.autoscaler_node_annotation_write_files_yaml[count.index]])
+        cloudinit_runcmd_common             = join("", [local.cloudinit_runcmd_common, local.autoscaler_node_annotation_runcmd_yaml[count.index]])
         private_ipv4_default_route          = !var.autoscaler_enable_public_ipv4 || local.use_nat_router
         public_ipv4_default_route           = var.autoscaler_enable_public_ipv4 && !local.use_nat_router
         public_ipv6_default_route           = var.autoscaler_enable_public_ipv6 && !local.use_nat_router

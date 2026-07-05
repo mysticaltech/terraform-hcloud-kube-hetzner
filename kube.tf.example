@@ -236,7 +236,7 @@ module "kube-hetzner" {
 
   # If you want to have a single node cluster, have one control plane nodepools with a count of 1, and one agent nodepool with a count of 0.
 
-  # Please note that changing labels and taints after the first run will have no effect. If needed, you can do that through Kubernetes directly.
+  # Please note that changing labels, taints, or annotations after the first run will have no effect on existing Nodes. If needed, you can do that through Kubernetes directly.
 
   # Multi-architecture clusters are OK for most use cases, as container underlying images tend to be multi-architecture too.
 
@@ -253,6 +253,12 @@ module "kube-hetzner" {
       server_type = "cx23",
       location    = "nbg1",
       labels      = [],
+      # Optional Kubernetes Node annotations applied once when each node joins.
+      # Later changes affect only new/replaced nodes; no annotation removal is reconciled.
+      # Example: tell Longhorn which creation-time default disk config to place on new nodes.
+      # annotations = {
+      #   "node.longhorn.io/default-disks-config" = "[{\"path\":\"/var/lib/longhorn\",\"allowScheduling\":true}]"
+      # }
       # Optional Hetzner Cloud labels attached to server resources.
       # hcloud_labels = { "environment" = "production" }
       taints = [],
@@ -288,6 +294,7 @@ module "kube-hetzner" {
       server_type = "cx23",
       location    = "fsn1",
       labels      = [],
+      # annotations = {}
       # Optional Hetzner Cloud labels attached to server resources.
       # hcloud_labels = { "workload" = "general" }
       taints = [],
@@ -314,6 +321,7 @@ module "kube-hetzner" {
       server_type = "cx23",
       location    = "hel1",
       labels      = [],
+      # annotations = {}
       taints      = [],
       count       = 1
 
@@ -338,6 +346,11 @@ module "kube-hetzner" {
       server_type = "cx23",
       location    = "nbg1",
       labels      = [],
+      # Optional Kubernetes Node annotations applied once when each node joins.
+      # Later changes affect only new/replaced nodes; no annotation removal is reconciled.
+      # annotations = {
+      #   "node.longhorn.io/default-disks-config" = "[{\"path\":\"/var/lib/longhorn\",\"allowScheduling\":true}]"
+      # }
       taints      = [],
       count       = 1
       # os          = "leapmicro" # valid: "leapmicro" | "microos"
@@ -470,6 +483,10 @@ module "kube-hetzner" {
           labels = [
             "testing-labels=a1",
           ]
+          # Per-node annotations merge with nodepool annotations and win on duplicate keys.
+          # annotations = {
+          #   "node.longhorn.io/default-disks-config" = "[{\"path\":\"/var/lib/longhorn-node-1\",\"allowScheduling\":true}]"
+          # }
           # attached_volumes = [
           #   {
           #     size       = 20
@@ -580,6 +597,7 @@ module "kube-hetzner" {
   # If you are curious, it's ok to have a multi-architecture cluster, as most underlying container images are multi-architecture too.
   #
   # ⚠️ Setting labels and taints will only work on cluster-autoscaler images versions released after > 20 October 2023. Or images built from master after that date.
+  # Node annotations are applied by cloud-init once when an autoscaler-created node joins. Later changes affect only future autoscaled nodes.
   #
   # * Example below:
   # autoscaler_nodepools = [
@@ -600,6 +618,9 @@ module "kube-hetzner" {
   #    # subnet_ip_range = "10.0.0.0/24" # optional subnet range inside the selected private network
   #    labels      = {
   #      "node.kubernetes.io/role": "peak-workloads"
+  #    }
+  #    annotations = {
+  #      "node.longhorn.io/default-disks-config" = "[{\"path\":\"/var/lib/longhorn\",\"allowScheduling\":true}]"
   #    }
   #    # Hetzner Cloud server labels applied directly by the autoscaler.
   #    # server_labels = { "workload" = "peak" }
