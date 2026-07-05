@@ -60,6 +60,24 @@ jobs:
           terraform init -backend=false -input=false
           terraform validate -no-color
 
+  render-harness:
+    runs-on: ubuntu-latest
+    name: Render harness and contract negatives
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.0
+
+      - name: Run render harness
+        run: python3 scripts/render_harness.py
+
+      - name: Run negative contract tests (tokenless; strict run happens in hetzner-test)
+        run: python3 scripts/contract_negative_tests.py
+
   opentofu-validate:
     runs-on: ubuntu-latest
     name: Validate OpenTofu compatibility

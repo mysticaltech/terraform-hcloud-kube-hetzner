@@ -1,0 +1,25 @@
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKubeHetznerRenderFixture"
+
+control_plane_nodepools = [
+  {
+    name        = "cp"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 1
+    os          = "leapmicro"
+  }
+]
+
+agent_nodepools = [
+  {
+    name        = "agent"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 1
+    os          = "leapmicro"
+  }
+]

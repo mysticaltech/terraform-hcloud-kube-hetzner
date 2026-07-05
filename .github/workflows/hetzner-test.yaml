@@ -113,6 +113,10 @@ jobs:
         if: steps.prerequisites.outputs.enabled == 'true' && matrix.engine == 'terraform'
         uses: hashicorp/setup-terraform@v3
 
+      - name: Negative contract tests (strict, token-backed)
+        if: steps.prerequisites.outputs.enabled == 'true' && matrix.engine == 'terraform' && matrix.preset == 'default'
+        run: python3 scripts/contract_negative_tests.py
+
       - name: Install OpenTofu
         if: steps.prerequisites.outputs.enabled == 'true' && matrix.engine == 'tofu'
         uses: opentofu/setup-opentofu@v1

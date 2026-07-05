@@ -1,0 +1,7 @@
+ingress_controller = "nginx"
+
+nginx_merge_values = <<-YAML
+controller:
+  service:
+    annotations: null
+YAML

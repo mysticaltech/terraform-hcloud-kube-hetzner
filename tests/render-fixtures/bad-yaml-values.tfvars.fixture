@@ -1,0 +1,7 @@
+ingress_controller = "nginx"
+
+nginx_values = <<-YAML
+controller:
+  service:
+    annotations: [unterminated
+YAML

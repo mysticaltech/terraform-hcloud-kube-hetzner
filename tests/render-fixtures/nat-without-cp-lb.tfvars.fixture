@@ -1,0 +1,6 @@
+enable_control_plane_load_balancer = false
+
+nat_router = {
+  server_type = "cx23"
+  location    = "nbg1"
+}

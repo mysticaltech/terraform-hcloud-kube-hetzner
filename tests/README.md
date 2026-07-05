@@ -38,3 +38,37 @@ transient provider-download failures during `terraform init` and transient plan
 timeouts. Set
 `SMOKE_HCLOUD_EXTERNAL_NETWORK_ID` if the account has no existing Network for
 the external-network Tailscale plan smoke.
+
+## Render Harness
+
+For hermetic rendered-template checks, run:
+
+```bash
+python3 scripts/render_harness.py
+```
+
+This uses a provider-free Terraform scratch module to render the current
+`*_values_default` heredocs, critical cloud-init templates, `templates/*.sh.tpl`,
+and extractable shell heredocs from `locals.tf`. It asserts rendered Helm values
+yamldecode, ingress controller values keep Hetzner Load Balancer adoption
+annotations at the chart-specific Service annotation path, Cilium values keep
+`routingMode` and `k8sServicePort` at the document root, cloud-init templates
+decode as YAML, and rendered shell passes `bash -n`.
+
+When adding a new `*_values_default` heredoc or high-risk rendered template, add
+it to `scripts/render_harness.py` with a structure assertion instead of a large
+snapshot. Prefer assertions for paths and invariants that have caused live-gate
+failures.
+
+For negative validation-contract checks, run:
+
+```bash
+python3 scripts/contract_negative_tests.py
+```
+
+The fixture root in `tests/render-fixtures/` sources this module with a compact
+baseline and per-case var-file overlays. Each case must either fail `terraform
+plan` with the expected contract substring or print an explicit `SKIP(reason)`
+when the local environment cannot load provider-backed plans. Add one fixture
+case for each new validation-contract precondition, and keep expected substrings
+specific enough that a different validation failure cannot pass accidentally.

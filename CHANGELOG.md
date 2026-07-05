@@ -134,6 +134,8 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🔧 Changes
 
+- **Hetzner CI Orphan Sweeper** - Added a scheduled/manual sweeper for stale `kh-ci-*` Hetzner CI resources. It skips active Hetzner test runs, defaults to dry-run, and requires prefix-anchored names plus age gates before deletion.
+- **Render Harness CI Gate** - Added a hermetic rendered-template harness and negative validation-contract plan fixture so Helm values, ingress LB annotations, cloud-init YAML, shell templates, and key v3 validation preconditions are checked before live cluster gates.
 - **Explicit Provider Constraints** - Pinned the previously implicit Kubernetes, Helm, Random, and CloudInit provider requirements and expanded CI validation across Terraform 1.10.5, 1.14.9, 1.15.0, and OpenTofu 1.11.6.
 - **iSCSI Daemon Defaults** - `iscsid` is now enabled on all nodes by default, and the `enable_iscsid` input was removed.
 - **Cilium Default Version** - Updated the default Cilium version to `1.19.3` so v3 defaults align with the current Gateway API-supported Cilium line.

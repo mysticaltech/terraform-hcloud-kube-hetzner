@@ -16,7 +16,7 @@ Dependency edges: 007→001, 008→001, 008→004 (same data sources — 004 lan
 
 | Plan | Title | Status |
 |---|---|---|
-| 001 | Render harness + negative contract tests | TODO |
+| 001 | Render harness + negative contract tests | DONE |
 | 002 | Kubeconfig structural rewrite | TODO |
 | 003 | Sensitive backup file | TODO |
 | 004 | Gate disabled-addon fetches | TODO |
@@ -24,8 +24,8 @@ Dependency edges: 007→001, 008→001, 008→004 (same data sources — 004 lan
 | 006 | ssh_port validation | TODO |
 | 007 | Shell-safe user inputs | TODO |
 | 008 | Deterministic addon versions | TODO |
-| 009 | CI orphan sweeper | TODO |
-| 010 | Stable node keys (design spike) | TODO |
+| 009 | CI orphan sweeper | DONE |
+| 010 | Stable node keys (design spike) | DONE — plans/010-report.md |
 
 ## Considered and rejected / deferred (do not re-audit)
 

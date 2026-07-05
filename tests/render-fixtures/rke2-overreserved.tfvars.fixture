@@ -1,0 +1,17 @@
+kubernetes_distribution = "rke2"
+
+control_plane_nodepools = [
+  {
+    name        = "cp"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 1
+    os          = "leapmicro"
+    kubelet_args = [
+      "kube-reserved=cpu=250m,memory=3072Mi,ephemeral-storage=1Gi",
+      "system-reserved=cpu=250m,memory=1024Mi",
+    ]
+  }
+]

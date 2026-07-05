@@ -1,0 +1,255 @@
+name: Hetzner CI Orphan Sweeper
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Dry-run or delete eligible kh-ci-* resources"
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - delete
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  sweep:
+    name: Sweep orphaned Hetzner CI resources
+    runs-on: ubuntu-latest
+    environment: hetzner-test
+    if: ${{ vars.TEST_IN_HETZNER == '1' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+      SWEEP_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
+    steps:
+      - name: Sweep kh-ci resources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          readonly LIST_AGE_SECONDS=$((2 * 60 * 60))
+          readonly SCHEDULE_DELETE_AGE_SECONDS=$((6 * 60 * 60))
+          readonly HCLOUD_API="https://api.hetzner.cloud/v1"
+          readonly CANDIDATES_FILE="${RUNNER_TEMP}/kh-ci-candidates.tsv"
+          readonly DELETE_FILE="${RUNNER_TEMP}/kh-ci-delete.tsv"
+
+          if [[ -z "${HCLOUD_TOKEN:-}" ]]; then
+            echo "::error::HCLOUD_TOKEN is required"
+            exit 1
+          fi
+
+          case "${SWEEP_MODE}" in
+            dry-run|delete)
+              ;;
+            *)
+              echo "::error::Unsupported sweep mode: ${SWEEP_MODE}"
+              exit 1
+              ;;
+          esac
+
+          active_runs=0
+          for status in in_progress queued; do
+            run_count="$(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/hetzner-test.yaml/runs?status=${status}&per_page=1" \
+                --jq '.total_count'
+            )"
+            active_runs=$((active_runs + run_count))
+          done
+
+          if (( active_runs > 0 )); then
+            echo "::notice::active run, skipping"
+            exit 0
+          fi
+
+          hcloud_get() {
+            local endpoint="$1"
+            curl --fail-with-body --silent --show-error \
+              --header "Authorization: Bearer ${HCLOUD_TOKEN}" \
+              --header "Content-Type: application/json" \
+              "${HCLOUD_API}/${endpoint}"
+          }
+
+          append_candidates() {
+            local kind="$1"
+            local endpoint="$2"
+            local root="$3"
+            local now_epoch="$4"
+
+            while IFS=$'\t' read -r row_kind row_endpoint id name created assignee_id; do
+              if [[ ! "${name}" =~ ^kh-ci- ]]; then
+                echo "::error::Internal candidate filter admitted non-kh-ci resource: ${kind}/${id} ${name}"
+                exit 1
+              fi
+
+              if [[ "${created}" != "<missing>" ]]; then
+                created_epoch="$(date -u -d "${created}" +%s 2>/dev/null || true)"
+                if [[ -z "${created_epoch}" ]]; then
+                  echo "::error::Could not parse ${kind}/${id} created timestamp: ${created}"
+                  exit 1
+                fi
+
+                age_seconds=$((now_epoch - created_epoch))
+                if (( age_seconds >= LIST_AGE_SECONDS )); then
+                  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+                    "${row_kind}" "${row_endpoint}" "${id}" "${name}" "${created}" "${age_seconds}" >> "${CANDIDATES_FILE}"
+                fi
+              elif [[ "${kind}" == "primary_ips" && "${assignee_id}" == "<unassigned>" ]]; then
+                printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+                  "${row_kind}" "${row_endpoint}" "${id}" "${name}" "<missing>" "-1" >> "${CANDIDATES_FILE}"
+              fi
+            done < <(
+              hcloud_get "${endpoint}" |
+                jq -r \
+                  --arg kind "${kind}" \
+                  --arg endpoint "${endpoint}" \
+                  --arg root "${root}" \
+                  '
+                    .[$root][]?
+                    | select((.name // "") | test("^kh-ci-"))
+                    | [
+                        $kind,
+                        $endpoint,
+                        (.id | tostring),
+                        (.name // ""),
+                        (.created // "<missing>"),
+                        ((.assignee_id // "<unassigned>") | tostring)
+                      ]
+                    | @tsv
+                  '
+            )
+          }
+
+          print_candidates() {
+            if [[ ! -s "${CANDIDATES_FILE}" ]]; then
+              echo "No kh-ci-* orphan candidates older than 2 hours."
+              return
+            fi
+
+            printf '%-15s %-12s %-52s %-28s %s\n' "type" "id" "name" "created" "age_seconds"
+            sort "${CANDIDATES_FILE}" |
+              while IFS=$'\t' read -r kind _endpoint id name created age_seconds; do
+                if [[ "${age_seconds}" == "-1" ]]; then
+                  age_label="unknown"
+                else
+                  age_label="${age_seconds}"
+                fi
+                printf '%-15s %-12s %-52s %-28s %s\n' "${kind}" "${id}" "${name}" "${created}" "${age_label}"
+              done
+          }
+
+          prepare_delete_file() {
+            : > "${DELETE_FILE}"
+
+            if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${SWEEP_MODE}" == "delete" ]]; then
+              cp "${CANDIDATES_FILE}" "${DELETE_FILE}"
+              echo "::notice::manual delete mode selected; deleting kh-ci-* candidates older than 2 hours"
+              return
+            fi
+
+            if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+              awk -F '\t' -v min_age="${SCHEDULE_DELETE_AGE_SECONDS}" '$6 != "-1" && $6 >= min_age { print }' \
+                "${CANDIDATES_FILE}" > "${DELETE_FILE}"
+              if [[ -s "${DELETE_FILE}" ]]; then
+                echo "::notice::scheduled run deleting only kh-ci-* candidates older than 6 hours"
+              else
+                echo "Scheduled run found no kh-ci-* candidates old enough for unattended deletion."
+              fi
+              return
+            fi
+
+            echo "Dry-run mode selected; no resources will be deleted."
+          }
+
+          hcloud_delete() {
+            local kind="$1"
+            local endpoint="$2"
+            local id="$3"
+            local name="$4"
+            local response_file="${RUNNER_TEMP}/hcloud-delete-${kind}-${id}.json"
+            local http_code
+            local curl_status=0
+
+            if [[ ! "${name}" =~ ^kh-ci- ]]; then
+              echo "::error::Refusing to delete non-kh-ci resource: ${kind}/${id} ${name}"
+              exit 1
+            fi
+
+            http_code="$(
+              curl --silent --show-error \
+                --output "${response_file}" \
+                --write-out "%{http_code}" \
+                --request DELETE \
+                --header "Authorization: Bearer ${HCLOUD_TOKEN}" \
+                --header "Content-Type: application/json" \
+                "${HCLOUD_API}/${endpoint}/${id}"
+            )" || curl_status=$?
+
+            echo "DELETE ${kind}/${id} ${name}: HTTP ${http_code}"
+
+            if (( curl_status != 0 )); then
+              cat "${response_file}" || true
+              return "${curl_status}"
+            fi
+
+            case "${http_code}" in
+              204|404)
+                ;;
+              *)
+                cat "${response_file}" || true
+                return 1
+                ;;
+            esac
+          }
+
+          delete_kind() {
+            local target_kind="$1"
+            local count=0
+
+            while IFS=$'\t' read -r kind endpoint id name _created _age_seconds; do
+              [[ "${kind}" == "${target_kind}" ]] || continue
+              hcloud_delete "${kind}" "${endpoint}" "${id}" "${name}"
+              count=$((count + 1))
+            done < "${DELETE_FILE}"
+
+            echo "Deleted ${count} ${target_kind} resource(s)."
+            DELETE_KIND_COUNT="${count}"
+            return 0
+          }
+
+          : > "${CANDIDATES_FILE}"
+          now_epoch="$(date -u +%s)"
+
+          append_candidates "servers" "servers" "servers" "${now_epoch}"
+          append_candidates "load_balancers" "load_balancers" "load_balancers" "${now_epoch}"
+          append_candidates "networks" "networks" "networks" "${now_epoch}"
+          append_candidates "firewalls" "firewalls" "firewalls" "${now_epoch}"
+          append_candidates "ssh_keys" "ssh_keys" "ssh_keys" "${now_epoch}"
+          append_candidates "primary_ips" "primary_ips" "primary_ips" "${now_epoch}"
+
+          print_candidates
+          prepare_delete_file
+
+          if [[ ! -s "${DELETE_FILE}" ]]; then
+            exit 0
+          fi
+
+          delete_kind "servers"
+          deleted_servers="${DELETE_KIND_COUNT}"
+
+          if (( deleted_servers > 0 )); then
+            echo "Waiting 30 seconds after server deletion before deleting dependent resources."
+            sleep 30
+          fi
+
+          delete_kind "load_balancers"
+          delete_kind "firewalls"
+          delete_kind "ssh_keys"
+          delete_kind "networks"
+          delete_kind "primary_ips"
