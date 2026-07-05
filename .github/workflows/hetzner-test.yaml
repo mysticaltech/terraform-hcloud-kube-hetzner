@@ -10,7 +10,9 @@ permissions:
 
 concurrency:
   group: hetzner-test-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Queue newer runs instead of cancelling in-flight ones: a cancelled job skips
+  # its destroy step and orphans a full test cluster (seen live repeatedly).
+  cancel-in-progress: false
 
 env:
   HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
