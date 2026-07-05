@@ -125,15 +125,15 @@ variable "ssh_port" {
 }
 
 variable "ssh_public_key" {
-  description = "SSH public Key."
+  description = "Single-line OpenSSH public key used for node access."
   type        = string
 
   validation {
     condition = can(regex(
-      "^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)\\s+",
+      "^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh.com) [A-Za-z0-9+/=]+( [^\\r\\n]*)?$",
       trimspace(var.ssh_public_key)
     ))
-    error_message = "ssh_public_key must be a valid OpenSSH public key starting with a supported key type (for example: ssh-ed25519, ssh-rsa, or ecdsa-sha2-nistp256)."
+    error_message = "ssh_public_key must be a single-line OpenSSH public key with a supported key type, base64 key body, and optional single-line comment."
   }
 }
 
@@ -155,7 +155,7 @@ variable "ssh_hcloud_key_label" {
 }
 
 variable "ssh_additional_public_keys" {
-  description = "Additional SSH public Keys. Use them to grant other team members root access to your cluster nodes."
+  description = "Additional single-line OpenSSH public keys. Use them to grant other team members root access to your cluster nodes."
   type        = list(string)
   default     = []
 
@@ -163,11 +163,11 @@ variable "ssh_additional_public_keys" {
     condition = alltrue([
       for key in var.ssh_additional_public_keys :
       trimspace(key) == "" || can(regex(
-        "^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com)\\s+",
+        "^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh.com) [A-Za-z0-9+/=]+( [^\\r\\n]*)?$",
         trimspace(key)
       ))
     ])
-    error_message = "ssh_additional_public_keys entries must be empty or valid OpenSSH public keys."
+    error_message = "ssh_additional_public_keys entries must be empty or single-line OpenSSH public keys with a supported key type, base64 key body, and optional single-line comment."
   }
 }
 
@@ -1822,13 +1822,13 @@ variable "autoscaler_enable_public_ipv6" {
 variable "hetzner_ccm_version" {
   type        = string
   default     = null
-  description = "Version of Kubernetes Cloud Controller Manager for Hetzner Cloud. See https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases for the available versions."
+  description = "Version of Kubernetes Cloud Controller Manager for Hetzner Cloud. Unset uses the reviewed module default; set a concrete version to pin; set \"latest\" to resolve the upstream GitHub latest release at plan time. See https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases for available versions."
 }
 
 variable "hetzner_csi_version" {
   type        = string
   default     = null
-  description = "Version of Container Storage Interface driver for Hetzner Cloud. See https://github.com/hetznercloud/csi-driver/releases for the available versions."
+  description = "Version of Container Storage Interface driver for Hetzner Cloud. Unset uses the reviewed module default; set a concrete version to pin; set \"latest\" to resolve the upstream GitHub latest release at plan time. See https://github.com/hetznercloud/csi-driver/releases for available versions."
 }
 
 variable "hetzner_csi_values" {
@@ -2035,8 +2035,8 @@ variable "traefik_additional_trusted_ips" {
 
 variable "traefik_version" {
   type        = string
-  default     = ""
-  description = "Version of Traefik helm chart. See https://github.com/traefik/traefik-helm-chart/releases for the available versions."
+  default     = null
+  description = "Version of Traefik helm chart. Unset uses the reviewed module default; set a concrete chart version to pin; set \"latest\" or legacy \"*\" to let the Helm controller follow the latest chart. See https://github.com/traefik/traefik-helm-chart/releases for available versions."
 }
 
 variable "traefik_values" {
@@ -2058,8 +2058,8 @@ variable "traefik_merge_values" {
 
 variable "nginx_version" {
   type        = string
-  default     = ""
-  description = "Version of Nginx helm chart. See https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table for the available versions."
+  default     = null
+  description = "Version of Nginx helm chart. Unset uses the reviewed module default; set a concrete chart version to pin; set \"latest\" or legacy \"*\" to let the Helm controller follow the latest chart. See https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table for available versions."
 }
 
 variable "nginx_values" {
@@ -2107,8 +2107,8 @@ variable "haproxy_additional_proxy_protocol_ips" {
 
 variable "haproxy_version" {
   type        = string
-  default     = ""
-  description = "Version of HAProxy helm chart."
+  default     = null
+  description = "Version of HAProxy Kubernetes Ingress helm chart. Unset uses the reviewed module default; set a concrete chart version to pin; set \"latest\" or legacy \"*\" to let the Helm controller follow the latest chart."
 }
 
 variable "haproxy_values" {
@@ -2156,6 +2156,11 @@ variable "k3s_version" {
   type        = string
   default     = ""
   description = "Allows you to specify the k3s version (Example: v1.29.6+k3s2). Supersedes k3s_channel. See https://github.com/k3s-io/k3s/releases for available versions."
+
+  validation {
+    condition     = var.k3s_version == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?\\+k3s[0-9]+$", var.k3s_version))
+    error_message = "k3s_version must be empty or a single release tag like v1.29.6+k3s2."
+  }
 }
 
 variable "rke2_channel" {
@@ -2174,6 +2179,11 @@ variable "rke2_version" {
   type        = string
   default     = "v1.32.5+rke2r1"
   description = "Allows you to specify the rke2 version (Example: v1.32.5+rke2r1). Supersedes rke2_channel. See https://github.com/rancher/rke2/releases for available versions."
+
+  validation {
+    condition     = var.rke2_version == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?\\+rke2r[0-9]+$", var.rke2_version))
+    error_message = "rke2_version must be empty or a single release tag like v1.32.5+rke2r1."
+  }
 }
 
 variable "system_upgrade_enable_eviction" {
@@ -2472,8 +2482,8 @@ variable "enable_longhorn" {
 
 variable "longhorn_version" {
   type        = string
-  default     = "*"
-  description = "Longhorn Helm chart version."
+  default     = null
+  description = "Longhorn Helm chart version. Unset uses the reviewed module default; set a concrete chart version to pin; set \"latest\" or legacy \"*\" to let the Helm controller follow the latest chart."
 }
 
 variable "longhorn_helmchart_bootstrap" {
@@ -2547,8 +2557,8 @@ variable "enable_csi_driver_smb" {
 
 variable "csi_driver_smb_version" {
   type        = string
-  default     = "1.20.3"
-  description = "Version of the csi-driver-smb Helm chart. Defaults to the reviewed chart version; set to \"*\" to opt into floating to the latest chart available from the upstream repo."
+  default     = null
+  description = "Version of the csi-driver-smb Helm chart. Unset uses the reviewed module default; set a concrete chart version to pin; set \"latest\" or legacy \"*\" to let the Helm controller follow the latest chart available from the upstream repo."
 }
 
 variable "csi_driver_smb_helmchart_bootstrap" {
@@ -2582,8 +2592,8 @@ variable "enable_cert_manager" {
 
 variable "cert_manager_version" {
   type        = string
-  default     = "*"
-  description = "Version of cert_manager."
+  default     = null
+  description = "Version of the cert-manager Helm chart. Unset uses the reviewed module default; set a concrete chart version to pin; set \"latest\" or legacy \"*\" to let the Helm controller follow the latest chart."
 }
 
 variable "cert_manager_helmchart_bootstrap" {
@@ -2618,8 +2628,8 @@ variable "enable_rancher" {
 
 variable "rancher_version" {
   type        = string
-  default     = "*"
-  description = "Version of rancher."
+  default     = null
+  description = "Version of the Rancher Helm chart. Unset uses the reviewed module default; set a concrete chart version to pin; set \"latest\" or legacy \"*\" to let the Helm controller follow the latest chart in rancher_install_channel."
 }
 
 variable "rancher_helmchart_bootstrap" {
@@ -2706,7 +2716,7 @@ variable "rancher_merge_values" {
 variable "kured_version" {
   type        = string
   default     = null
-  description = "Version of Kured. See https://github.com/kubereboot/kured/releases for the available versions."
+  description = "Version of Kured. Unset uses the reviewed module default; set a concrete release version to pin; set \"latest\" to resolve the upstream GitHub latest release at plan time. See https://github.com/kubereboot/kured/releases for available versions."
 }
 
 variable "kured_options" {
@@ -2791,14 +2801,24 @@ variable "address_for_connectivity_test" {
 variable "additional_kubernetes_install_environment" {
   type        = map(any)
   default     = {}
-  description = "Additional environment variables for the k3s binary. See for example https://docs.k3s.io/advanced#configuring-an-http-proxy ."
+  description = "Additional environment variables for the k3s binary. Values are written to /etc/environment and must not contain double quotes, backslashes, newlines, dollar signs, or backticks. See for example https://docs.k3s.io/advanced#configuring-an-http-proxy ."
 
   validation {
     condition = alltrue([
       for key, value in var.additional_kubernetes_install_environment :
-      can(regex("^[A-Za-z_][A-Za-z0-9_]*$", key)) && value != null
+      can(regex("^[A-Za-z_][A-Za-z0-9_]*$", key)) &&
+      try(
+        value != null &&
+        !strcontains(tostring(value), "\"") &&
+        !strcontains(tostring(value), "\\") &&
+        !strcontains(tostring(value), "\r") &&
+        !strcontains(tostring(value), "\n") &&
+        !strcontains(tostring(value), "$") &&
+        !strcontains(tostring(value), "`"),
+        false
+      )
     ])
-    error_message = "additional_kubernetes_install_environment keys must be valid environment variable names and values must not be null."
+    error_message = "additional_kubernetes_install_environment keys must be valid environment variable names and values must be non-null shell-safe strings without double quotes, backslashes, newlines, dollar signs, or backticks."
   }
 }
 
@@ -3053,19 +3073,29 @@ variable "additional_tls_sans" {
 variable "calico_version" {
   type        = string
   default     = null
-  description = "Version of Calico. See https://github.com/projectcalico/calico/releases for the available versions."
+  description = "Version of Calico. Unset uses the reviewed module default; set a concrete release version to pin; set \"latest\" to resolve the upstream GitHub latest release at plan time. See https://github.com/projectcalico/calico/releases for available versions."
 }
 
 variable "control_plane_exec_args" {
   type        = string
   default     = ""
-  description = "The control plane is started with `k3s server {control_plane_exec_args}`. Use this to add kube-apiserver-arg for example."
+  description = "The control plane is started with `k3s server {control_plane_exec_args}`. Values are embedded in a single-quoted shell context, so single quotes and newlines are not allowed. Use this to add kube-apiserver-arg for example."
+
+  validation {
+    condition     = !strcontains(var.control_plane_exec_args, "'") && !strcontains(var.control_plane_exec_args, "\r") && !strcontains(var.control_plane_exec_args, "\n")
+    error_message = "control_plane_exec_args must be a single line and must not contain single quotes."
+  }
 }
 
 variable "agent_exec_args" {
   type        = string
   default     = ""
-  description = "Agents nodes are started with `k3s agent {agent_exec_args}`. Use this to add kubelet-arg for example."
+  description = "Agents nodes are started with `k3s agent {agent_exec_args}`. Values are embedded in a single-quoted shell context, so single quotes and newlines are not allowed. Use this to add kubelet-arg for example."
+
+  validation {
+    condition     = !strcontains(var.agent_exec_args, "'") && !strcontains(var.agent_exec_args, "\r") && !strcontains(var.agent_exec_args, "\n")
+    error_message = "agent_exec_args must be a single line and must not contain single quotes."
+  }
 }
 
 variable "prefer_bundled_bin" {

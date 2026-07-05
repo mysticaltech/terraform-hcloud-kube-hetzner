@@ -738,7 +738,7 @@ module "kube-hetzner" {
 
   # To enable Hetzner Storage Box support, you can enable csi-driver-smb, default is "false".
   # enable_csi_driver_smb = true
-  # csi-driver-smb defaults to a reviewed chart version. Set "*" only if you intentionally want to float to the latest chart available.
+  # csi-driver-smb defaults to a reviewed chart version. Set "latest" or legacy "*" only if you intentionally want to float to the latest chart available.
   # See https://github.com/kubernetes-csi/csi-driver-smb/releases for the available versions.
   # csi_driver_smb_version = "1.20.3"
 
@@ -776,10 +776,11 @@ module "kube-hetzner" {
   # Enable Hetzner CSI storage. The default is true.
   # enable_hetzner_csi = true
 
-  # If you want to use a specific Hetzner CCM and CSI version, set them below; otherwise, leave them as-is for the latest versions.
+  # If you want to pin a specific Hetzner CCM or CSI version, set it below.
+  # Unset uses the reviewed module defaults. Set "latest" only if you intentionally want upstream GitHub latest resolved at plan time.
   # v3 always installs Hetzner CCM through the HelmChart manifest and removes the old raw-manifest CCM path.
   # See https://github.com/hetznercloud/hcloud-cloud-controller-manager/releases for the available versions.
-  # hetzner_ccm_version = ""
+  # hetzner_ccm_version = "1.33.0"
 
   # To enable Hetzner CCM compatibility with dedicated Robot servers, set the `enable_robot_ccm` to "true", default is "false".
   # Requirements for the CCM and Kubernetes Cluster to work with dedicated Robot servers:
@@ -809,15 +810,16 @@ module "kube-hetzner" {
   # ]
 
   # See https://github.com/hetznercloud/csi-driver/releases for the available versions.
-  # hetzner_csi_version = ""
+  # hetzner_csi_version = "2.21.2"
   # You can customize Helm values with hetzner_csi_values, or overlay defaults with hetzner_csi_merge_values.
 
   # To pass custom Helm values to the Hetzner CSI driver, use hetzner_csi_values.
   # hetzner_csi_values = file("${path.module}/chart-values/hcloud-csi.yaml")
 
-  # If you want to specify the Kured version, set it below - otherwise it'll use the latest version available.
+  # If you want to pin a specific Kured version, set it below.
+  # Unset uses the reviewed module default. Set "latest" only if you intentionally want upstream GitHub latest resolved at plan time.
   # See https://github.com/kubereboot/kured/releases for the available versions.
-  # kured_version = ""
+  # kured_version = "1.23.0"
 
   # Default is "traefik".
   # If you want to enable the Nginx (https://kubernetes.github.io/ingress-nginx/) or HAProxy ingress controller instead of Traefik, you can set this to "nginx" or "haproxy".
@@ -1336,10 +1338,11 @@ module "kube-hetzner" {
   # For Robot nodes connected over vSwitch, the XDP acceleration may not work on the Robot node and the setting therefore recommended to be set to "best-effort" or "disabled".
   # cilium_load_balancer_acceleration_mode = "best-effort"
 
-  # You can choose the version of Calico that you want. By default, the latest is used.
+  # You can choose the version of Calico that you want.
+  # Unset uses the reviewed module default. Set "latest" only if you intentionally want upstream GitHub latest resolved at plan time.
   # More info on available versions can be found at https://github.com/projectcalico/calico/releases
   # Please note that if you are getting 403s from Github, it's also useful to set the version manually. However there is rarely a need for that!
-  # calico_version = "v3.27.2" # optional pin; null/default fetches the latest release metadata
+  # calico_version = "v3.32.1"
 
   # If you want to disable the k3s kube-proxy, use this flag. The default is "false".
   # Ensure that your CNI is capable of handling all the functionalities typically covered by kube-proxy.
@@ -1555,8 +1558,9 @@ encryption:
   type: wireguard
   EOT */
 
-  # If you want to use a specific cert-manager helm chart version, set it below; otherwise, leave them as-is for the latest versions.
-  # cert_manager_version = ""
+  # If you want to pin a specific cert-manager Helm chart version, set it below.
+  # Unset uses the reviewed module default. Set "latest" or legacy "*" only if you intentionally want to float to the latest chart.
+  # cert_manager_version = "v1.20.3"
 
   # Cert manager, all cert-manager helm values can be found at https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/values.yaml
   # If you want to merge extra values into defaults (or cert_manager_values), use cert_manager_merge_values.
@@ -1688,9 +1692,10 @@ image:
       tag: v1.11.0-hotfix-1
   EOT */
 
-  # If you want to use a specific Traefik helm chart version, set it below; otherwise, leave them as-is for the latest versions.
+  # If you want to pin a specific Traefik Helm chart version, set it below.
+  # Unset uses the reviewed module default. Set "latest" or legacy "*" only if you intentionally want to float to the latest chart.
   # See https://github.com/traefik/traefik-helm-chart/releases for the available versions.
-  # traefik_version = ""
+  # traefik_version = "41.0.1"
 
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
   # If you want to merge extra values into defaults (or traefik_values), use traefik_merge_values.
@@ -1744,9 +1749,10 @@ service:
     "load-balancer.hetzner.cloud/location": "fsn1"
   EOT */
 
-  # If you want to use a specific Nginx helm chart version, set it below; otherwise, leave them as-is for the latest versions.
+  # If you want to pin a specific Nginx Helm chart version, set it below.
+  # Unset uses the reviewed module default. Set "latest" or legacy "*" only if you intentionally want to float to the latest chart.
   # See https://github.com/kubernetes/ingress-nginx?tab=readme-ov-file#supported-versions-table for the available versions.
-  # nginx_version = ""
+  # nginx_version = "4.15.1"
 
   # Nginx, all Nginx helm values can be found at https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
   # You can also have a look at https://kubernetes.github.io/ingress-nginx/, to understand how it works, and all the options at your disposal.
@@ -1775,8 +1781,9 @@ controller:
   kind: "Deployment"
   EOT */
 
-  # If you want to use a specific HAProxy helm chart version, set it below; otherwise, leave them as-is for the latest versions.
-  # haproxy_version = ""
+  # If you want to pin a specific HAProxy Helm chart version, set it below.
+  # Unset uses the reviewed module default. Set "latest" or legacy "*" only if you intentionally want to float to the latest chart.
+  # haproxy_version = "1.52.1"
 
   # If you want to configure additional proxy protocol trusted IPs for haproxy, enter them here as a list of IPs (strings).
   # Example for Cloudflare:
@@ -1850,8 +1857,9 @@ replicas: 3
   # rke2_version = ""
 
   # Longhorn/Rancher/chart bootstrap controls.
-  # longhorn_version = "*"
-  # rancher_version = "*"
+  # Unset Longhorn/Rancher/chart versions use reviewed module defaults; set "latest" or legacy "*" only for intentional floating chart behavior.
+  # longhorn_version = "v1.12.0"
+  # rancher_version = "2.14.3"
   # longhorn_helmchart_bootstrap = false
   # rancher_helmchart_bootstrap = false
   # cert_manager_helmchart_bootstrap = false

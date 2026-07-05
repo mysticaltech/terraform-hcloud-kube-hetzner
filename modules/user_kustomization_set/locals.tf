@@ -3,6 +3,10 @@ locals {
   # kustomizations map so validation error messages remain displayable.
   source_folder       = try(nonsensitive(trimspace(var.source_folder)), trimspace(var.source_folder))
   source_folder_files = local.source_folder == "" ? toset([]) : try(fileset(local.source_folder, "**/*.tpl"), toset([]))
+  invalid_source_folder_files = sort([
+    for file_path in local.source_folder_files : file_path
+    if !can(regex("^[A-Za-z0-9._/-]+$", file_path)) || contains(split("/", file_path), "..")
+  ])
   kustomization_template_files = setintersection(local.source_folder_files, toset([
     "kustomization.yaml.tpl",
     "kustomization.yml.tpl",
@@ -14,7 +18,9 @@ locals {
   source_folder_validation_error = (
     local.source_folder == "" ? (local.allow_empty_plain ? "" : "${local.entry_label}.source_folder must be set, or allow_empty = true must be used for an intentional empty set.") : (
       length(local.source_folder_files) == 0 ? (local.allow_empty_plain ? "" : "${local.entry_label}.source_folder (${jsonencode(local.source_folder)}) does not exist, is not readable, or contains no *.tpl template files. Fix the path or set allow_empty = true only for an intentional empty set.") : (
-        length(local.kustomization_template_files) == 0 ? "${local.entry_label}.source_folder (${jsonencode(local.source_folder)}) must contain kustomization.yaml.tpl, kustomization.yml.tpl, or Kustomization.tpl so kubectl apply -k has a rendered entrypoint." : ""
+        length(local.invalid_source_folder_files) > 0 ? "${local.entry_label}.source_folder contains unsafe template path(s): ${join(", ", [for file_path in local.invalid_source_folder_files : jsonencode(file_path)])}. Template paths may use only letters, digits, '.', '_', '-', and '/', and must not contain '..' path segments." : (
+          length(local.kustomization_template_files) == 0 ? "${local.entry_label}.source_folder (${jsonencode(local.source_folder)}) must contain kustomization.yaml.tpl, kustomization.yml.tpl, or Kustomization.tpl so kubectl apply -k has a rendered entrypoint." : ""
+        )
       )
     )
   )

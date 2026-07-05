@@ -22,8 +22,8 @@ Dependency edges: 007→001, 008→001, 008→004 (same data sources — 004 lan
 | 004 | Gate disabled-addon fetches | DONE |
 | 005 | Pin CSI chart sources / remove dead NFS template | DONE |
 | 006 | ssh_port validation | DONE |
-| 007 | Shell-safe user inputs | TODO |
-| 008 | Deterministic addon versions | TODO |
+| 007 | Shell-safe user inputs | DONE |
+| 008 | Deterministic addon versions | DONE |
 | 009 | CI orphan sweeper | DONE |
 | 010 | Stable node keys (design spike) | DONE — plans/010-report.md |
 

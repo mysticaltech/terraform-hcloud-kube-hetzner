@@ -17,6 +17,9 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCALS_TF = REPO_ROOT / "locals.tf"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+RENDER_SSH_AUTHORIZED_KEY = (
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKubeHetznerRenderHarness render-comment"
+)
 
 HELM_VALUE_LOCALS = [
     "cilium_values_default",
@@ -41,6 +44,9 @@ LB_ANNOTATION_KEYS = (
     "load-balancer.hetzner.cloud/name",
     "load-balancer.hetzner.cloud/id",
 )
+ADDON_DEFAULT_VERSION_RE = re.compile(r'^\s*([a-z0-9_]+)\s*=\s*"([^"]+)"\s*$')
+CONCRETE_ADDON_VERSION_RE = re.compile(r"^v?[0-9]+(?:\.[0-9]+){1,3}(?:[-+][0-9A-Za-z.-]+)?$")
+FLOATING_ADDON_VERSION_SENTINELS = {"", "*", "latest"}
 
 
 class HarnessFailure(Exception):
@@ -53,6 +59,10 @@ def strip_ansi(value: str) -> str:
 
 def hcl_json(value: Any) -> str:
     return json.dumps(value, indent=2, sort_keys=True)
+
+
+def hcl_value(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), sort_keys=True)
 
 
 def hcl_string(value: Path | str) -> str:
@@ -111,6 +121,55 @@ def discover_local_scripts() -> dict[str, str]:
         if name.endswith("script"):
             scripts[name] = extract_heredoc(name)
     return scripts
+
+
+def extract_addon_default_versions() -> dict[str, str]:
+    versions: dict[str, str] = {}
+    lines = LOCALS_TF.read_text(encoding="utf-8").splitlines()
+    in_block = False
+    found_block = False
+    for line in lines:
+        stripped = line.strip()
+        if not in_block:
+            if stripped == "addon_default_versions = {":
+                in_block = True
+                found_block = True
+            continue
+
+        if stripped == "}":
+            in_block = False
+            break
+        if stripped == "" or stripped.startswith("#"):
+            continue
+
+        match = ADDON_DEFAULT_VERSION_RE.match(line)
+        if match is None:
+            fail("addon_default_versions", f"unparseable matrix entry: {stripped}")
+        key, value = match.groups()
+        if key in versions:
+            fail("addon_default_versions", f"duplicate matrix key: {key}")
+        versions[key] = value
+
+    if not found_block:
+        fail("addon_default_versions", "matrix local was not found")
+    if in_block:
+        fail("addon_default_versions", "matrix local is unterminated")
+    if not versions:
+        fail("addon_default_versions", "matrix local has no entries")
+    return versions
+
+
+def assert_addon_default_versions() -> None:
+    versions = extract_addon_default_versions()
+    invalid = [
+        f"{name}={version!r}"
+        for name, version in sorted(versions.items())
+        if version.lower() in FLOATING_ADDON_VERSION_SENTINELS
+        or CONCRETE_ADDON_VERSION_RE.fullmatch(version) is None
+    ]
+    if invalid:
+        fail("addon_default_versions", f"non-concrete defaults: {', '.join(invalid)}")
+    print_pass("addon_default_versions", f"{len(versions)} concrete addon defaults are pinned")
 
 
 def base_render_vars() -> dict[str, Any]:
@@ -236,7 +295,7 @@ def base_render_vars() -> dict[str, Any]:
         "priority": 150,
         "public_ipv4_default_route": True,
         "public_ipv6_default_route": True,
-        "sshAuthorizedKeys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKubeHetznerRenderHarness"],
+        "sshAuthorizedKeysYaml": f'- "{RENDER_SSH_AUTHORIZED_KEY}"\n',
         "ssh_max_auth_tries": 3,
         "ssh_port": 22,
         "swap_size": "",
@@ -305,12 +364,20 @@ class TerraformScratch:
         encoded = self.console(
             f"jsonencode(templatefile({hcl_string(template_path)}, local.render_vars))"
         )
-        return json.loads(encoded)
+        return json.loads(json.loads(encoded))
 
     def render_yaml(self, template_path: Path) -> Any:
         encoded = self.console(
             f"jsonencode(yamldecode(templatefile({hcl_string(template_path)}, local.render_vars)))"
         )
+        return json.loads(json.loads(encoded))
+
+    def decode_yaml_string(self, value: str) -> Any:
+        encoded = self.console(f"jsonencode(yamldecode({hcl_string(value)}))")
+        return json.loads(json.loads(encoded))
+
+    def yamlencode(self, value: Any) -> str:
+        encoded = self.console(f"jsonencode(yamlencode({hcl_value(value)}))")
         return json.loads(json.loads(encoded))
 
 
@@ -402,6 +469,132 @@ def run_cloudinit_checks(scratch: TerraformScratch) -> None:
             if key not in document:
                 fail(str(template_path.relative_to(REPO_ROOT)), f"missing {key}")
         print_pass(str(template_path.relative_to(REPO_ROOT)), "yamldecode accepted cloud-init structure")
+
+        if template_path.name == "nat-router-cloudinit.yaml.tpl":
+            users = document.get("users")
+            if not isinstance(users, list) or not users:
+                fail(str(template_path.relative_to(REPO_ROOT)), "missing users[0]")
+            keys = users[0].get("ssh_authorized_keys")
+        else:
+            keys = document.get("ssh_authorized_keys")
+        if keys != [RENDER_SSH_AUTHORIZED_KEY]:
+            fail(
+                str(template_path.relative_to(REPO_ROOT)),
+                f"authorized keys decoded to {keys!r}",
+            )
+        print_pass(
+            str(template_path.relative_to(REPO_ROOT)),
+            "authorized key list decodes to the expected single-line key",
+        )
+
+
+def split_yaml_documents(manifest: str) -> list[str]:
+    documents: list[str] = []
+    current: list[str] = []
+    for line in manifest.splitlines():
+        if line.strip() == "---":
+            if any(candidate.strip() for candidate in current):
+                documents.append("\n".join(current) + "\n")
+            current = []
+            continue
+        current.append(line)
+    if any(candidate.strip() for candidate in current):
+        documents.append("\n".join(current) + "\n")
+    return documents
+
+
+def run_autoscaler_manifest_checks(scratch: TerraformScratch) -> None:
+    extra_args = [
+        "--scan-interval=10s",
+        "--node-group-auto-discovery=label:kh=render # not yaml comment",
+    ]
+    render_vars = {
+        "autoscaler_name": "cluster-autoscaler",
+        "leader_election_resource_name": "cluster-autoscaler",
+        "metrics_node_port": 30085,
+        "cloudinit_config": "cmVuZGVy",
+        "ca_image": "registry.k8s.io/autoscaling/cluster-autoscaler",
+        "ca_version": "v1.32.0",
+        "ca_replicas": 1,
+        "ca_resource_limits": True,
+        "ca_resources": {
+            "limits": {"cpu": "100m", "memory": "300Mi"},
+            "requests": {"cpu": "100m", "memory": "300Mi"},
+        },
+        "cluster_autoscaler_extra_args_yaml": scratch.yamlencode(extra_args),
+        "cluster_autoscaler_tolerations": [],
+        "cluster_autoscaler_log_level": 4,
+        "cluster_autoscaler_log_to_stderr": True,
+        "cluster_autoscaler_stderr_threshold": "INFO",
+        "cluster_autoscaler_server_creation_timeout": "",
+        "ssh_key": "123",
+        "ipv4_subnet_id": "456",
+        "snapshot_id": "789",
+        "cluster_config": "e30=",
+        "cluster_config_sha256": "abc123",
+        "firewall_id": "321",
+        "cluster_name": "render-",
+        "node_pools": [
+            {
+                "min_nodes": 0,
+                "max_nodes": 3,
+                "server_type": "cpx21",
+                "location": "nbg1",
+                "name": "agent",
+            }
+        ],
+        "enable_ipv4": True,
+        "enable_ipv6": False,
+    }
+
+    path = scratch.write_template(
+        "autoscaler_manifest",
+        (REPO_ROOT / "templates/autoscaler.yaml.tpl").read_text(encoding="utf-8"),
+    )
+    (scratch.root / "autoscaler_manifest.tf").write_text(
+        "\n".join(
+            [
+                "locals {",
+                "  autoscaler_manifest_vars = jsondecode(<<JSON",
+                hcl_json(render_vars),
+                "JSON",
+                "  )",
+                "}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manifest = scratch.console(
+        f"jsonencode(templatefile({hcl_string(path)}, local.autoscaler_manifest_vars))"
+    )
+    rendered = json.loads(json.loads(manifest))
+    documents = [
+        scratch.decode_yaml_string(document)
+        for document in split_yaml_documents(rendered)
+    ]
+    deployment = next(
+        (
+            document
+            for document in documents
+            if isinstance(document, dict) and document.get("kind") == "Deployment"
+        ),
+        None,
+    )
+    if deployment is None:
+        fail("autoscaler extra args", "rendered manifest has no Deployment document")
+    containers = nested_get(
+        deployment,
+        ("spec", "template", "spec", "containers"),
+    )
+    if not isinstance(containers, list) or not containers:
+        fail("autoscaler extra args", "Deployment has no containers")
+    command = containers[0].get("command")
+    if not isinstance(command, list):
+        fail("autoscaler extra args", "Deployment container command is not a list")
+    if command[-2:] != extra_args:
+        fail("autoscaler extra args", f"decoded extra args tail was {command[-2:]!r}")
+    print_pass("autoscaler extra args", "YAML-sensitive extra args decode as exact command list items")
 
 
 def run_kubeconfig_checks(scratch: TerraformScratch) -> None:
@@ -505,6 +698,42 @@ def run_shell_checks(scratch: TerraformScratch) -> None:
         bash_syntax_check(name, script)
 
 
+def run_kustomization_path_checks(scratch: TerraformScratch) -> None:
+    suffix = json.loads(
+        json.loads(
+            scratch.console(
+                'jsonencode(replace("a.tpl.d/b.yaml.tpl", "/\\\\.tpl$/", ""))'
+            )
+        )
+    )
+    if suffix != "a.tpl.d/b.yaml":
+        fail("kustomization tpl suffix strip", f"got {suffix!r}")
+
+    paths = [
+        "kustomization.yaml.tpl",
+        "a.tpl.d/b.yaml.tpl",
+        "evil$(touch x).tpl",
+        "../escape.tpl",
+        "safe/nested/resource.yml.tpl",
+    ]
+    invalid = json.loads(
+        json.loads(
+            scratch.console(
+                "jsonencode(sort(["
+                f"for file_path in {hcl_value(paths)} : file_path "
+                'if !can(regex("^[A-Za-z0-9._/-]+$", file_path)) || contains(split("/", file_path), "..")'
+                "]))"
+            )
+        )
+    )
+    if invalid != ["../escape.tpl", "evil$(touch x).tpl"]:
+        fail("kustomization path validation", f"invalid paths were {invalid!r}")
+    print_pass(
+        "kustomization path validation",
+        "suffix strip is trailing-only and unsafe template paths are detected",
+    )
+
+
 def main() -> int:
     if shutil.which("terraform") is None:
         print("FAIL terraform: terraform binary not found", file=sys.stderr)
@@ -516,10 +745,13 @@ def main() -> int:
     temp_dir = Path(tempfile.mkdtemp(prefix="kh-render-harness-"))
     try:
         scratch = TerraformScratch(temp_dir, base_render_vars())
+        assert_addon_default_versions()
         run_helm_checks(scratch)
         run_shell_checks(scratch)
         run_cloudinit_checks(scratch)
+        run_autoscaler_manifest_checks(scratch)
         run_kubeconfig_checks(scratch)
+        run_kustomization_path_checks(scratch)
     except HarnessFailure as exc:
         print(str(exc), file=sys.stderr)
         return 1

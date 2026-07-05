@@ -216,9 +216,9 @@ ${indent(8, yamlencode(cluster_autoscaler_tolerations))}
             %{~ for pool in node_pools ~}
             - --nodes=${pool.min_nodes}:${pool.max_nodes}:${pool.server_type}:${pool.location}:${cluster_name}${pool.name}
             %{~ endfor ~}
-            %{~ for extra_arg in cluster_autoscaler_extra_args ~}
-            - ${extra_arg}
-            %{~ endfor ~}
+            %{~ if trimspace(cluster_autoscaler_extra_args_yaml) != "[]" ~}
+            ${replace(trimspace(cluster_autoscaler_extra_args_yaml), "\n", "\n            ")}
+            %{~ endif ~}
           env:
           - name: HCLOUD_TOKEN
             valueFrom:

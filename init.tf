@@ -538,18 +538,18 @@ resource "terraform_data" "kustomization" {
       coalesce(var.k3s_channel, "N/A"),
       coalesce(var.k3s_version, "N/A"),
       coalesce(var.cluster_autoscaler_version, "N/A"),
-      coalesce(var.hetzner_ccm_version, "N/A"),
-      coalesce(var.hetzner_csi_version, "N/A"),
-      coalesce(var.kured_version, "N/A"),
-      coalesce(var.calico_version, "N/A"),
+      coalesce(local.ccm_version, "N/A"),
+      coalesce(local.csi_version, "N/A"),
+      coalesce(local.kured_version, "N/A"),
+      coalesce(local.calico_version, "N/A"),
       coalesce(var.cilium_version, "N/A"),
-      coalesce(var.traefik_version, "N/A"),
-      coalesce(var.nginx_version, "N/A"),
-      coalesce(var.haproxy_version, "N/A"),
-      coalesce(var.cert_manager_version, "N/A"),
-      coalesce(var.csi_driver_smb_version, "N/A"),
-      coalesce(var.longhorn_version, "N/A"),
-      coalesce(var.rancher_version, "N/A"),
+      coalesce(local.traefik_version, "N/A"),
+      coalesce(local.nginx_version, "N/A"),
+      coalesce(local.haproxy_version, "N/A"),
+      coalesce(local.cert_manager_version, "N/A"),
+      coalesce(local.csi_driver_smb_version, "N/A"),
+      coalesce(local.longhorn_version, "N/A"),
+      coalesce(local.rancher_version, "N/A"),
       coalesce(var.system_upgrade_controller_version, "N/A"),
     ])
     options = join("\n", [
@@ -570,7 +570,7 @@ resource "terraform_data" "kustomization" {
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
         {
-          version          = var.traefik_version
+          version          = local.traefik_version
           values           = indent(4, local.traefik_values)
           target_namespace = local.ingress_controller_namespace
         }
@@ -578,7 +578,7 @@ resource "terraform_data" "kustomization" {
       templatefile(
         "${path.module}/templates/nginx_ingress.yaml.tpl",
         {
-          version          = var.nginx_version
+          version          = local.nginx_version
           values           = indent(4, local.nginx_values)
           target_namespace = local.ingress_controller_namespace
         }
@@ -586,7 +586,7 @@ resource "terraform_data" "kustomization" {
       templatefile(
         "${path.module}/templates/haproxy_ingress.yaml.tpl",
         {
-          version          = var.haproxy_version
+          version          = local.haproxy_version
           values           = indent(4, local.haproxy_values)
           target_namespace = local.ingress_controller_namespace
         }
@@ -595,7 +595,7 @@ resource "terraform_data" "kustomization" {
         "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
         {
           values              = indent(4, local.hetzner_ccm_values)
-          version             = coalesce(local.ccm_version, "*")
+          version             = local.ccm_version
           using_klipper_lb    = local.using_klipper_lb
           default_lb_location = var.load_balancer_location
         }
@@ -636,7 +636,7 @@ resource "terraform_data" "kustomization" {
         {
           longhorn_namespace  = var.longhorn_namespace
           longhorn_repository = var.longhorn_repository
-          version             = var.longhorn_version
+          version             = local.longhorn_version
           bootstrap           = var.longhorn_helmchart_bootstrap
           values              = indent(4, local.longhorn_values)
         }
@@ -644,14 +644,14 @@ resource "terraform_data" "kustomization" {
       var.enable_hetzner_csi ? templatefile(
         "${path.module}/templates/hcloud-csi.yaml.tpl",
         {
-          version = coalesce(local.csi_version, "*")
+          version = local.csi_version
           values  = indent(4, local.hetzner_csi_values)
         }
       ) : "",
       templatefile(
         "${path.module}/templates/csi-driver-smb.yaml.tpl",
         {
-          version   = var.csi_driver_smb_version
+          version   = local.csi_driver_smb_version
           bootstrap = var.csi_driver_smb_helmchart_bootstrap
           values    = indent(4, local.csi_driver_smb_values)
         }
@@ -659,7 +659,7 @@ resource "terraform_data" "kustomization" {
       templatefile(
         "${path.module}/templates/cert_manager.yaml.tpl",
         {
-          version   = var.cert_manager_version
+          version   = local.cert_manager_version
           bootstrap = var.cert_manager_helmchart_bootstrap
           values    = indent(4, local.cert_manager_values)
         }
@@ -668,7 +668,7 @@ resource "terraform_data" "kustomization" {
         "${path.module}/templates/rancher.yaml.tpl",
         {
           rancher_install_channel = var.rancher_install_channel
-          version                 = var.rancher_version
+          version                 = local.rancher_version
           bootstrap               = var.rancher_helmchart_bootstrap
           values                  = indent(4, local.rancher_values)
         }
@@ -730,7 +730,7 @@ resource "terraform_data" "kustomization" {
     content = templatefile(
       "${path.module}/templates/traefik_ingress.yaml.tpl",
       {
-        version          = var.traefik_version
+        version          = local.traefik_version
         values           = indent(4, local.traefik_values)
         target_namespace = local.ingress_controller_namespace
     })
@@ -742,7 +742,7 @@ resource "terraform_data" "kustomization" {
     content = templatefile(
       "${path.module}/templates/nginx_ingress.yaml.tpl",
       {
-        version          = var.nginx_version
+        version          = local.nginx_version
         values           = indent(4, local.nginx_values)
         target_namespace = local.ingress_controller_namespace
     })
@@ -754,7 +754,7 @@ resource "terraform_data" "kustomization" {
     content = templatefile(
       "${path.module}/templates/haproxy_ingress.yaml.tpl",
       {
-        version          = var.haproxy_version
+        version          = local.haproxy_version
         values           = indent(4, local.haproxy_values)
         target_namespace = local.ingress_controller_namespace
     })
@@ -767,7 +767,7 @@ resource "terraform_data" "kustomization" {
       "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
       {
         values              = indent(4, local.hetzner_ccm_values)
-        version             = coalesce(local.ccm_version, "*")
+        version             = local.ccm_version
         using_klipper_lb    = local.using_klipper_lb
         default_lb_location = var.load_balancer_location
       }
@@ -842,7 +842,7 @@ resource "terraform_data" "kustomization" {
       {
         longhorn_namespace  = var.longhorn_namespace
         longhorn_repository = var.longhorn_repository
-        version             = var.longhorn_version
+        version             = local.longhorn_version
         bootstrap           = var.longhorn_helmchart_bootstrap
         values              = indent(4, local.longhorn_values)
     })
@@ -854,7 +854,7 @@ resource "terraform_data" "kustomization" {
     content = var.enable_hetzner_csi ? templatefile(
       "${path.module}/templates/hcloud-csi.yaml.tpl",
       {
-        version = coalesce(local.csi_version, "*")
+        version = local.csi_version
         values  = indent(4, local.hetzner_csi_values)
       }
     ) : ""
@@ -866,7 +866,7 @@ resource "terraform_data" "kustomization" {
     content = templatefile(
       "${path.module}/templates/csi-driver-smb.yaml.tpl",
       {
-        version   = var.csi_driver_smb_version
+        version   = local.csi_driver_smb_version
         bootstrap = var.csi_driver_smb_helmchart_bootstrap
         values    = indent(4, local.csi_driver_smb_values)
     })
@@ -878,7 +878,7 @@ resource "terraform_data" "kustomization" {
     content = templatefile(
       "${path.module}/templates/cert_manager.yaml.tpl",
       {
-        version   = var.cert_manager_version
+        version   = local.cert_manager_version
         bootstrap = var.cert_manager_helmchart_bootstrap
         values    = indent(4, local.cert_manager_values)
     })
@@ -891,7 +891,7 @@ resource "terraform_data" "kustomization" {
       "${path.module}/templates/rancher.yaml.tpl",
       {
         rancher_install_channel = var.rancher_install_channel
-        version                 = var.rancher_version
+        version                 = local.rancher_version
         bootstrap               = var.rancher_helmchart_bootstrap
         values                  = indent(4, local.rancher_values)
     })
@@ -1044,18 +1044,18 @@ resource "terraform_data" "rke2_kustomization" {
       coalesce(var.rke2_channel, "N/A"),
       coalesce(var.rke2_version, "N/A"),
       coalesce(var.cluster_autoscaler_version, "N/A"),
-      coalesce(var.hetzner_ccm_version, "N/A"),
-      coalesce(var.hetzner_csi_version, "N/A"),
-      coalesce(var.kured_version, "N/A"),
-      coalesce(var.calico_version, "N/A"),
+      coalesce(local.ccm_version, "N/A"),
+      coalesce(local.csi_version, "N/A"),
+      coalesce(local.kured_version, "N/A"),
+      coalesce(local.calico_version, "N/A"),
       coalesce(var.cilium_version, "N/A"),
-      coalesce(var.traefik_version, "N/A"),
-      coalesce(var.nginx_version, "N/A"),
-      coalesce(var.haproxy_version, "N/A"),
-      coalesce(var.cert_manager_version, "N/A"),
-      coalesce(var.csi_driver_smb_version, "N/A"),
-      coalesce(var.longhorn_version, "N/A"),
-      coalesce(var.rancher_version, "N/A"),
+      coalesce(local.traefik_version, "N/A"),
+      coalesce(local.nginx_version, "N/A"),
+      coalesce(local.haproxy_version, "N/A"),
+      coalesce(local.cert_manager_version, "N/A"),
+      coalesce(local.csi_driver_smb_version, "N/A"),
+      coalesce(local.longhorn_version, "N/A"),
+      coalesce(local.rancher_version, "N/A"),
       coalesce(var.system_upgrade_controller_version, "N/A"),
     ])
     options = join("\n", [
@@ -1076,7 +1076,7 @@ resource "terraform_data" "rke2_kustomization" {
       templatefile(
         "${path.module}/templates/traefik_ingress.yaml.tpl",
         {
-          version          = var.traefik_version
+          version          = local.traefik_version
           values           = indent(4, local.traefik_values)
           target_namespace = local.ingress_controller_namespace
         }
@@ -1084,7 +1084,7 @@ resource "terraform_data" "rke2_kustomization" {
       templatefile(
         "${path.module}/templates/nginx_ingress.yaml.tpl",
         {
-          version          = var.nginx_version
+          version          = local.nginx_version
           values           = indent(4, local.nginx_values)
           target_namespace = local.ingress_controller_namespace
         }
@@ -1092,7 +1092,7 @@ resource "terraform_data" "rke2_kustomization" {
       templatefile(
         "${path.module}/templates/haproxy_ingress.yaml.tpl",
         {
-          version          = var.haproxy_version
+          version          = local.haproxy_version
           values           = indent(4, local.haproxy_values)
           target_namespace = local.ingress_controller_namespace
         }
@@ -1101,7 +1101,7 @@ resource "terraform_data" "rke2_kustomization" {
         "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
         {
           values              = indent(4, local.hetzner_ccm_values)
-          version             = coalesce(local.ccm_version, "*")
+          version             = local.ccm_version
           using_klipper_lb    = local.using_klipper_lb
           default_lb_location = var.load_balancer_location
         }
@@ -1142,7 +1142,7 @@ resource "terraform_data" "rke2_kustomization" {
         {
           longhorn_namespace  = var.longhorn_namespace
           longhorn_repository = var.longhorn_repository
-          version             = var.longhorn_version
+          version             = local.longhorn_version
           bootstrap           = var.longhorn_helmchart_bootstrap
           values              = indent(4, local.longhorn_values)
         }
@@ -1150,14 +1150,14 @@ resource "terraform_data" "rke2_kustomization" {
       var.enable_hetzner_csi ? templatefile(
         "${path.module}/templates/hcloud-csi.yaml.tpl",
         {
-          version = coalesce(local.csi_version, "*")
+          version = local.csi_version
           values  = indent(4, local.hetzner_csi_values)
         }
       ) : "",
       templatefile(
         "${path.module}/templates/csi-driver-smb.yaml.tpl",
         {
-          version   = var.csi_driver_smb_version
+          version   = local.csi_driver_smb_version
           bootstrap = var.csi_driver_smb_helmchart_bootstrap
           values    = indent(4, local.csi_driver_smb_values)
         }
@@ -1165,7 +1165,7 @@ resource "terraform_data" "rke2_kustomization" {
       templatefile(
         "${path.module}/templates/cert_manager.yaml.tpl",
         {
-          version   = var.cert_manager_version
+          version   = local.cert_manager_version
           bootstrap = var.cert_manager_helmchart_bootstrap
           values    = indent(4, local.cert_manager_values)
         }
@@ -1174,7 +1174,7 @@ resource "terraform_data" "rke2_kustomization" {
         "${path.module}/templates/rancher.yaml.tpl",
         {
           rancher_install_channel = var.rancher_install_channel
-          version                 = var.rancher_version
+          version                 = local.rancher_version
           bootstrap               = var.rancher_helmchart_bootstrap
           values                  = indent(4, local.rancher_values)
         }
@@ -1228,7 +1228,7 @@ resource "terraform_data" "rke2_kustomization" {
     content = templatefile(
       "${path.module}/templates/traefik_ingress.yaml.tpl",
       {
-        version          = var.traefik_version
+        version          = local.traefik_version
         values           = indent(4, local.traefik_values)
         target_namespace = local.ingress_controller_namespace
     })
@@ -1240,7 +1240,7 @@ resource "terraform_data" "rke2_kustomization" {
     content = templatefile(
       "${path.module}/templates/nginx_ingress.yaml.tpl",
       {
-        version          = var.nginx_version
+        version          = local.nginx_version
         values           = indent(4, local.nginx_values)
         target_namespace = local.ingress_controller_namespace
     })
@@ -1252,7 +1252,7 @@ resource "terraform_data" "rke2_kustomization" {
     content = templatefile(
       "${path.module}/templates/haproxy_ingress.yaml.tpl",
       {
-        version          = var.haproxy_version
+        version          = local.haproxy_version
         values           = indent(4, local.haproxy_values)
         target_namespace = local.ingress_controller_namespace
     })
@@ -1265,7 +1265,7 @@ resource "terraform_data" "rke2_kustomization" {
       "${path.module}/templates/hcloud-ccm-helm.yaml.tpl",
       {
         values              = indent(4, local.hetzner_ccm_values)
-        version             = coalesce(local.ccm_version, "*")
+        version             = local.ccm_version
         using_klipper_lb    = local.using_klipper_lb
         default_lb_location = var.load_balancer_location
 
@@ -1341,7 +1341,7 @@ resource "terraform_data" "rke2_kustomization" {
       {
         longhorn_namespace  = var.longhorn_namespace
         longhorn_repository = var.longhorn_repository
-        version             = var.longhorn_version
+        version             = local.longhorn_version
         bootstrap           = var.longhorn_helmchart_bootstrap
         values              = indent(4, local.longhorn_values)
     })
@@ -1353,7 +1353,7 @@ resource "terraform_data" "rke2_kustomization" {
     content = var.enable_hetzner_csi ? templatefile(
       "${path.module}/templates/hcloud-csi.yaml.tpl",
       {
-        version = coalesce(local.csi_version, "*")
+        version = local.csi_version
         values  = indent(4, local.hetzner_csi_values)
       }
     ) : ""
@@ -1365,7 +1365,7 @@ resource "terraform_data" "rke2_kustomization" {
     content = templatefile(
       "${path.module}/templates/csi-driver-smb.yaml.tpl",
       {
-        version   = var.csi_driver_smb_version
+        version   = local.csi_driver_smb_version
         bootstrap = var.csi_driver_smb_helmchart_bootstrap
         values    = indent(4, local.csi_driver_smb_values)
     })
@@ -1377,7 +1377,7 @@ resource "terraform_data" "rke2_kustomization" {
     content = templatefile(
       "${path.module}/templates/cert_manager.yaml.tpl",
       {
-        version   = var.cert_manager_version
+        version   = local.cert_manager_version
         bootstrap = var.cert_manager_helmchart_bootstrap
         values    = indent(4, local.cert_manager_values)
     })
@@ -1390,7 +1390,7 @@ resource "terraform_data" "rke2_kustomization" {
       "${path.module}/templates/rancher.yaml.tpl",
       {
         rancher_install_channel = var.rancher_install_channel
-        version                 = var.rancher_version
+        version                 = local.rancher_version
         bootstrap               = var.rancher_helmchart_bootstrap
         values                  = indent(4, local.rancher_values)
     })

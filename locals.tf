@@ -129,10 +129,60 @@ locals {
   rke2_public_join_endpoint  = "https://${local.control_plane_public_host_formatted}:9345"
   rke2_join_endpoint         = local.node_transport_tailscale_enabled ? local.tailscale_rke2_join_endpoint : (local.multinetwork_overlay_enabled ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint)
 
-  ccm_version    = var.hetzner_ccm_version != null ? var.hetzner_ccm_version : jsondecode(data.http.hetzner_ccm_release[0].response_body).tag_name
-  csi_version    = length(data.http.hetzner_csi_release) == 0 ? var.hetzner_csi_version : jsondecode(data.http.hetzner_csi_release[0].response_body).tag_name
-  kured_version  = length(data.http.kured_release) == 0 ? var.kured_version : jsondecode(data.http.kured_release[0].response_body).tag_name
-  calico_version = length(data.http.calico_release) == 0 ? var.calico_version : jsondecode(data.http.calico_release[0].response_body).tag_name
+  # Reviewed on 2026-07-05 from upstream release metadata and Helm chart indexes.
+  # Unset addon version variables use this matrix; set "latest" only when an
+  # install should keep following upstream latest behavior.
+  addon_default_versions = {
+    hetzner_ccm    = "1.33.0"
+    hetzner_csi    = "2.21.2"
+    kured          = "1.23.0"
+    calico         = "v3.32.1"
+    traefik        = "41.0.1"
+    nginx          = "4.15.1"
+    haproxy        = "1.52.1"
+    longhorn       = "v1.12.0"
+    csi_driver_smb = "1.20.3"
+    cert_manager   = "v1.20.3"
+    rancher        = "2.14.3"
+  }
+
+  addon_version_inputs = {
+    hetzner_ccm    = try(trimspace(var.hetzner_ccm_version), "") == "" ? null : trimspace(var.hetzner_ccm_version)
+    hetzner_csi    = try(trimspace(var.hetzner_csi_version), "") == "" ? null : trimspace(var.hetzner_csi_version)
+    kured          = try(trimspace(var.kured_version), "") == "" ? null : trimspace(var.kured_version)
+    calico         = try(trimspace(var.calico_version), "") == "" ? null : trimspace(var.calico_version)
+    traefik        = try(trimspace(var.traefik_version), "") == "" ? null : trimspace(var.traefik_version)
+    nginx          = try(trimspace(var.nginx_version), "") == "" ? null : trimspace(var.nginx_version)
+    haproxy        = try(trimspace(var.haproxy_version), "") == "" ? null : trimspace(var.haproxy_version)
+    longhorn       = try(trimspace(var.longhorn_version), "") == "" ? null : trimspace(var.longhorn_version)
+    csi_driver_smb = try(trimspace(var.csi_driver_smb_version), "") == "" ? null : trimspace(var.csi_driver_smb_version)
+    cert_manager   = try(trimspace(var.cert_manager_version), "") == "" ? null : trimspace(var.cert_manager_version)
+    rancher        = try(trimspace(var.rancher_version), "") == "" ? null : trimspace(var.rancher_version)
+  }
+
+  ccm_version = trimprefix(coalesce(
+    local.addon_version_inputs.hetzner_ccm == "latest" ? jsondecode(data.http.hetzner_ccm_release[0].response_body).tag_name : local.addon_version_inputs.hetzner_ccm,
+    local.addon_default_versions.hetzner_ccm
+  ), "v")
+  csi_version = trimprefix(coalesce(
+    local.addon_version_inputs.hetzner_csi == "latest" && var.enable_hetzner_csi ? jsondecode(data.http.hetzner_csi_release[0].response_body).tag_name : (local.addon_version_inputs.hetzner_csi == "latest" ? null : local.addon_version_inputs.hetzner_csi),
+    local.addon_default_versions.hetzner_csi
+  ), "v")
+  kured_version = coalesce(
+    local.addon_version_inputs.kured == "latest" && var.enable_kured ? jsondecode(data.http.kured_release[0].response_body).tag_name : (local.addon_version_inputs.kured == "latest" ? null : local.addon_version_inputs.kured),
+    local.addon_default_versions.kured
+  )
+  calico_version = coalesce(
+    local.addon_version_inputs.calico == "latest" && var.cni_plugin == "calico" ? jsondecode(data.http.calico_release[0].response_body).tag_name : (local.addon_version_inputs.calico == "latest" ? null : local.addon_version_inputs.calico),
+    local.addon_default_versions.calico
+  )
+  traefik_version        = local.addon_version_inputs.traefik == "latest" ? "*" : coalesce(local.addon_version_inputs.traefik, local.addon_default_versions.traefik)
+  nginx_version          = local.addon_version_inputs.nginx == "latest" ? "*" : coalesce(local.addon_version_inputs.nginx, local.addon_default_versions.nginx)
+  haproxy_version        = local.addon_version_inputs.haproxy == "latest" ? "*" : coalesce(local.addon_version_inputs.haproxy, local.addon_default_versions.haproxy)
+  longhorn_version       = local.addon_version_inputs.longhorn == "latest" ? "*" : coalesce(local.addon_version_inputs.longhorn, local.addon_default_versions.longhorn)
+  csi_driver_smb_version = local.addon_version_inputs.csi_driver_smb == "latest" ? "*" : coalesce(local.addon_version_inputs.csi_driver_smb, local.addon_default_versions.csi_driver_smb)
+  cert_manager_version   = local.addon_version_inputs.cert_manager == "latest" ? "*" : coalesce(local.addon_version_inputs.cert_manager, local.addon_default_versions.cert_manager)
+  rancher_version        = local.addon_version_inputs.rancher == "latest" ? "*" : coalesce(local.addon_version_inputs.rancher, local.addon_default_versions.rancher)
 
   kured_manifest_body                     = var.enable_kured ? data.http.kured_manifest[0].response_body : ""
   system_upgrade_controller_manifest_body = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest[0].response_body : ""
@@ -2015,7 +2065,7 @@ EOT
   }
 
   cni_install_resources = {
-    "calico" = ["https://raw.githubusercontent.com/projectcalico/calico/${coalesce(local.calico_version, "v3.27.2")}/manifests/calico.yaml"]
+    "calico" = ["https://raw.githubusercontent.com/projectcalico/calico/${local.calico_version}/manifests/calico.yaml"]
     "cilium" = ["cilium.yaml"]
   }
 
@@ -2200,7 +2250,7 @@ spec:
   EOT
 
   desired_cni_values  = var.cni_plugin == "cilium" ? local.cilium_values : local.calico_values
-  desired_cni_version = var.cni_plugin == "cilium" ? var.cilium_version : var.calico_version
+  desired_cni_version = var.cni_plugin == "cilium" ? var.cilium_version : local.calico_version
   # RKE2 supports built-in CNI selections. We only inject a custom manifest for cilium.
   rke2_cni = (
     var.cni_plugin == "cilium"

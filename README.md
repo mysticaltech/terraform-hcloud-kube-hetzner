@@ -113,6 +113,7 @@ Only apply after reviewing all planned resource actions.
 | RKE2 on Leap Micro | Supported | Heavier distribution; basic RKE2 preset covered by CI, advanced RKE2 combinations validated manually per release. |
 | MicroOS | Legacy/upgrade support | Existing clusters remain supported; new nodepools default to Leap Micro. |
 | OpenTofu | Supported | Validate with `tofu init`, `tofu validate`, and `tofu plan` before applying. |
+| Addon version defaults | Reviewed deterministic defaults | Unset addon version variables use the module's reviewed version matrix; set `latest` only when you intentionally want upstream latest behavior. |
 | Cilium dual-stack | Supported | Preferred advanced CNI path. |
 | Cilium Gateway API | Supported opt-in | `cilium_gateway_api_enabled = true` installs standard Gateway API CRDs and enables Cilium Gateway API. Requires Cilium with kube-proxy replacement. |
 | Tailscale node transport | Supported opt-in | `node_transport_mode = "tailscale"` provides secure Tailnet access for single-network clusters and private route transport for multinetwork scale while Kubernetes keeps Hetzner node IPs. |
@@ -150,6 +151,7 @@ Before applying a v3 upgrade, confirm:
 
 - Current state is backed up with `terraform state pull`.
 - Removed v2 inputs are gone and renamed booleans with inverted meaning are reviewed.
+- Addon version policy is reviewed: unset addon version variables use deterministic module defaults, while `latest` opts back into upstream floating behavior.
 - In-place v2 upgrades keep the default `network_subnet_mode = "per_nodepool"` unless subnet resource changes are intentional.
 - `terraform validate` or `tofu validate` passes before planning.
 - `terraform plan` has no unexpected `delete`, `replace`, or `forces replacement` actions.

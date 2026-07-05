@@ -1,5 +1,5 @@
 data "http" "hetzner_ccm_release" {
-  count = var.hetzner_ccm_version == null ? 1 : 0
+  count = local.addon_version_inputs.hetzner_ccm == "latest" ? 1 : 0
   url   = "https://api.github.com/repos/hetznercloud/hcloud-cloud-controller-manager/releases/latest"
 
   request_headers = {
@@ -14,7 +14,7 @@ data "http" "hetzner_ccm_release" {
 }
 
 data "http" "hetzner_csi_release" {
-  count = var.hetzner_csi_version == null && var.enable_hetzner_csi ? 1 : 0
+  count = local.addon_version_inputs.hetzner_csi == "latest" && var.enable_hetzner_csi ? 1 : 0
   url   = "https://api.github.com/repos/hetznercloud/csi-driver/releases/latest"
 
   request_headers = {
@@ -29,7 +29,7 @@ data "http" "hetzner_csi_release" {
 }
 
 data "http" "kured_release" {
-  count = var.enable_kured && var.kured_version == null ? 1 : 0
+  count = var.enable_kured && local.addon_version_inputs.kured == "latest" ? 1 : 0
   url   = "https://api.github.com/repos/kubereboot/kured/releases/latest"
 
   request_headers = {
@@ -105,7 +105,7 @@ data "http" "gateway_api_standard_crds" {
 }
 
 data "http" "calico_release" {
-  count = var.calico_version == null && var.cni_plugin == "calico" ? 1 : 0
+  count = local.addon_version_inputs.calico == "latest" && var.cni_plugin == "calico" ? 1 : 0
   url   = "https://api.github.com/repos/projectcalico/calico/releases/latest"
 
   request_headers = {

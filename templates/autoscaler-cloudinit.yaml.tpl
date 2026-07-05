@@ -87,9 +87,7 @@ resolv_conf:
 
 # Add ssh authorized keys
 ssh_authorized_keys:
-%{ for key in sshAuthorizedKeys ~}
-  - ${key}
-%{ endfor ~}
+  ${replace(trimspace(sshAuthorizedKeysYaml), "\n", "\n  ")}
 
 # Allow root SSH login (required for provisioning)
 disable_root: false

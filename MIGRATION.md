@@ -23,17 +23,22 @@ For the full operator workflow, use
      `automatically_upgrade_kubernetes` still defaults to `true`.
    - Either pin `k3s_version`, set `k3s_channel = "v1.33"` to keep the v2
      minor channel intentionally, or consciously accept following `stable`.
-5. Pin the module to your target v3 tag.
-6. Reinitialize providers and modules:
+5. Decide your addon version policy before the first v3 apply:
+   - Unset addon version variables use the reviewed module defaults.
+   - Set a concrete version to pin explicitly.
+   - Set `latest` only when you intentionally want upstream latest release or
+     latest Helm chart behavior.
+6. Pin the module to your target v3 tag.
+7. Reinitialize providers and modules:
    ```bash
    terraform init -upgrade
    ```
-7. Validate and review the plan before applying:
+8. Validate and review the plan before applying:
    ```bash
    terraform validate
    terraform plan
    ```
-8. Apply only after you understand every `replace`/`destroy` action.
+9. Apply only after you understand every `replace`/`destroy` action.
 
 Stop immediately if Terraform proposes unexpected replacements for networks,
 subnets, load balancers, servers, primary IPs, placement groups, or volumes.
@@ -44,6 +49,8 @@ Before applying a v3 plan:
 
 - Back up state with `terraform state pull`.
 - Remove every v2-only input and review every renamed/inverted boolean.
+- Review addon version intent: unset variables follow kube-hetzner's reviewed
+  deterministic matrix; `latest` opts into upstream floating behavior.
 - Run `terraform fmt -recursive`, `terraform init -upgrade`, and
   `terraform validate`.
 - Save and inspect a plan with `terraform plan -out=v3-upgrade.tfplan`.
@@ -87,6 +94,7 @@ The first v3 apply is not purely local Terraform bookkeeping:
 | RKE2 on Leap Micro | Supported | Validate SELinux snapshot selection carefully when pinning snapshots. |
 | MicroOS | Legacy/upgrade support | Existing nodes stay supported; new nodepools default to Leap Micro. |
 | OpenTofu | Supported | Run `tofu validate` and `tofu plan` before applying with OpenTofu. |
+| Addon version defaults | Reviewed deterministic defaults | Unset addon version variables use kube-hetzner's reviewed matrix; set `latest` only for intentional upstream floating behavior. |
 | Cilium Gateway API | Supported opt-in | Add after the base migration with `cilium_gateway_api_enabled = true`, `cni_plugin = "cilium"`, and `enable_kube_proxy = false`. |
 | Embedded registry mirror | Supported opt-in | Add after the base migration for trusted clusters; review the equal-node-trust security model first. |
 | Cilium multinetwork public overlay | Experimental preview | Gated by `enable_experimental_cilium_public_overlay`; do not use for production upgrades yet. |

@@ -23,6 +23,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 5. New clusters and normal in-place v2 upgrades use `network_subnet_mode = "per_nodepool"`, matching the released v2 subnet topology. Optional `network_subnet_mode = "shared"` is for new clusters or intentional topology changes only.
 6. Several public inputs were renamed or removed in v3 to clean up the module contract. See `MIGRATION.md` for the old-to-new variable map, especially the inverted positive booleans (`enable_hetzner_csi`, `enable_placement_groups`, `allow_inbound_icmp`, `enable_kube_proxy`, `enable_network_policy`, `enable_selinux`, nodepool `enable_public_ipv4`/`enable_public_ipv6`, autoscaler public-IP flags, and load-balancer enable flags).
 7. The v2 `k3s_channel` default was `v1.33`; v3 defaults to the upstream `stable` channel while automatic Kubernetes upgrades still default on. Before the first v3 apply, either pin `k3s_version`, set `k3s_channel = "v1.33"` to keep the v2 minor channel intentionally, or consciously accept following `stable`.
+8. Addon version defaults are deterministic in v3. Unset addon version variables now use a reviewed module matrix instead of upstream latest/floating behavior; set `latest` to keep fetching upstream latest releases or following latest Helm charts intentionally.
 
 #### Version Requirements
 
@@ -67,6 +68,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🐛 Bug Fixes
 
+- **Shell-Safe User Input Hardening** - SSH keys, Kubernetes install environment values, install exec/version inputs, Cluster Autoscaler extra args, and user kustomization template filenames are now validated or YAML-encoded before root bootstrap/rendering. Unsafe quotes, newlines, shell metacharacters, YAML syntax, and path traversal in those inputs are intentionally rejected.
 - **Kubeconfig Structural Rename Safety** - Rewrote generated kubeconfig endpoint and identity renames through parsed YAML so certificate blobs and other fields containing `default` are no longer mutated by global string replacement.
 - **Ingress Load Balancer Destroy Cleanup** - Added fail-open destroy-time cleanup for module-managed ingress LoadBalancer Services across k3s and RKE2 so Hetzner CCM removes the adopted ingress load balancer before Terraform tears down nodes and network attachments. Found by the v3 live gate after a surviving nginx LB blocked network/subnet destroy.
 - **Ingress Hook Bootstrap Scheduling** - Added hook-scoped bootstrap tolerations to ingress-nginx admission patch jobs and the HAProxy CRD hook so managed ingress Helm installs can finish when v3 bootstraps kustomizations before agent nodes join. Controller Deployments intentionally keep their existing scheduling semantics. Found by the live CI gate via the nginx admission hook deadlock.

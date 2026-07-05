@@ -86,14 +86,15 @@ resource "terraform_data" "user_kustomization_template_files" {
   }
 
   provisioner "remote-exec" {
+    # each.key is constrained by local.source_folder_validation_error to a shell-safe relative template path.
     inline = [
-      "mkdir -p $(dirname \"${var.destination_folder}/${each.key}\")"
+      "mkdir -p \"$(dirname \"${var.destination_folder}/${each.key}\")\""
     ]
   }
 
   provisioner "file" {
     content     = templatefile("${local.source_folder}/${each.key}", var.template_parameters)
-    destination = replace("${var.destination_folder}/${each.key}", ".tpl", "")
+    destination = replace("${var.destination_folder}/${each.key}", "/\\.tpl$/", "")
   }
 
   depends_on = [terraform_data.install_scripts]

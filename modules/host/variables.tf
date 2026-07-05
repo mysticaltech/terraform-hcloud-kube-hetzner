@@ -48,8 +48,16 @@ variable "ssh_port" {
 }
 
 variable "ssh_public_key" {
-  description = "SSH public Key"
+  description = "Single-line OpenSSH public key used for node access."
   type        = string
+
+  validation {
+    condition = can(regex(
+      "^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh.com) [A-Za-z0-9+/=]+( [^\\r\\n]*)?$",
+      trimspace(var.ssh_public_key)
+    ))
+    error_message = "ssh_public_key must be a single-line OpenSSH public key with a supported key type, base64 key body, and optional single-line comment."
+  }
 }
 
 variable "ssh_private_key" {
@@ -58,9 +66,20 @@ variable "ssh_private_key" {
 }
 
 variable "ssh_additional_public_keys" {
-  description = "Additional SSH public Keys. Use them to grant other team members root access to your cluster nodes."
+  description = "Additional single-line OpenSSH public keys. Use them to grant other team members root access to your cluster nodes."
   type        = list(string)
   default     = []
+
+  validation {
+    condition = alltrue([
+      for key in var.ssh_additional_public_keys :
+      trimspace(key) == "" || can(regex(
+        "^(ssh-(rsa|ed25519)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh.com) [A-Za-z0-9+/=]+( [^\\r\\n]*)?$",
+        trimspace(key)
+      ))
+    ])
+    error_message = "ssh_additional_public_keys entries must be empty or single-line OpenSSH public keys with a supported key type, base64 key body, and optional single-line comment."
+  }
 }
 
 variable "ssh_authorized_keys_exclusive" {

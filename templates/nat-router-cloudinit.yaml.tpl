@@ -216,9 +216,7 @@ users:
 %{ endif ~}
 # Add ssh authorized keys
     ssh_authorized_keys:
-%{ for key in sshAuthorizedKeys ~}
-      - ${key}
-%{ endfor ~}
+      ${replace(trimspace(sshAuthorizedKeysYaml), "\n", "\n      ")}
 %{ if enable_redundancy ~}
   - name: keepalived_script
 %{ endif ~}

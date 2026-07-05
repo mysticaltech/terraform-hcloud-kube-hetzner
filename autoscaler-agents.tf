@@ -94,7 +94,7 @@ locals {
         ca_replicas                                = var.cluster_autoscaler_replicas
         ca_resource_limits                         = var.cluster_autoscaler_resource_limits
         ca_resources                               = var.cluster_autoscaler_resource_values
-        cluster_autoscaler_extra_args              = var.cluster_autoscaler_extra_args
+        cluster_autoscaler_extra_args_yaml         = yamlencode(var.cluster_autoscaler_extra_args)
         cluster_autoscaler_tolerations             = var.cluster_autoscaler_tolerations
         cluster_autoscaler_log_level               = var.cluster_autoscaler_log_level
         cluster_autoscaler_log_to_stderr           = var.cluster_autoscaler_log_to_stderr
@@ -189,13 +189,13 @@ data "cloudinit_config" "autoscaler_config" {
     content = templatefile(
       "${path.module}/templates/autoscaler-cloudinit.yaml.tpl",
       {
-        hostname          = "autoscaler"
-        dns_servers       = var.dns_servers
-        has_dns_servers   = local.has_dns_servers
-        sshAuthorizedKeys = local.ssh_authorized_keys
-        swap_size         = var.autoscaler_nodepools[count.index].swap_size
-        zram_size         = var.autoscaler_nodepools[count.index].zram_size
-        os                = local.autoscaler_nodepools_os[count.index]
+        hostname              = "autoscaler"
+        dns_servers           = var.dns_servers
+        has_dns_servers       = local.has_dns_servers
+        sshAuthorizedKeysYaml = yamlencode(local.ssh_authorized_keys)
+        swap_size             = var.autoscaler_nodepools[count.index].swap_size
+        zram_size             = var.autoscaler_nodepools[count.index].zram_size
+        os                    = local.autoscaler_nodepools_os[count.index]
         k3s_config = yamlencode(merge(
           {
             server = local.k3s_autoscaler_join_endpoint_by_index[count.index]
@@ -246,13 +246,13 @@ data "cloudinit_config" "autoscaler_config_rke2" {
     content = templatefile(
       "${path.module}/templates/autoscaler-cloudinit.yaml.tpl",
       {
-        hostname          = "autoscaler"
-        dns_servers       = var.dns_servers
-        has_dns_servers   = local.has_dns_servers
-        sshAuthorizedKeys = local.ssh_authorized_keys
-        swap_size         = var.autoscaler_nodepools[count.index].swap_size
-        zram_size         = var.autoscaler_nodepools[count.index].zram_size
-        os                = local.autoscaler_nodepools_os[count.index]
+        hostname              = "autoscaler"
+        dns_servers           = var.dns_servers
+        has_dns_servers       = local.has_dns_servers
+        sshAuthorizedKeysYaml = yamlencode(local.ssh_authorized_keys)
+        swap_size             = var.autoscaler_nodepools[count.index].swap_size
+        zram_size             = var.autoscaler_nodepools[count.index].zram_size
+        os                    = local.autoscaler_nodepools_os[count.index]
         k3s_config = yamlencode(merge(
           {
             server = local.rke2_autoscaler_join_endpoint_by_index[count.index]
