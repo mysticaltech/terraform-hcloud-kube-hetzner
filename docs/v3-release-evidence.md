@@ -18,7 +18,7 @@ Scope: 2026-07-04/05 v3 release evidence from the live Hetzner project. Module s
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-07-04/05 | 28718815894 | 136acfc^ | `Test in Hetzner` workflow, `workflow_dispatch` on staging | PARTIAL | PASS/PASS | FAIL/FAIL | FAIL/FAIL | RKE2 failed from k3s-flavored Leap snapshot because per-distro secrets were missing; nginx failed from 67-character server names. |
 | 2026-07-04/05 | 28719712912 + 28719694176 raced | 136acfc..2d0060d | `Test in Hetzner` workflow, overlapping `workflow_dispatch` runs on staging | PARTIAL | PASS/PASS/PASS plus one quota loss | FAIL x4 | PASS x4 | RKE2 fixed by per-distro snapshots; nginx failures root-caused to load-balancer annotations spliced by strip-markers; quota losses came from 12 parallel clusters; `max-parallel: 2` added in `2d0060d`. |
-| 2026-07-04/05 | FINAL RUN, id TBD | 72e1c54 | `Test in Hetzner` workflow, final `workflow_dispatch` on staging | PENDING | pending | pending | pending | Placeholder for orchestrator fill-in after completion. |
+| 2026-07-04/05 | 28723492149 (record run) | 5aafc86 | ✅/✅ | ✅/✅ | ✅/✅ | FULL GREEN 6/6 — serialized (max-parallel 2), per-distro Leap snapshots, honest OS assertion; locks the v3 CI record |
 
 ## Defects Found And Fixed By This Gate
 
