@@ -1765,6 +1765,57 @@ EOT
     "haproxy" = "haproxy-kubernetes-ingress"
   }
 
+  ingress_load_balancer_destroy_cleanup_enabled       = local.is_managed_ingress_controller && !local.has_external_load_balancer
+  ingress_load_balancer_destroy_cleanup_service_names = join(" ", sort(distinct(values(local.ingress_controller_service_names))))
+  ingress_load_balancer_destroy_cleanup_script        = <<-EOT
+set +e
+
+timeout 120 bash <<'KH_INGRESS_LB_CLEANUP' || true
+set +e
+KUBECTL=${jsonencode(local.kubectl_cli)}
+INGRESS_NAMESPACE=${jsonencode(local.ingress_controller_namespace)}
+INGRESS_SERVICE_NAMES=${jsonencode(local.ingress_load_balancer_destroy_cleanup_service_names)}
+
+if [ -z "$INGRESS_NAMESPACE" ] || [ -z "$INGRESS_SERVICE_NAMES" ]; then
+  echo "No module-managed ingress LoadBalancer Service cleanup target is configured."
+  exit 0
+fi
+
+if ! $KUBECTL get namespace "$INGRESS_NAMESPACE" >/dev/null 2>&1; then
+  echo "Namespace $INGRESS_NAMESPACE is already absent; skipping ingress LoadBalancer Service cleanup."
+  exit 0
+fi
+
+for service_name in $INGRESS_SERVICE_NAMES; do
+  if ! $KUBECTL -n "$INGRESS_NAMESPACE" get "service/$service_name" >/dev/null 2>&1; then
+    echo "service/$service_name is already absent in namespace $INGRESS_NAMESPACE."
+    continue
+  fi
+
+  echo "Deleting module-managed ingress LoadBalancer service/$service_name in namespace $INGRESS_NAMESPACE."
+  $KUBECTL -n "$INGRESS_NAMESPACE" delete "service/$service_name" --ignore-not-found=true --wait=false || true
+  $KUBECTL -n "$INGRESS_NAMESPACE" wait --for=delete "service/$service_name" --timeout=120s || true
+done
+
+exit 0
+KH_INGRESS_LB_CLEANUP
+
+exit 0
+EOT
+  ingress_load_balancer_destroy_cleanup_input = {
+    ssh_user            = "root"
+    ssh_private_key     = var.ssh_private_key
+    ssh_agent_identity  = local.ssh_agent_identity
+    ssh_host            = local.first_control_plane_ip
+    ssh_port            = var.ssh_port
+    ssh_timeout         = "10m"
+    bastion_host        = local.ssh_bastion.bastion_host
+    bastion_port        = local.ssh_bastion.bastion_port
+    bastion_user        = local.ssh_bastion.bastion_user
+    bastion_private_key = local.ssh_bastion.bastion_private_key
+    cleanup_script      = local.ingress_load_balancer_destroy_cleanup_script
+  }
+
   ingress_controller_install_resources = {
     "traefik" = ["traefik_ingress.yaml"]
     "nginx"   = ["nginx_ingress.yaml"]

@@ -67,6 +67,7 @@ This is the v3 major-release line. Before upgrading from any `v2.x` release:
 
 ### 🐛 Bug Fixes
 
+- **Ingress Load Balancer Destroy Cleanup** - Added fail-open destroy-time cleanup for module-managed ingress LoadBalancer Services across k3s and RKE2 so Hetzner CCM removes the adopted ingress load balancer before Terraform tears down nodes and network attachments. Found by the v3 live gate after a surviving nginx LB blocked network/subnet destroy.
 - **Ingress Hook Bootstrap Scheduling** - Added hook-scoped bootstrap tolerations to ingress-nginx admission patch jobs and the HAProxy CRD hook so managed ingress Helm installs can finish when v3 bootstraps kustomizations before agent nodes join. Controller Deployments intentionally keep their existing scheduling semantics. Found by the live CI gate via the nginx admission hook deadlock.
 - **Ingress Load Balancer Annotation Rendering** - Fixed ingress-nginx, Traefik, and HAProxy Helm values templates so Hetzner Load Balancer adoption annotations stay nested at the chart-specific Service annotation path instead of being stripped to the values document root by Terraform template trim markers. Found by the v3 CI gate, with a new plan-time semantic contract for the rendered values.
 - **NAT Router Reconciliation Safety** - Reworked the NAT router reconcile provisioner so fresh v3 routers no longer write script text into `sshd_config.d/kube-hetzner.conf` through unterminated nested heredocs, preventing sshd from failing and permanently cutting off the router. Found by the v3 live gate.

@@ -1523,6 +1523,76 @@ resource "terraform_data" "rke2_post_install_readiness" {
   ]
 }
 
+resource "terraform_data" "ingress_load_balancer_destroy_cleanup" {
+  count = local.kubernetes_distribution == "k3s" && local.ingress_load_balancer_destroy_cleanup_enabled ? 1 : 0
+
+  input = local.ingress_load_balancer_destroy_cleanup_input
+
+  connection {
+    user           = self.input.ssh_user
+    private_key    = self.input.ssh_private_key
+    agent_identity = self.input.ssh_agent_identity
+    host           = self.input.ssh_host
+    port           = self.input.ssh_port
+    timeout        = self.input.ssh_timeout
+
+    bastion_host        = self.input.bastion_host
+    bastion_port        = self.input.bastion_port
+    bastion_user        = self.input.bastion_user
+    bastion_private_key = self.input.bastion_private_key
+  }
+
+  provisioner "remote-exec" {
+    when       = destroy
+    on_failure = continue
+    inline     = [self.input.cleanup_script]
+  }
+
+  depends_on = [
+    hcloud_load_balancer.cluster,
+    hcloud_load_balancer_network.cluster,
+    hcloud_load_balancer_target.cluster,
+    terraform_data.kustomization,
+    terraform_data.post_install_readiness,
+    terraform_data.control_planes,
+  ]
+}
+
+resource "terraform_data" "rke2_ingress_load_balancer_destroy_cleanup" {
+  count = local.kubernetes_distribution == "rke2" && local.ingress_load_balancer_destroy_cleanup_enabled ? 1 : 0
+
+  input = local.ingress_load_balancer_destroy_cleanup_input
+
+  connection {
+    user           = self.input.ssh_user
+    private_key    = self.input.ssh_private_key
+    agent_identity = self.input.ssh_agent_identity
+    host           = self.input.ssh_host
+    port           = self.input.ssh_port
+    timeout        = self.input.ssh_timeout
+
+    bastion_host        = self.input.bastion_host
+    bastion_port        = self.input.bastion_port
+    bastion_user        = self.input.bastion_user
+    bastion_private_key = self.input.bastion_private_key
+  }
+
+  provisioner "remote-exec" {
+    when       = destroy
+    on_failure = continue
+    inline     = [self.input.cleanup_script]
+  }
+
+  depends_on = [
+    hcloud_load_balancer.cluster,
+    hcloud_load_balancer_network.cluster,
+    hcloud_load_balancer_target.cluster,
+    terraform_data.rke2_kustomization,
+    terraform_data.rke2_post_install_readiness,
+    terraform_data.control_planes_rke2,
+  ]
+}
+
 moved {
   from = null_resource.rke2_kustomization
   to   = terraform_data.rke2_kustomization
