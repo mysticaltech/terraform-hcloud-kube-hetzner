@@ -39,7 +39,8 @@ Read these before editing:
   the first v3 apply.
 - Treat replacements for `hcloud_network`, `hcloud_network_subnet`,
   `hcloud_server`, `hcloud_load_balancer`, `hcloud_primary_ip`,
-  `hcloud_placement_group`, or `hcloud_volume` as blockers until explained.
+  `hcloud_placement_group`, `hcloud_volume`, or `hcloud_firewall` as blockers
+  until explained.
 - Never reorder or insert control-plane or agent nodepools mid-list during or
   after migration. Node resource addresses are index-keyed; append only unless
   the user is intentionally planning a state migration or blue/green rebuild.
@@ -197,40 +198,33 @@ terraform show -json v3-upgrade.tfplan \
 ```
 
 For live v2 -> v3 migrations, run the protected-infrastructure gate. Terraform
-replacements show up as action lists containing `delete`; any output from this
-gate is a stop condition:
+replacements show up as action lists containing `delete`. The gate prints only
+blocking resources; any output is a stop condition:
 
 ```bash
 terraform show -json v3-upgrade.tfplan \
-  | jq -e '
-      [
-        .resource_changes[]?
-        | select(.type as $type | [
-            "hcloud_server",
-            "hcloud_network",
-            "hcloud_network_subnet",
-            "hcloud_load_balancer",
-            "hcloud_volume",
-            "hcloud_primary_ip",
-            "hcloud_firewall"
-          ] | index($type))
-        | select(.change.actions | index("delete"))
-        | { address, type, actions: .change.actions }
-      ] as $blocked
-      | if ($blocked | length) == 0 then
-          "OK: no protected hcloud infrastructure delete/replace actions"
-        else
-          $blocked
-          | halt_error(1)
-        end
+  | jq -r '
+      .resource_changes[]?
+      | select(.type as $type | [
+          "hcloud_server",
+          "hcloud_network",
+          "hcloud_network_subnet",
+          "hcloud_load_balancer",
+          "hcloud_volume",
+          "hcloud_primary_ip",
+          "hcloud_placement_group",
+          "hcloud_firewall"
+        ] | index($type))
+      | select(.change.actions | index("delete"))
+      | "\(.address): \(.type) \(.change.actions | join(","))"
     '
 ```
 
 After the v2 renames, the plan must show zero destroy/replace actions for
 `hcloud_server`, `hcloud_network`, `hcloud_network_subnet`,
-`hcloud_load_balancer`, `hcloud_volume`, `hcloud_primary_ip`, and
-`hcloud_firewall`. Stop and diagnose before apply if any of those types are
-listed.
+`hcloud_load_balancer`, `hcloud_volume`, `hcloud_primary_ip`,
+`hcloud_placement_group`, and `hcloud_firewall`. Stop and diagnose before apply
+if any of those types are listed.
 
 Do not panic-abort a healthy first v3 plan for these expected actions:
 

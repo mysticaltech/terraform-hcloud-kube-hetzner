@@ -191,6 +191,7 @@ tofu apply -auto-approve
 ### v2 -> v3 migration
 
 For `v2.x` -> `v3.x`, start with [`MIGRATION.md`](MIGRATION.md), the contract/variable map, and [`docs/v2-to-v3-migration.md`](docs/v2-to-v3-migration.md), the guided walkthrough. The live release evidence includes a `v2.21.0` -> `v3` in-place upgrade with 0 destroy/replace of hcloud infrastructure for the standard path; read the guide before planning and apply only after every planned resource action is understood.
+Production operators should read the [`Production in-place upgrades: safety model`](MIGRATION.md#production-in-place-upgrades-safety-model) before applying.
 
 From a local kube-hetzner checkout, audit the Terraform root, then run:
 

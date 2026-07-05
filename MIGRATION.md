@@ -41,7 +41,132 @@ For the full operator workflow, use
 9. Apply only after you understand every `replace`/`destroy` action.
 
 Stop immediately if Terraform proposes unexpected replacements for networks,
-subnets, load balancers, servers, primary IPs, placement groups, or volumes.
+subnets, load balancers, servers, primary IPs, placement groups, volumes, or
+firewalls.
+
+### Production in-place upgrades: safety model
+
+#### What is verified
+
+[`docs/v3-release-evidence.md`](docs/v3-release-evidence.md) records one live
+standard `v2.21.0` -> `v3` in-place upgrade: a 37-resource MicroOS cluster with
+Cilium and nginx, upgraded by switching the live root to the staging module,
+pinning `k3s_channel = "v1.33"`, reviewing the plan, applying, then checking
+cluster health and node OS. That evidence supports this narrow claim: the
+standard path upgraded in place with 0 destroyed/replaced hcloud infrastructure
+resources, no node recreation, Cilium running, and a healthy cluster after
+apply. It does not prove every topology listed below.
+
+Here, "standard" means module-managed networking, the default
+`network_subnet_mode = "per_nodepool"` subnet layout, no custom
+`subnet_ip_range` overrides, no manual network/subnet/server edits made outside
+Terraform, and no topology redesign in the same first v3 apply. The high-risk
+topology list in the readiness checklist still applies: private-only,
+Robot/vSwitch, existing-network, external-network, Tailscale/overlay,
+Longhorn/volume-heavy, autoscaler, and multinetwork clusters need extra review
+or blue/green.
+
+#### What to expect during the first apply
+
+With the protected plan gate below clean, the first v3 apply is expected not to
+recreate servers, replace core hcloud infrastructure, or reboot nodes. It is not
+just Terraform bookkeeping:
+
+- `terraform_data.initial_readiness` SSHes to every existing control-plane and
+  agent node and waits for systemd readiness.
+- `terraform_data.ssh_authorized_keys` reconciles
+  `/root/.ssh/authorized_keys` on every node.
+- k3s/RKE2 kustomization and addon payloads may re-render and apply once as
+  trigger state migrates.
+- k3s/RKE2 service restarts are possible if config-update provisioners detect
+  changed config, unless `kubernetes_config_updates_use_kured_sentinel = true`
+  is used to signal Kured instead. Node workloads are expected to keep running
+  on a clean standard upgrade, but verify nodes, system pods, and workload
+  health after apply.
+
+#### No-destroy plan gate
+
+After saving a plan with `terraform plan -out=v3-upgrade.tfplan`, run this
+protected-infrastructure gate:
+
+```bash
+terraform show -json v3-upgrade.tfplan \
+  | jq -r '
+      .resource_changes[]?
+      | select(.type as $type | [
+          "hcloud_server",
+          "hcloud_network",
+          "hcloud_network_subnet",
+          "hcloud_load_balancer",
+          "hcloud_volume",
+          "hcloud_primary_ip",
+          "hcloud_placement_group",
+          "hcloud_firewall"
+        ] | index($type))
+      | select(.change.actions | index("delete"))
+      | "\(.address): \(.type) \(.change.actions | join(","))"
+    '
+```
+
+Contract: no output means the protected-infrastructure gate passed. ANY output
+is a stop condition: do not apply, and investigate the proposed destroy/replace
+first. For subnet replacements, start with the
+[`network_subnet_mode` diagnostics](#6-networking-behavior-update). This gate is
+the hard no-destroy floor; still review every non-protected resource action in
+the full plan.
+
+#### Compatibility freeze table
+
+| Concern | v3 default | To freeze v2 behavior |
+| --- | --- | --- |
+| k3s channel | `k3s_channel = "stable"`, `k3s_version = ""`, and `automatically_upgrade_kubernetes = true`. | Before the first v3 apply, set `k3s_channel = "v1.33"` to keep the v2 minor channel, or set an exact `k3s_version`. |
+| Addon versions | `hetzner_ccm_version`, `hetzner_csi_version`, `traefik_version`, `nginx_version`, `haproxy_version`, `longhorn_version`, `csi_driver_smb_version`, `cert_manager_version`, `rancher_version`, `kured_version`, and `calico_version` default to `null`, which uses the reviewed module matrix. `latest` is opt-in where supported. Concrete defaults also exist for `cilium_version = "1.19.3"`, `cluster_autoscaler_version = "v1.33.3"`, and `system_upgrade_controller_version = "v0.18.0"`. | Set concrete version variables for addons that must stay exactly where they are; do not set `latest` or legacy `*` unless floating upstream behavior is intentional. |
+| Gateway API CRDs | `gateway_api_version = ""` derives the CRD bundle from `cilium_version` when Gateway API is enabled. | Set `gateway_api_version` to a concrete release tag if you previously pinned Gateway API independently. |
+| Network subnet layout | `network_subnet_mode = "per_nodepool"`, matching the v2-compatible layout. | Leave it unset or set `network_subnet_mode = "per_nodepool"`; never switch to `shared` during an in-place upgrade unless subnet changes are intentional. |
+| Node transport | `node_transport_mode = "hetzner_private"`, the v2-style Hetzner private Network transport. | Leave it unset or set `node_transport_mode = "hetzner_private"`; introduce `tailscale` only in a separate reviewed plan or blue/green migration. |
+| OS selection | Existing nodepool OS labels are preserved when known; existing unlabeled/mixed v2 nodepools fall back to MicroOS; brand-new nodepools default to Leap Micro. | Existing MicroOS nodes stay MicroOS when servers are not recreated. For new MicroOS pools, set `os = "microos"` on `control_plane_nodepools`, `agent_nodepools`, `autoscaler_nodepools`, or per-node `nodes[*]` entries. |
+| SSH authorized keys | `ssh_authorized_keys_exclusive = false`; unknown out-of-band root keys are preserved while removed module-managed keys are revoked. | Leave `ssh_authorized_keys_exclusive = false` to preserve the v3 upgrade-safe behavior. Set `true` only when strict replacement with exactly module-managed keys is intended. |
+| SELinux | `enable_selinux = true`; nodepool and node `selinux` options default to `true`. | Keep `enable_selinux = true` and per-pool `selinux = true` for the v2 default. If v2 used `disable_selinux = true`, invert that deliberately to `enable_selinux = false` or per-pool `selinux = false`. |
+| Kubernetes config update restarts | `kubernetes_config_updates_use_kured_sentinel = false`, so changed k3s/RKE2 config restarts the relevant service immediately. | Carry forward the old `k8s_config_updates_use_kured_sentinel` intent under the new name `kubernetes_config_updates_use_kured_sentinel`. |
+
+#### Rollback and abort paths
+
+Before apply, nothing has changed in the cluster. Re-pin the module to the
+previous `v2.x` tag, run `terraform init -upgrade`, and re-plan. The plan should
+return to the previous no-op or known baseline; the state backup from step 1 is
+the safety net if local state is damaged.
+
+After a failed or partial apply, first prefer convergence: fix the reported
+error, run a fresh `terraform plan -out=v3-upgrade.tfplan`, rerun the
+protected-infrastructure gate, then apply the new reviewed plan. If the gate
+passed before the failed apply, the expected v3 changes are node-local and
+Terraform-state changes such as authorized-key reconciliation, rendered
+kustomization/addon payloads, validation `terraform_data`, and possible
+k3s/RKE2 config service restarts.
+
+The escape hatch is restoring the pre-upgrade state backup and re-pinning the
+module to the previous v2 tag, then re-running `terraform init -upgrade` and
+`terraform plan`. That does not automatically undo node-local changes already
+made by v3. Use the actual backup filename from step 1:
+
+```bash
+terraform state push terraform-state-before-kube-hetzner-v3-YYYYMMDDHHMMSS.json
+terraform init -upgrade
+terraform plan
+```
+
+Then check at least:
+
+- `/root/.ssh/authorized_keys` on every node.
+- `/etc/rancher/k3s/config.yaml`, `/etc/rancher/rke2/config.yaml`, and
+  registry/encryption/audit/authentication files if those provisioners ran.
+- `/var/post_install` rendered addon and kustomization payloads.
+- k3s/RKE2 service status, node readiness, system pods, and critical workloads.
+
+For high-risk topologies or any plan that is hard to explain, use blue/green
+instead of in-place upgrade. Build a separate v3 cluster, migrate workloads and
+traffic, and keep the v2 cluster intact until the v3 path is proven. The guided
+playbook is [`docs/v2-to-v3-migration.md`](docs/v2-to-v3-migration.md).
 
 ### v3 readiness checklist
 

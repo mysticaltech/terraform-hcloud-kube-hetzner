@@ -356,26 +356,32 @@ terraform show -json v3-upgrade.tfplan > v3-upgrade-plan.json
 uv run python /path/to/kube-hetzner/scripts/v2_to_v3_migration_assistant.py --root . --plan-json v3-upgrade-plan.json
 ```
 
-Stop if the plan contains unexpected replacements or destroys:
+Run the protected-infrastructure gate:
 
 ```bash
 terraform show -json v3-upgrade.tfplan \
-  | jq -r '.resource_changes[] | select(any(.change.actions[]; . == "delete" or . == "replace")) | "\(.address): \(.change.actions | join(","))"'
+  | jq -r '
+      .resource_changes[]?
+      | select(.type as $type | [
+          "hcloud_server",
+          "hcloud_network",
+          "hcloud_network_subnet",
+          "hcloud_load_balancer",
+          "hcloud_volume",
+          "hcloud_primary_ip",
+          "hcloud_placement_group",
+          "hcloud_firewall"
+        ] | index($type))
+      | select(.change.actions | index("delete"))
+      | "\(.address): \(.type) \(.change.actions | join(","))"
+    '
 ```
 
-Known areas requiring extra suspicion:
-
-- `hcloud_network`
-- `hcloud_network_subnet`
-- `hcloud_server`
-- `hcloud_load_balancer`
-- `hcloud_load_balancer_network`
-- `hcloud_primary_ip`
-- `hcloud_placement_group`
-- `hcloud_volume`
-
-Do not approve a plan because it is "probably fine." Make every replacement
-intentional.
+Contract: no output means the protected-infrastructure gate passed. ANY output
+is a stop condition: do not apply, and investigate the proposed destroy/replace
+first. This gate is the hard no-destroy floor; still review every
+non-protected resource action in the full plan. Do not approve a plan because it
+is "probably fine." Make every replacement intentional.
 
 ### Quick diagnostics for failed plans
 
@@ -388,12 +394,9 @@ terraform plan -out=v3-upgrade.tfplan
 rg -n 'network_id|existing_network|multinetwork_mode|control_plane_endpoint|nat_router|use_private_nat_router_bastion|enable_public_ipv4|enable_public_ipv6|autoscaler|placement_group|attached_volumes|user_kustomizations' .
 ```
 
-If a plan was created, list risky actions directly:
-
-```bash
-terraform show -json v3-upgrade.tfplan \
-  | jq -r '.resource_changes[] | select(any(.change.actions[]; . == "delete" or . == "replace")) | "\(.address): \(.change.actions | join(","))"'
-```
+If a plan was created, rerun the protected-infrastructure gate from Phase 6 and
+inspect `terraform show v3-upgrade.tfplan`; keep that gate as the canonical
+machine-readable stop check.
 
 For join or reachability failures after a partial apply, check the planned
 endpoint and the node connection path first:
@@ -503,7 +506,9 @@ Apply only after all of these are true:
 - Any NAT-router primary IP, network, subnet, or load-balancer changes are
   understood.
 - You have a state backup.
-- You have a rollback/restore plan.
+- You have followed [Rollback and abort paths](#rollback-and-abort-paths) and
+  know whether you will retry v3, restore state/re-pin v2, or switch to
+  blue/green.
 
 Then:
 
@@ -525,6 +530,42 @@ For Cilium clusters:
 kubectl -n kube-system get pods -l k8s-app=cilium
 cilium status
 ```
+
+## Rollback and abort paths
+
+Before `terraform apply`, aborting is just a version rollback: re-pin the module
+to the previous `v2.x` tag, run `terraform init -upgrade`, then re-plan. The
+plan should return to the previous no-op or known baseline; the state backup
+from Phase 1 is the safety net if local state is damaged.
+
+After a failed or partial apply, prefer convergence first. Fix the reported
+error, run a fresh `terraform plan -out=v3-upgrade.tfplan`, rerun the
+protected-infrastructure gate from Phase 6, and apply only the newly reviewed
+plan. If the gate passed before the failed apply, the expected v3 changes are
+node-local and Terraform-state changes such as authorized-key reconciliation,
+rendered kustomization/addon payloads, validation `terraform_data`, and possible
+k3s/RKE2 config service restarts.
+
+The escape hatch is restoring the pre-upgrade state backup and re-pinning the
+module to the previous v2 tag, then re-running `terraform init -upgrade` and
+`terraform plan`. That does not automatically revert node-local v3 changes. Use
+the actual backup filename from Phase 1:
+
+```bash
+terraform state push terraform-state-before-kube-hetzner-v3-YYYYMMDDHHMMSS.json
+terraform init -upgrade
+terraform plan
+```
+
+Then check `/root/.ssh/authorized_keys`, k3s/RKE2 config files under
+`/etc/rancher`, `/var/post_install` rendered addon/kustomization payloads,
+service status, node readiness, system pods, and critical workloads.
+
+For high-risk topologies or any plan that is hard to explain, use blue/green:
+build a separate v3 cluster, migrate workloads and traffic, and keep the v2
+cluster intact until the v3 path is proven. See
+[`MIGRATION.md#production-in-place-upgrades-safety-model`](../MIGRATION.md#production-in-place-upgrades-safety-model)
+for the summary safety model.
 
 ## Migration report template
 
