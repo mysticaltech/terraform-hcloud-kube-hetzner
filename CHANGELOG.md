@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+---
+
+## [3.0.0] - 2026-07-06
+
 ### ⚠️ v3.0.0 Upgrade Notes
 
 This is the v3 major-release line. Before upgrading from any `v2.x` release:
