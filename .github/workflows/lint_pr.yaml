@@ -9,7 +9,7 @@ jobs:
     name: Forbid null_resource usage
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Check for null provider resources
         run: |
@@ -87,7 +87,7 @@ jobs:
     name: Validate OpenTofu compatibility
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
