@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 
-if command -v tofu >/dev/null 2>&1 ; then
+# Prefer the engine that actually initialized this root: an initialized
+# .terraform/providers tree references registry.opentofu.org for tofu roots
+# and registry.terraform.io for terraform roots. Running the other binary
+# fails init on the lockfile. Fall back to tofu-then-terraform when the root
+# is uninitialized or ambiguous.
+terraform_command=""
+if [ -d .terraform/providers/registry.opentofu.org ] && command -v tofu >/dev/null 2>&1; then
+    terraform_command=tofu
+elif [ -d .terraform/providers/registry.terraform.io ] && command -v terraform >/dev/null 2>&1; then
+    terraform_command=terraform
+elif command -v tofu >/dev/null 2>&1 ; then
     terraform_command=tofu
 elif command -v terraform >/dev/null 2>&1 ; then
     terraform_command=terraform
@@ -8,6 +18,7 @@ else
     echo "terraform or tofu is not installed. Install it with 'brew tap hashicorp/tap && brew install hashicorp/tap/terraform' or 'brew install opentofu'."
     exit 1
 fi
+echo "Using ${terraform_command} (detected from this root's provider tree)." 
 
 MAX_RETRIES=2
 RETRY_WAIT_SECONDS=30

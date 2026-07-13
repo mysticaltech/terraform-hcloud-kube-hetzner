@@ -120,6 +120,12 @@ gh api repos/kube-hetzner/terraform-hcloud-kube-hetzner/discussions --jq '.[] | 
 
 ## Step 5: Draft Response
 
+Every response is kind and human: thank the reporter by handle, acknowledge
+good root-cause analysis when they did it (kube-hetzner reporters often do),
+and never make a user-error reporter feel foolish — a config mistake usually
+means our docs have a gap worth fixing too. Plain warm language, no
+boilerplate.
+
 ### For USER ERROR
 
 ```markdown

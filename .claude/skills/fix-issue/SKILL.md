@@ -264,3 +264,22 @@ Before completing ANY issue:
 1. Create PR referencing the issue
 2. Request review if needed
 3. Close issue with explanation when merged
+
+## Community Communication (always)
+
+Every issue and PR interaction gets a kind, human reply — reporters and
+contributors are volunteers giving the project their time.
+
+- **On the issue when a fix lands**: thank the reporter by handle, acknowledge
+  the quality of their report (many kube-hetzner reports include excellent
+  root-cause analysis — say so when true), state the root cause in one or two
+  sentences, and name the release that carries the fix.
+- **On community PRs**: thank the contributor by handle. If we merged their
+  work via the integrate-and-fix flow, say what we adjusted on top and why —
+  the delta is a gift, not a critique — and confirm their commit authorship is
+  preserved so they appear in the release contributors.
+- **When the report is a user error**: still thank them, show the corrected
+  configuration, and never make them feel foolish — config mistakes usually
+  mean our docs have a gap; consider fixing the doc too.
+- Plain warm language. No corporate boilerplate. One paragraph is usually
+  enough.

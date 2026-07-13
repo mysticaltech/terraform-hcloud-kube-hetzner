@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 
 - **Static Agent Private IPv4 Placement** - Restored the v2 explicit private-IP formula for primary-network agents so per-nodepool agents honor their subnet (including `subnet_ip_range`) and v2 upgrades keep the same IPs. Shared-subnet mode now assigns a deterministic cross-pool index to prevent duplicate private IPs when node indices repeat across pools. Verified live: v3.0.0 cluster migrated in place, agents moved to their pool subnets, all nodes Ready (#2239, #2240, thanks @boy51, @danmarsic).
+- **`scripts/destroy.sh` engine detection** - The teardown wrapper now detects whether a root was initialized with Terraform or OpenTofu from its provider tree instead of always preferring `tofu`, which failed init on terraform-initialized roots. Found by live use.
 - **Zero-agent clusters: post-apply plans no longer fail** - On v3.0.0, clusters with `agent_nodepools = []` failed every plan after the first apply with `no change found for terraform_data.agents`, because post-install readiness listed a zero-instance `for_each` resource in `replace_triggered_by`. Readiness now reacts through a single-instance aggregator of agent ids. Upgrading creates one new internal resource and does **not** replace or re-run post-install readiness; future agent additions/removals/replacements re-run only the read-only readiness waits. Fixes #2236, #2238 (#2237, thanks @nikolauspschuetz, @tauhir, @h-mergel).
 
 ---

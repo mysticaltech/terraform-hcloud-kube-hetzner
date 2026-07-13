@@ -453,7 +453,7 @@ git push origin <target>
 
 Notes:
 - GitHub automatically marks the original PR **merged** once its head commits reach the target branch — the contributor gets full PR credit and appears in history/contributors.
-- Comment on the PR describing what we fixed on top, so the contributor learns from the delta instead of a review ping-pong.
+- Comment on the PR describing what we fixed on top, so the contributor learns from the delta instead of a review ping-pong. Tone matters: thank them by handle, frame the delta as building on their work (it is), and confirm their commit authorship is preserved so they appear in the release contributors. Kind, plain, human — contributors are volunteers.
 - Reserve "request changes and wait" for PRs that are: not valuable, architecturally wrong-direction (fixing = rewriting), security-suspect, or from the malicious-pattern category in repo agent guidance. Wrong-direction PRs may still donate salvageable commits via cherry-pick (credit rules case 3).
 
 ## Never Merge Directly to Master
