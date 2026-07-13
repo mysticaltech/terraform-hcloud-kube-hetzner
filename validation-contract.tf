@@ -7,6 +7,17 @@ resource "terraform_data" "validation_contract" {
   input = true
 
   lifecycle {
+    # Shared subnet mode pins one dense IP per primary-network agent inside the
+    # single shared agent subnet; the highest host offset must fit the subnet,
+    # or cidrhost() would fail mid-plan with an opaque error (#2240 review).
+    precondition {
+      condition = local.use_per_nodepool_subnets || length(local.primary_agent_node_keys_in_pool_order) == 0 || (
+        (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4)) +
+        length(local.primary_agent_node_keys_in_pool_order) - 1
+      ) < pow(2, 32 - local.subnet_size) - 1
+      error_message = "network_subnet_mode=\"shared\": the shared agent subnet is too small for the number of primary-network agents at the module's IP offset. Increase network_ipv4_cidr, lower subnet_count, or use network_subnet_mode=\"per_nodepool\"."
+    }
+
     # Moved from variable "enable_robot_ccm" validation near variables.tf:53.
     precondition {
       condition     = !var.enable_robot_ccm || (trimspace(var.robot_user) != "" && trimspace(var.robot_password) != "")

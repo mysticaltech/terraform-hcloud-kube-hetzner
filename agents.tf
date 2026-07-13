@@ -82,7 +82,18 @@ module "agents" {
   network_id                    = local.agent_primary_network_id_by_node[each.key]
   primary_network_key           = each.value.network_id
   extra_network_ids             = local.agent_effective_extra_network_ids_by_node[each.key]
-  private_ipv4                  = null
+  # Pin an explicit private IPv4 for primary-network agents. The hcloud API
+  # attaches a server to a Network with an optional IP, not to a subnet; with
+  # no IP it selects the last subnet ordered by ip_range (the control-plane range),
+  # ignoring the nodepool's subnet_ip_range (issue #2239). Mirror the
+  # ipv4_subnet_id selection above. Per-nodepool mode retains v2's pool-local
+  # index exactly; shared mode uses a dense cross-pool index to prevent IP
+  # collisions when multiple pools contain the same node index.
+  # External-network nodepools (network_id != 0) keep API auto-assignment.
+  private_ipv4 = each.value.network_id == 0 ? cidrhost(
+    hcloud_network_subnet.agent[local.use_per_nodepool_subnets ? [for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0] : 0].ip_range,
+    (local.use_per_nodepool_subnets ? each.value.index : local.shared_agent_private_ipv4_index_by_node[each.key]) + (local.network_size >= 16 ? 101 : floor(pow(local.subnet_size, 2) * 0.4))
+  ) : null
 
   labels = merge(local.labels, local.labels_agent_node, each.value.hcloud_labels, { "kube-hetzner/os" = each.value.os })
 

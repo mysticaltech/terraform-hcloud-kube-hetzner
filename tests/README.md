@@ -46,7 +46,7 @@ the external-network Tailscale plan smoke.
 For hermetic rendered-template checks, run:
 
 ```bash
-python3 scripts/render_harness.py
+uv run scripts/render_harness.py
 ```
 
 This uses a provider-free Terraform scratch module to render the current
@@ -55,7 +55,9 @@ and extractable shell heredocs from `locals.tf`. It asserts rendered Helm values
 yamldecode, ingress controller values keep Hetzner Load Balancer adoption
 annotations at the chart-specific Service annotation path, Cilium values keep
 `routingMode` and `k8sServicePort` at the document root, cloud-init templates
-decode as YAML, and rendered shell passes `bash -n`.
+decode as YAML, rendered shell passes `bash -n`, and static-agent private IPv4
+allocation preserves the v2 per-nodepool formula while remaining unique across
+shared-subnet nodepools.
 
 When adding a new `*_values_default` heredoc or high-risk rendered template, add
 it to `scripts/render_harness.py` with a structure assertion instead of a large

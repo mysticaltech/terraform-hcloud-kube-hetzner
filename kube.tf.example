@@ -179,7 +179,7 @@ module "kube-hetzner" {
 
   # If you must change the network CIDR you can do so below, but it is highly advised against.
   # network_ipv4_cidr = "10.0.0.0/8"
-  # Nodes use Hetzner-assigned private IPs from the module-created private subnets.
+  # Agent nodes get module-calculated private IPs inside their nodepool's subnet (v2-compatible); control-plane and external-network nodes use Hetzner-assigned IPs.
   #
   # Default for new v3 clusters:
   # network_subnet_mode = "per_nodepool"

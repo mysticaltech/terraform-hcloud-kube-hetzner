@@ -17,6 +17,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCALS_TF = REPO_ROOT / "locals.tf"
+AGENTS_TF = REPO_ROOT / "agents.tf"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 RENDER_SSH_AUTHORIZED_KEY = (
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKubeHetznerRenderHarness render-comment"
@@ -179,6 +180,114 @@ def assert_addon_default_versions() -> None:
     if invalid:
         fail("addon_default_versions", f"non-concrete defaults: {', '.join(invalid)}")
     print_pass("addon_default_versions", f"{len(versions)} concrete addon defaults are pinned")
+
+
+def normalize_hcl(source: str) -> str:
+    """Normalize formatting for narrow source-level contract assertions."""
+
+    return re.sub(r"\s+", "", source)
+
+
+def assert_agent_private_ipv4_contract(scratch: "TerraformScratch") -> None:
+    """Protect v2 identity, external-network opt-out, and shared uniqueness."""
+
+    agents_source = normalize_hcl(AGENTS_TF.read_text(encoding="utf-8"))
+    locals_source = normalize_hcl(LOCALS_TF.read_text(encoding="utf-8"))
+    required_agent_fragments = (
+        "private_ipv4=each.value.network_id==0?cidrhost(",
+        "hcloud_network_subnet.agent[local.use_per_nodepool_subnets?"
+        "[fori,vinvar.agent_nodepools:iifv.name==each.value.nodepool_name][0]:0].ip_range",
+        "(local.use_per_nodepool_subnets?each.value.index:"
+        "local.shared_agent_private_ipv4_index_by_node[each.key])+"
+        "(local.network_size>=16?101:floor(pow(local.subnet_size,2)*0.4))",
+        "):null",
+    )
+    missing_agent = [fragment for fragment in required_agent_fragments if fragment not in agents_source]
+    if missing_agent:
+        fail("agent private IPv4 source contract", f"missing fragments: {missing_agent!r}")
+
+    required_local_fragments = (
+        "agent_node_keys_in_pool_order=flatten([",
+        "forpool_index,nodepool_objinvar.agent_nodepools:concat(",
+        "fornode_indexinrange(coalesce(nodepool_obj.count,0)):",
+        "fornode_indexinrange(max(concat([0],[forkinkeys(coalesce(nodepool_obj.nodes,{})):floor(tonumber(k))])...)+1):[",
+        "fornode_keyinkeys(coalesce(nodepool_obj.nodes,{})):",
+        "iffloor(tonumber(node_key))==node_index",
+        "primary_agent_node_keys_in_pool_order=[",
+        "iflocal.agent_nodes[node_key].network_id==0",
+        "shared_agent_private_ipv4_index_by_node={forindex,node_keyinlocal.primary_agent_node_keys_in_pool_order:node_key=>index}",
+    )
+    missing_locals = [fragment for fragment in required_local_fragments if fragment not in locals_source]
+    if missing_locals:
+        fail("agent private IPv4 source contract", f"missing local fragments: {missing_locals!r}")
+
+    # Exercise the same pool-major/count-or-numeric-map ordering shape as the
+    # production local. Lexical map order would place "10" before "2", and an
+    # external-network node must not consume a shared-primary address.
+    pools = [
+        {"name": "pool-a", "count": 2, "network_id": 0, "nodes": {}},
+        {
+            "name": "pool-b",
+            "count": 0,
+            "network_id": 0,
+            "nodes": {
+                "10": {"network_id": 0},
+                "2": {"network_id": 0},
+                "1.5": {"network_id": 0},
+                "3": {"network_id": 123},
+            },
+        },
+    ]
+    ordered_nodes_expression = (
+        f"flatten([for pool_index, pool in {hcl_value(pools)} : concat("
+        "[for node_index in range(pool.count) : { key = format(\"%s-%s-%s\", pool_index, node_index, pool.name), network_id = pool.network_id }],"
+        "flatten([for node_index in range(max(concat([0], [for k in keys(pool.nodes) : floor(tonumber(k))])...) + 1) : [for node_key in keys(pool.nodes) : "
+        "{ key = format(\"%s-%s-%s\", pool_index, node_key, pool.name), network_id = pool.nodes[node_key].network_id } "
+        "if floor(tonumber(node_key)) == node_index]])"
+        ")] )"
+    )
+    encoded_primary_nodes = scratch.console(
+        f"jsonencode([for node in {ordered_nodes_expression} : node if node.network_id == 0])"
+    )
+    primary_nodes = json.loads(json.loads(encoded_primary_nodes))
+    primary_keys = [node["key"] for node in primary_nodes]
+    expected_primary_keys = ["0-0-pool-a", "0-1-pool-a", "1-1.5-pool-b", "1-2-pool-b", "1-10-pool-b"]
+    if primary_keys != expected_primary_keys:
+        fail("agent shared private IPv4", f"unexpected primary-node order: {primary_keys!r}")
+
+    shared_indexes = {node_key: index for index, node_key in enumerate(primary_keys)}
+    if shared_indexes != {
+        "0-0-pool-a": 0,
+        "0-1-pool-a": 1,
+        "1-1.5-pool-b": 2,
+        "1-2-pool-b": 3,
+        "1-10-pool-b": 4,
+    }:
+        fail("agent shared private IPv4", f"unexpected global indexes: {shared_indexes!r}")
+
+    encoded_shared_ips = scratch.console(
+        'jsonencode([for index in range(5) : cidrhost("10.0.0.0/16", index + 101)])'
+    )
+    shared_ips = json.loads(json.loads(encoded_shared_ips))
+    if shared_ips != ["10.0.0.101", "10.0.0.102", "10.0.0.103", "10.0.0.104", "10.0.0.105"]:
+        fail("agent shared private IPv4", f"unexpected shared addresses: {shared_ips!r}")
+    if len(shared_ips) != len(set(shared_ips)):
+        fail("agent shared private IPv4", f"duplicate shared addresses: {shared_ips!r}")
+
+    # v2.21.0 used the node's pool-local index plus the same host offset in
+    # that pool's subnet. These representative pools protect that no-op math.
+    encoded_per_pool_ips = scratch.console(
+        'jsonencode([cidrhost("10.0.0.0/16", 0 + 101), '
+        'cidrhost("10.1.0.0/16", 0 + 101), cidrhost("10.1.0.0/16", 7 + 101)])'
+    )
+    per_pool_ips = json.loads(json.loads(encoded_per_pool_ips))
+    if per_pool_ips != ["10.0.0.101", "10.1.0.101", "10.1.0.108"]:
+        fail("agent v2 private IPv4 identity", f"unexpected per-pool addresses: {per_pool_ips!r}")
+
+    print_pass(
+        "agent private IPv4 contract",
+        "v2 per-pool offsets are preserved; shared primary-agent offsets are unique across pools; external agents remain unpinned",
+    )
 
 
 def base_render_vars() -> dict[str, Any]:
@@ -916,6 +1025,7 @@ def main() -> int:
     try:
         scratch = TerraformScratch(temp_dir, base_render_vars())
         assert_addon_default_versions()
+        assert_agent_private_ipv4_contract(scratch)
         run_helm_checks(scratch)
         run_shell_checks(scratch)
         run_cloudinit_checks(scratch)

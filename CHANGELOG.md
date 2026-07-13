@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Upgrade Notes
+
+- **Clusters first created with v3.0.0**: static agents were auto-assigned IPs in the control-plane subnet (#2239). Applying v3.0.1 moves each affected agent to its correct nodepool subnet: an in-place private-NIC detach/reattach plus a `node-ip` config rewrite and k3s/RKE2 restart (no server replacement, no data loss; verified live — in our test both agents returned `Ready` on their new IPs without manual intervention, and the follow-up plan converged to zero changes). For production, still treat it as rolling maintenance: cordon/drain one agent, apply with a target on that agent, verify `Ready` on the intended subnet, uncordon, continue. If a node misbehaves after the NIC reattach, reboot it so `kh-rename-interface.service` verifies the interface mapping. Clusters upgraded from v2.x are unaffected (same IP formula as v2 — a no-op).
+- **`network_subnet_mode = "shared"` address stability**: shared-mode agent IPs are assigned by a dense cross-pool index. Appending new nodepools at the end is stable, but resizing or removing an *earlier* pool (or toggling a node between primary and external network) renumbers later agents' IPs with the same NIC-reattach behavior described above. Prefer append-only nodepool changes in shared mode; `per_nodepool` mode (the default) keeps v2's stable per-pool addressing.
+
 ### 🐛 Bug Fixes
 
+- **Static Agent Private IPv4 Placement** - Restored the v2 explicit private-IP formula for primary-network agents so per-nodepool agents honor their subnet (including `subnet_ip_range`) and v2 upgrades keep the same IPs. Shared-subnet mode now assigns a deterministic cross-pool index to prevent duplicate private IPs when node indices repeat across pools. Verified live: v3.0.0 cluster migrated in place, agents moved to their pool subnets, all nodes Ready (#2239, #2240, thanks @boy51, @danmarsic).
 - **Zero-agent clusters: post-apply plans no longer fail** - On v3.0.0, clusters with `agent_nodepools = []` failed every plan after the first apply with `no change found for terraform_data.agents`, because post-install readiness listed a zero-instance `for_each` resource in `replace_triggered_by`. Readiness now reacts through a single-instance aggregator of agent ids. Upgrading creates one new internal resource and does **not** replace or re-run post-install readiness; future agent additions/removals/replacements re-run only the read-only readiness waits. Fixes #2236, #2238 (#2237, thanks @nikolauspschuetz, @tauhir, @h-mergel).
 
 ---
