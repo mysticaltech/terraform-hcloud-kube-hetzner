@@ -89,14 +89,29 @@ jobs:
               | sort -u || true
           )
 
-          COMMIT_AUTHORS=$(git log "${RANGE}" --format='%an' | sed '/^$/d' | sort -u)
+          # Resolve commit authors to GitHub @handles (one commits-API call per
+          # unique author email); fall back to the raw git name only when
+          # GitHub has no account for that email. Prevents the same person
+          # appearing as both @handle and legal name in the contributor list.
+          COMMIT_AUTHORS=$(
+            git log "${RANGE}" --format='%ae%x09%an%x09%H' \
+              | sort -u -t "$(printf '\t')" -k1,1 \
+              | while IFS="$(printf '\t')" read -r email name sha; do
+                  login=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}" --jq '.author.login // empty' 2>/dev/null || true)
+                  if [ -n "${login}" ]; then printf '@%s\n' "${login}"; else printf '%s\n' "${name}"; fi
+                done | sort -u
+          )
           # Parse Co-authored-by via git's trailer parser: grepping raw bodies
           # matches prose that merely mentions the trailer and emits garbage.
+          # GitHub noreply emails resolve to @handles without an API call.
           COAUTHORS=$(
             git log "${RANGE}" --format='%(trailers:key=Co-authored-by,valueonly=true)' \
-              | sed 's/ <[^>]*>$//' \
-              | sed '/^$/d' \
-              | sort -u || true
+              | sed '/^$/d' | sort -u \
+              | while read -r entry; do
+                  email=$(printf '%s' "${entry}" | sed -n 's/.*<\([^>]*\)>.*/\1/p')
+                  login=$(printf '%s' "${email}" | sed -n 's/^[0-9]*+\{0,1\}\([A-Za-z0-9-]*\)@users\.noreply\.github\.com$/\1/p')
+                  if [ -n "${login}" ]; then printf '@%s\n' "${login}"; else printf '%s\n' "${entry}" | sed 's/ <[^>]*>$//'; fi
+                done | sed '/^$/d' | sort -u || true
           )
 
           ALL_CONTRIBUTORS=$(
