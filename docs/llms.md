@@ -84,7 +84,7 @@ module "kube-hetzner" {
   source = "kube-hetzner/kube-hetzner/hcloud"
   #    When using the terraform registry as source, you can optionally specify a version number.
   #    See https://registry.terraform.io/modules/kube-hetzner/kube-hetzner/hcloud for the available versions
-  # version = "3.0.0"
+  # version = "3.0.1"
   # 2. For local dev, path to the git repo
   # source = "../../kube-hetzner/"
   # 3. If you want to use the latest main branch (see https://developer.hashicorp.com/terraform/language/modules/sources#github), use
@@ -95,7 +95,7 @@ module "kube-hetzner" {
   * **Purpose:** This tells Terraform where to find the `kube-hetzner` module code.
   * **Option 1 (Terraform Registry - Recommended for Users):** `kube-hetzner/kube-hetzner/hcloud`
     * This is the standard way to use published modules. Terraform will download it from the public Terraform Registry.
-    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "3.0.0"`). This ensures:
+    * **`version`:** It's highly recommended to pin the module version (e.g., `version = "3.0.1"`). This ensures:
       * **Reproducibility:** Your infrastructure builds are consistent over time.
       * **Stability:** Prevents unexpected changes or breakages if a new, incompatible version of the module is released.
       * **Controlled Upgrades:** You can consciously decide when to upgrade the module version after reviewing its changelog.
