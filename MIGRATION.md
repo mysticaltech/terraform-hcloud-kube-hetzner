@@ -483,7 +483,7 @@ Shared mode keeps one shared agent subnet at the start of the network CIDR and
 one shared control-plane subnet at the end of the network CIDR. Do not switch an
 in-place v2 upgrade to `shared` unless subnet resource changes are intentional.
 
-Node private IPv4 addresses are now assigned automatically by Hetzner within the attached subnet (instead of manual `cidrhost(...)` calculations in Terraform).
+Primary-network agent nodes keep module-calculated private IPv4 addresses (same `cidrhost(...)` scheme as v2, so upgrades are IP-no-ops). Control-plane and external-network node addresses are assigned by Hetzner within the attached subnet.
 
 For standard `v2.19.x` clusters, no manual state migration is expected for this change.
 

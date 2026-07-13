@@ -1192,6 +1192,39 @@ EOT
     local.agent_nodes_from_maps_for_counts,
   )
 
+  # Shared mode needs an index that is unique across nodepools; node.index is
+  # intentionally pool-local to preserve the released v2 per-nodepool IP
+  # contract. Keep this ordering pool-major so appending a nodepool does not
+  # renumber existing shared-subnet agents. Map-backed nodes are ordered by
+  # their validated numeric key rather than lexical map order.
+  agent_node_keys_in_pool_order = flatten([
+    for pool_index, nodepool_obj in var.agent_nodepools : concat(
+      [
+        for node_index in range(coalesce(nodepool_obj.count, 0)) :
+        format("%s-%s-%s", pool_index, node_index, nodepool_obj.name)
+      ],
+      flatten([
+        # Range-scan numeric sort of map keys; the bound derives from the keys
+        # themselves so no valid key can silently fall outside it.
+        for node_index in range(max(concat([0], [for k in keys(coalesce(nodepool_obj.nodes, {})) : floor(tonumber(k))])...) + 1) : [
+          for node_key in keys(coalesce(nodepool_obj.nodes, {})) :
+          format("%s-%s-%s", pool_index, node_key, nodepool_obj.name)
+          if floor(tonumber(node_key)) == node_index
+        ]
+      ])
+    )
+  ])
+
+  primary_agent_node_keys_in_pool_order = [
+    for node_key in local.agent_node_keys_in_pool_order : node_key
+    if local.agent_nodes[node_key].network_id == 0
+  ]
+
+  shared_agent_private_ipv4_index_by_node = {
+    for index, node_key in local.primary_agent_node_keys_in_pool_order :
+    node_key => index
+  }
+
   agent_effective_kubelet_args_by_node = {
     for node_key, node in local.agent_nodes :
     node_key => concat(local.kubelet_arg, node.swap_size != "" || node.zram_size != "" ? ["fail-swap-on=false"] : [], var.global_kubelet_args, var.agent_kubelet_args, node.kubelet_args)
