@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+---
+
+## [3.0.1] - 2026-07-13
+
 ### ⚠️ Upgrade Notes
 
 - **Upgrading from v2.x?** This is the v3 line — do not blind-apply. Start with [`MIGRATION.md`](https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/blob/master/MIGRATION.md) (variable rename map, compatibility freeze table, production safety model with the no-destroy plan gate) and the pinned upgrade guide in [#2232](https://github.com/kube-hetzner/terraform-hcloud-kube-hetzner/issues/2232). The `/migrate-v2-to-v3` agent skill (Claude Code, Codex, Cursor) automates the whole flow.
