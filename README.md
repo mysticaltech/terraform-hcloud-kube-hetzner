@@ -24,6 +24,16 @@ A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k
 
 ---
 
+> [!TIP]
+> ### 🤖 This project is built to be operated by AI agents
+> One command teaches **Claude Code**, **Codex**, **Cursor**, and 70+ other agents everything about kube-hetzner:
+> ```bash
+> npx skills add kube-hetzner/terraform-hcloud-kube-hetzner
+> ```
+> Then just talk to your agent: **`/kh-assistant`** answers any configuration or debugging question with live repo knowledge and routes you to the right tool — **`/migrate-v2-to-v3`** drives the whole v2 → v3 upgrade with protected-infrastructure plan gates, **`/upgrade-cluster`** handles version bumps and rollouts, **`/debug-node`** rescues broken nodes. Deploying, upgrading, and debugging become conversations.
+
+---
+
 ## ✨ Highlights
 
 - **Production-ready Kubernetes on Hetzner Cloud:** highly optimized, easy to maintain, secure, and automatically upgrades both nodes and Kubernetes.
@@ -33,7 +43,7 @@ A highly optimized, easy-to-use, auto-upgradable Kubernetes cluster powered by k
 - **Leap Micro first:** new nodes default to openSUSE Leap Micro; MicroOS remains supported for upgrades/legacy nodes.
 - **Upgrade automation:** Kured handles HA-aware OS reboots; system-upgrade-controller manages k3s upgrades.
 - **Evidence-backed releases:** v3 release gates include live Hetzner apply, upgrade, health, NAT, autoscaler, RKE2, and destroy evidence in [`docs/v3-release-evidence.md`](docs/v3-release-evidence.md).
-- **AI-assisted migration and operations:** the repo ships agent skills for Claude Code and compatible agents — `/migrate-v2-to-v3` walks the whole v2 -> v3 upgrade with protected-infrastructure plan gates, plus `/kh-assistant`, `/upgrade-cluster`, and `/debug-node`. See [AI-assisted migration](#ai-assisted-migration).
+- **AI-assisted everything:** install the agent skills with `npx skills add kube-hetzner/terraform-hcloud-kube-hetzner` — **`/kh-assistant`** is your kube-hetzner expert in Claude Code, Codex, or Cursor, and `/migrate-v2-to-v3`, `/upgrade-cluster`, `/debug-node` automate the heavy lifting. See [AI-assisted operations](#ai-assisted-migration).
 
 ---
 
@@ -249,7 +259,13 @@ Before applying a v3 upgrade, confirm:
 
 ### AI-assisted migration
 
-This repo ships [agent skills](https://docs.claude.com/en/docs/claude-code/skills) under `.claude/skills/` for Claude Code and compatible agents. `/migrate-v2-to-v3` guides an AI agent through the whole upgrade with protected-infrastructure plan gates; `/kh-assistant`, `/upgrade-cluster`, and `/debug-node` cover configuration/debugging, live upgrades, and rescue-mode node debugging. KH Assistant is also available as a [Custom GPT](https://chatgpt.com/g/g-67df95cd1e0c8191baedfa3179061581-kh-assistant) or as the `/kh-assistant` [skill](https://github.com/mysticaltech/terraform-hcloud-kube-hetzner/tree/master/.claude/skills/kh-assistant).
+This repo ships [agent skills](https://docs.claude.com/en/docs/claude-code/skills) under `.claude/skills/` for Claude Code, Codex, Cursor, and any skills-capable agent. Install them in one command:
+
+```bash
+npx skills add kube-hetzner/terraform-hcloud-kube-hetzner
+```
+
+**`/kh-assistant`** is the flagship: a kube-hetzner expert with live repo knowledge that answers configuration and debugging questions and recommends the right specialized skill for the job. `/migrate-v2-to-v3` guides the whole v2 -> v3 upgrade with protected-infrastructure plan gates; `/upgrade-cluster` and `/debug-node` cover live upgrades and rescue-mode node debugging.
 
 Usage sketch:
 

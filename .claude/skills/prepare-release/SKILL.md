@@ -54,9 +54,11 @@ Therefore:
 - Previous release notes must never remain under `## [Unreleased]`; otherwise the next tag workflow will publish stale notes again.
 - For v3-series releases, verify README's "What's New in v3" link still points
   at the current release tag URL and the section matches the live release body.
-- After significant releases, regenerate the Custom GPT knowledge file and
-  confirm its `meta.version` matches the release before considering the release
-  train closed.
+- After significant releases, regenerate the machine-readable knowledge file
+  (`kube-hetzner-knowledge.jsondata`) and confirm its `meta.version` matches
+  the release. The Custom GPT was retired 2026-07-13 — the agent skills
+  (installed via `npx skills add kube-hetzner/terraform-hcloud-kube-hetzner`)
+  are the assistant channel; the knowledge file feeds future tooling (MCP).
 
 ## Contributor Credit (SUPER IMPORTANT)
 
@@ -201,15 +203,17 @@ Check `versions.tf` for:
 - Provider version requirements
 - K3s default channel
 
-## Step 5: Update GPT Knowledge (if applicable)
+## Step 5: Update Knowledge File (if applicable)
 
-If significant changes, regenerate the Custom GPT knowledge base:
+If significant changes, regenerate the machine-readable knowledge file
+(Custom GPT retired 2026-07-13; this feeds future tooling such as the planned
+MCP server):
 
 1. Use the maintained knowledge-generation workflow/artifact for this repo or
    operator environment.
 2. Update the generated file's `meta.version` to the release being prepared.
 3. Re-open the generated artifact and verify the version plus the release's
-   major operational facts before upload.
+   major operational facts.
 
 Do not invent a checked-in generator path if one is not present in the worktree.
 
@@ -431,7 +435,7 @@ Files that may need version updates:
 - [ ] Version badges updated (if needed)
 - [ ] `docs/terraform.md` regenerated
 - [ ] README "What's New in v3" release-tag URL is accurate/current for v3-series releases
-- [ ] Custom GPT knowledge file regenerated when applicable and `meta.version` matches the release
+- [ ] Knowledge file (`kube-hetzner-knowledge.jsondata`) regenerated when applicable and `meta.version` matches the release
 - [ ] Project skills checked for stale v2 names
 - [ ] Tailscale node-transport README/example/skill guidance matches variables.tf
 - [ ] Cloudflare Access/Tunnel docs/examples say external-only, and no Cloudflare Mesh/WARP node-transport promise exists

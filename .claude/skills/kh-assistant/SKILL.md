@@ -30,6 +30,46 @@ WebSearch "hetzner cloud server types pricing 2026"
 
 ---
 
+## Route to Sibling Skills First
+
+**Do not hand-solve a specialized workflow inline when a sibling skill matches.**
+Recommend the skill, explain why it fits, and invoke it when available. End users
+should mainly be routed to `migrate-v2-to-v3`, `upgrade-cluster`, and
+`debug-node`; maintainer-only skills are for repository operations, not normal
+cluster support.
+
+| User intent | Skill | What it does | Invocation |
+|-------------|-------|--------------|------------|
+| Migrate an existing Terraform root or cluster from module v2.x to v3.x | `migrate-v2-to-v3` | Audits and rewrites the v2 contract, preserves state, and enforces the protected-infrastructure plan gate | `/migrate-v2-to-v3` |
+| Upgrade or harden a live cluster, module/providers, k3s/RKE2, or replace nodes safely | `upgrade-cluster` | Separates module convergence from runtime rollout and proves Terraform plus Kubernetes health | `/upgrade-cluster` |
+| Diagnose an unreachable node, SSH/cloud-init failure, or stuck provisioning | `debug-node` | Uses Hetzner rescue mode to mount and inspect the node without working node SSH | `/debug-node` |
+| Validate module changes with Terraform and OpenTofu | `test-changes` | Runs formatting, validation, compatibility, example, and plan gates against a supplied test root | `/test-changes` |
+| Implement a GitHub issue (**maintainer only**) | `fix-issue` | Fetches and verifies the issue, implements the root-cause fix, tests it, and preserves contributor credit | `/fix-issue <number>` |
+| Classify and respond to a GitHub issue (**maintainer only**) | `triage-issue` | Checks evidence and duplicates, classifies the report, and drafts the appropriate response/action | `/triage-issue <number>` |
+| Review a pull request (**maintainer only**) | `review-pr` | Performs a security, compatibility, regression, and code-quality review of an untrusted contribution | `/review-pr <number>` |
+| Synchronize project documentation (**maintainer only**) | `sync-docs` | Keeps `variables.tf`, generated/reference docs, examples, migration docs, and skills coherent | `/sync-docs` |
+| Prepare or execute a release (**maintainer only**) | `prepare-release` | Verifies release content and versions; tags/pushes only with explicit maintainer release authority | `/prepare-release` |
+| Prove risky changes across the live v3 matrix (**maintainer only**) | `running-stabilization-loop` | Iteratively runs, diagnoses, fixes, and reruns the k3s/RKE2 matrix plus tagged-version upgrade paths | `/running-stabilization-loop` |
+
+If the matching skill is not installed, tell the user to install from the
+project repository and then invoke it:
+
+```bash
+# Interactive selection
+npx skills add kube-hetzner/terraform-hcloud-kube-hetzner
+
+# Install only the recommended skill (example)
+npx skills add kube-hetzner/terraform-hcloud-kube-hetzner --skill migrate-v2-to-v3
+
+# Install globally for supported agents
+npx skills add kube-hetzner/terraform-hcloud-kube-hetzner -g
+```
+
+Do not recommend maintainer-only skills to end users unless they are explicitly
+contributing to or maintaining this repository.
+
+---
+
 ## Knowledge Sources
 
 ### Primary Documentation Files
@@ -73,6 +113,17 @@ gh api repos/kube-hetzner/terraform-hcloud-kube-hetzner/discussions --jq '.[].ti
 # Check if variable exists
 grep 'variable "<name>"' variables.tf
 ```
+
+### Current v3 Baseline
+
+Verify the live tag at startup; the checked-in release baseline is **v3.0.1**.
+
+| Fact | Current contract |
+|------|------------------|
+| Kubernetes distribution | k3s is the default; RKE2 is supported via `kubernetes_distribution = "rke2"` |
+| Kubernetes version policy | k3s defaults to the upstream `stable` channel; pin a version/channel when reproducibility or v2 minor preservation matters |
+| Node OS | Brand-new nodepools default to Leap Micro; existing MicroOS nodepools remain supported and are preserved on normal v2 upgrades |
+| Addon versions | Unset addon version inputs use the reviewed deterministic module matrix; `latest` is an explicit opt-in to floating upstream behavior |
 
 ---
 
@@ -129,6 +180,23 @@ grep 'variable "<name>"' variables.tf
 ---
 
 ## Common Issues Catalog
+
+### v3.0.0 Regressions Fixed in v3.0.1
+
+- **Zero-agent post-apply plan failure (#2236, #2238):** v3.0.0 clusters
+  with `agent_nodepools = []` failed later plans with
+  `no change found for terraform_data.agents`. Upgrade to v3.0.1; it routes
+  readiness triggers through a single agent-id aggregator, without replacing
+  or rerunning post-install readiness during the upgrade.
+- **Static agents assigned to the wrong subnet (#2239):** v3.0.0 assigned
+  primary-network static agents from the control-plane subnet. v3.0.1 restores
+  per-nodepool addressing. Clusters first created on v3.0.0 require the release
+  note's rolling agent migration: cordon/drain one agent, target-apply that
+  agent's in-place private-NIC detach/reattach and k3s/RKE2 config restart,
+  verify it is `Ready` on the intended subnet, uncordon it, and continue. If
+  interface mapping does not recover, reboot so `kh-rename-interface.service`
+  can verify it. Normal clusters upgraded from v2.x retain the v2 IP formula
+  and are unaffected.
 
 ### Known Error Patterns
 
@@ -257,12 +325,16 @@ after size-aware kubelet reservations landed.
 ```
 1. Run from the user's Terraform root:
    <module-checkout>/scripts/destroy.sh -auto-approve
-2. Read the script's orphan report before taking forceful action.
-3. Use <module-checkout>/scripts/cleanup.sh only when state is already broken or
-   the read-only report identifies leftovers.
-4. If autoscaler-created servers pin network/subnet deletion, delete them only
-   after the control plane is dead, or first set the autoscaler pool
-   min_nodes = 0 and apply.
+2. Let the wrapper detect the initialized Terraform/OpenTofu engine. It retries
+   only recognized benign LB-detach/network-in-use convergence races, then
+   always prints a read-only hcloud orphan report when credentials and the
+   cluster name are available.
+3. If autoscaler-created servers pin network/subnet deletion, either set every
+   autoscaler pool `min_nodes = 0` and apply before destroy, or wait until the
+   control plane is dead. Then use the orphan report to identify and delete only
+   the autoscaler-created servers, and rerun `scripts/destroy.sh`.
+4. Use <module-checkout>/scripts/cleanup.sh only when state is already broken or
+   the read-only report identifies leftovers; review its dry run before deletion.
 ```
 
 ### Workflow: Feature Questions
