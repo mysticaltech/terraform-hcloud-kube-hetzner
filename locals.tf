@@ -196,7 +196,10 @@ locals {
   # Check if the user has set custom DNS servers.
   has_dns_servers = length(var.dns_servers) > 0
 
-  registries_config_user = trimspace(var.registries_config) == "" ? {} : yamldecode(var.registries_config)
+  # The conditional lives inside yamldecode() so both branches are strings:
+  # `cond ? {} : yamldecode(...)` fails type unification (object({}) vs the
+  # decoded object type) for any non-empty registries_config.
+  registries_config_user = yamldecode(trimspace(var.registries_config) == "" ? "{}" : var.registries_config)
   embedded_registry_mirror_registries = var.embedded_registry_mirror.enabled ? [
     for registry in var.embedded_registry_mirror.registries : registry
   ] : []
