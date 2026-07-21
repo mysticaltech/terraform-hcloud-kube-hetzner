@@ -109,7 +109,7 @@ resource "terraform_data" "first_control_plane" {
           kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
           flannel-iface               = local.flannel_iface
-          node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+          node-ip                     = local.control_plane_node_ip_by_node[keys(module.control_planes)[0]]
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           node-taint                  = local.control_plane_nodes[keys(module.control_planes)[0]].taints
           node-label                  = local.control_plane_nodes[keys(module.control_planes)[0]].labels
@@ -278,7 +278,7 @@ resource "terraform_data" "control_plane_setup_rke2" {
           kubelet-arg                 = concat(local.kubelet_arg, var.global_kubelet_args, var.control_plane_kubelet_args, local.control_plane_nodes[keys(module.control_planes)[0]].kubelet_args)
           kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
           kube-controller-manager-arg = local.kube_controller_manager_arg
-          node-ip                     = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
+          node-ip                     = local.control_plane_node_ip_by_node[keys(module.control_planes)[0]]
           advertise-address           = module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
           node-taint                  = local.control_plane_nodes[keys(module.control_planes)[0]].taints
           node-label                  = local.control_plane_nodes[keys(module.control_planes)[0]].labels

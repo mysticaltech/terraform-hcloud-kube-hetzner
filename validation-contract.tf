@@ -187,6 +187,36 @@ resource "terraform_data" "validation_contract" {
       error_message = "multinetwork_mode=\"cilium_public_overlay\" with IPv6 or dual-stack transport requires public IPv6 enabled on all control-plane and agent nodes, plus autoscaler nodes when autoscaler_nodepools are configured."
     }
 
+    # Dual-stack pod/service CIDRs require every node to advertise an IPv6 node-ip.
+    # Hetzner Cloud Networks are IPv4-only, so that address is the node's public
+    # IPv6. Without it, node-ip stays IPv4-only and k3s/RKE2 refuse to start with
+    # "cluster-cidr: [...] and node-ip: [...], must share the same IP version",
+    # which is hard to trace back to this setting.
+    precondition {
+      condition = (
+        try(trimspace(var.cluster_ipv6_cidr), "") == "" ||
+        (
+          alltrue([
+            for control_plane_nodepool in var.control_plane_nodepools :
+            control_plane_nodepool.enable_public_ipv6 &&
+            alltrue([
+              for _, control_plane_node in coalesce(control_plane_nodepool.nodes, {}) :
+              coalesce(control_plane_node.enable_public_ipv6, control_plane_nodepool.enable_public_ipv6)
+            ])
+          ]) &&
+          alltrue([
+            for agent_nodepool in var.agent_nodepools :
+            agent_nodepool.enable_public_ipv6 &&
+            alltrue([
+              for _, agent_node in coalesce(agent_nodepool.nodes, {}) :
+              coalesce(agent_node.enable_public_ipv6, agent_nodepool.enable_public_ipv6)
+            ])
+          ])
+        )
+      )
+      error_message = "cluster_ipv6_cidr/service_ipv6_cidr require public IPv6 enabled on all control-plane and agent nodes, because Hetzner Cloud Networks are IPv4-only and the IPv6 half of node-ip must be the node's public address."
+    }
+
     # Moved from variable "node_transport_mode" validation near variables.tf:453.
     precondition {
       condition = (
