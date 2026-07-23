@@ -1834,7 +1834,7 @@ tmp_script=$(mktemp) && curl -sSL -o "${tmp_script}" https://raw.githubuserconte
 5. Update `kube.tf.example` if needed
 6. Commit: `git commit -m 'Add AmazingFeature'`
 7. Push: `git push origin AmazingFeature`
-8. Open PR targeting `staging` branch
+8. Open PR targeting `master` branch
 
 ### Support This Project
 
