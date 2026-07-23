@@ -379,7 +379,7 @@ locals {
       kubelet-arg                 = local.control_plane_effective_kubelet_args_by_node[k]
       kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
-      node-ip                     = module.control_planes[k].private_ipv4_address
+      node-ip                     = local.control_plane_node_ip_by_node[k]
       advertise-address           = module.control_planes[k].private_ipv4_address
       node-label                  = v.labels
       node-taint                  = v.taints
@@ -438,7 +438,7 @@ locals {
       kube-apiserver-arg          = concat(local.kube_apiserver_arg, var.enable_secrets_encryption ? ["encryption-provider-config=${local.secrets_encryption_config_file}"] : [])
       kube-controller-manager-arg = local.kube_controller_manager_arg
       flannel-iface               = local.flannel_iface
-      node-ip                     = module.control_planes[k].private_ipv4_address
+      node-ip                     = local.control_plane_node_ip_by_node[k]
       advertise-address           = module.control_planes[k].private_ipv4_address
       node-label                  = v.labels
       node-taint                  = v.taints

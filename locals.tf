@@ -1786,6 +1786,22 @@ EOT
   cluster_has_ipv4            = local.cluster_ipv4_cidr_effective != null
   cluster_has_ipv6            = local.cluster_ipv6_cidr_effective != null
 
+  # k3s/RKE2 reject a dual-stack cluster-cidr/service-cidr when node-ip advertises
+  # only one family:
+  #   "cluster-cidr: [...] and node-ip: [...], must share the same IP version"
+  # Hetzner Cloud Networks are IPv4-only, so the IPv6 half of node-ip is necessarily
+  # the node's public IPv6 address. compact() keeps this a no-op when a node has no
+  # public IPv6 (enable_public_ipv6 = false), which the validation contract rejects
+  # up front for dual-stack clusters.
+  control_plane_node_ip_by_node = {
+    for k, v in module.control_planes :
+    k => local.cluster_has_ipv6 ? join(",", compact([v.private_ipv4_address, v.ipv6_address])) : v.private_ipv4_address
+  }
+  agent_node_ip_by_node = {
+    for k, v in module.agents :
+    k => local.cluster_has_ipv6 ? join(",", compact([v.private_ipv4_address, v.ipv6_address])) : v.private_ipv4_address
+  }
+
   cluster_cidrs = compact([
     local.cluster_ipv4_cidr_effective,
     local.cluster_ipv6_cidr_effective,
