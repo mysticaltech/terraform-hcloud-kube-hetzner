@@ -107,16 +107,16 @@ locals {
 
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
   control_plane_private_host  = var.enable_control_plane_load_balancer ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
-  control_plane_public_host = coalesce(
+  control_plane_public_host = try(coalesce(
     local.control_plane_endpoint_host,
     var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.public_endpoint_ipv4_candidate ? hcloud_load_balancer.control_plane.*.ipv4[0] : null,
     var.enable_control_plane_load_balancer && var.control_plane_load_balancer_enable_public_network && local.public_endpoint_ipv6_candidate ? hcloud_load_balancer.control_plane.*.ipv6[0] : null,
     local.public_endpoint_ipv4_candidate ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null,
     local.public_endpoint_ipv6_candidate ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null,
-  )
+  ), null)
   control_plane_public_host_formatted = local.control_plane_public_host != null && provider::assert::ipv6(local.control_plane_public_host) ? "[${local.control_plane_public_host}]" : local.control_plane_public_host
   control_plane_private_endpoint      = "https://${local.control_plane_private_host}:${var.kubernetes_api_port}"
-  control_plane_public_endpoint       = var.control_plane_endpoint != null ? var.control_plane_endpoint : "https://${local.control_plane_public_host_formatted}:${var.kubernetes_api_port}"
+  control_plane_public_endpoint       = var.control_plane_endpoint != null ? var.control_plane_endpoint : (local.control_plane_public_host_formatted == null ? null : "https://${local.control_plane_public_host_formatted}:${var.kubernetes_api_port}")
   tailscale_first_control_plane_host  = local.node_transport_tailscale_enabled ? "${module.control_planes[keys(module.control_planes)[0]].name}.${local.tailscale_magicdns_domain}" : null
   tailscale_control_plane_join_host   = local.node_transport_tailscale_enabled ? module.control_planes[keys(module.control_planes)[0]].private_ipv4_address : null
   tailscale_k3s_join_endpoint         = local.node_transport_tailscale_enabled ? "https://${local.tailscale_control_plane_join_host}:${var.kubernetes_api_port}" : null
@@ -126,7 +126,7 @@ locals {
   k3s_endpoint = local.node_transport_tailscale_enabled ? local.tailscale_k3s_join_endpoint : (local.multinetwork_overlay_enabled ? local.control_plane_public_endpoint : local.control_plane_private_endpoint)
 
   rke2_private_join_endpoint = "https://${local.control_plane_private_host}:9345"
-  rke2_public_join_endpoint  = "https://${local.control_plane_public_host_formatted}:9345"
+  rke2_public_join_endpoint  = local.control_plane_public_host_formatted == null ? null : "https://${local.control_plane_public_host_formatted}:9345"
   rke2_join_endpoint         = local.node_transport_tailscale_enabled ? local.tailscale_rke2_join_endpoint : (local.multinetwork_overlay_enabled ? local.rke2_public_join_endpoint : local.rke2_private_join_endpoint)
 
   # Reviewed on 2026-07-05 from upstream release metadata and Helm chart indexes.
