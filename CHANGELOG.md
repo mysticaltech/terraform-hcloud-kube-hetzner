@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+### 🐛 Bug Fixes
+
+- **MicroOS: SSH pubkey auth denied on Cluster Autoscaler-fired nodes** - The stock `selinux-policy`/`selinux-policy-targeted` `ssh` module ships no `allow` rule granting `sshd_t`/`sshd_auth_t`/`sshd_session_t` read access to `shadow_t`, so every login is denied under SELinux enforcing mode once OpenSSH's split privsep daemons (`sshd-auth`, `sshd-session`, OpenSSH 9.8+) need to read `/etc/shadow` — visible as sshd logging "account is locked" for a valid, unlocked account, with a matching AVC denial for a `shadow_t` read. Cluster Autoscaler-fired nodes get no Terraform-side SSH retry/remediation the way static nodepools do, so they surface the gap immediately and permanently, while a manually booted node from the same snapshot can look fine. `hcloud-microos-snapshots.pkr.hcl` now bakes a small local SELinux policy module (`sshd_shadow_read`) closing the gap, with a build-time verification step that fails the packer build if the module isn't active in the snapshot. Verified live: rebuilt the MicroOS x86 snapshot, then forced two independent Cluster Autoscaler node replacement cycles — both new nodes authenticated via SSH pubkey cleanly. Fixes #2250.
 
 ---
 

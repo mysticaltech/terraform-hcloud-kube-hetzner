@@ -88,13 +88,34 @@ locals {
   # Only install kernel-longterm if selected; kernel-default is already in the base image
   kernel_package_list = var.kernel_type == "longterm" ? ["kernel-longterm"] : []
 
-  needed_packages = join(" ", concat(local.kernel_package_list, ["restorecond", "policycoreutils", "policycoreutils-python-utils", "setools-console", "audit", "bind-utils", "wireguard-tools", "fuse", "open-iscsi", "nfs-client", "xfsprogs", "cryptsetup", "lvm2", "git", "cifs-utils", "bash-completion", "mtr", "tcpdump", "udica", "qemu-guest-agent"], var.packages_to_install))
+  needed_packages = join(" ", concat(local.kernel_package_list, ["restorecond", "policycoreutils", "policycoreutils-python-utils", "setools-console", "checkpolicy", "audit", "bind-utils", "wireguard-tools", "fuse", "open-iscsi", "nfs-client", "xfsprogs", "cryptsetup", "lvm2", "git", "cifs-utils", "bash-completion", "mtr", "tcpdump", "udica", "qemu-guest-agent"], var.packages_to_install))
 
   # Read sysctl config if file path is provided, otherwise empty (base64 encoded for safe transfer)
   sysctl_config_content = var.sysctl_config_file != "" ? base64encode(file(var.sysctl_config_file)) : ""
 
   # Commands to write sysctl config if provided (decode base64)
   sysctl_commands = local.sysctl_config_content != "" ? "echo '${local.sysctl_config_content}' | base64 -d > /etc/sysctl.d/99-custom.conf" : ""
+
+  # Local SELinux policy module closing the sshd/shadow read gap (see comment
+  # at its usage site below). Base64-encoded so it can be written with a
+  # single-line echo instead of a heredoc nested inside two other heredocs.
+  sshd_shadow_read_te = <<-TE
+    module sshd_shadow_read 1.0;
+
+    require {
+    	type sshd_t;
+    	type sshd_auth_t;
+    	type sshd_session_t;
+    	type shadow_t;
+    	class file { getattr open read };
+    }
+
+    allow sshd_t shadow_t:file { getattr open read };
+    allow sshd_auth_t shadow_t:file { getattr open read };
+    allow sshd_session_t shadow_t:file { getattr open read };
+  TE
+
+  sshd_shadow_read_te_b64 = base64encode(local.sshd_shadow_read_te)
 
   # Keep output low; otherwise long downloads can overwhelm CI/log capture.
   download_image = "wget --progress=dot:giga -nv --timeout=5 --waitretry=5 --tries=5 --retry-connrefused --inet4-only "
@@ -127,6 +148,20 @@ locals {
     restorecon -Rv /etc/selinux/targeted/policy
     restorecon -Rv /var/lib
     setenforce 1
+
+    # OpenSSH's split privsep daemons (sshd-auth, sshd-session) have no policy
+    # grant to read /etc/shadow in this SELinux policy build, so every login
+    # is denied under enforcing mode regardless of account lock state (seen
+    # as sshd logging "account is locked" even for an unlocked/valid shadow
+    # entry, with a matching AVC denial for a read on shadow_t). Ship a local
+    # policy module closing that gap until upstream selinux-policy catches up
+    # with OpenSSH's newer privsep architecture.
+    echo '${local.sshd_shadow_read_te_b64}' | base64 -d > /root/sshd_shadow_read.te
+    checkmodule -M -m -o /root/sshd_shadow_read.mod /root/sshd_shadow_read.te
+    semodule_package -o /root/sshd_shadow_read.pp -m /root/sshd_shadow_read.mod
+    semodule -i /root/sshd_shadow_read.pp
+    rm -f /root/sshd_shadow_read.te /root/sshd_shadow_read.mod /root/sshd_shadow_read.pp
+
     ${local.sysctl_commands}
     ${local.kernel_switch_commands}
     EOF
@@ -136,6 +171,9 @@ locals {
   clean_up = <<-EOT
     set -ex
     echo "Second reboot successful, cleaning-up..."
+    # Verify the sshd/shadow SELinux policy module took effect in the snapshot.
+    sesearch --allow -s sshd_session_t -t shadow_t -c file -p read 2>/dev/null | grep -q allow \
+      || { echo "FATAL: sshd_shadow_read policy module not active"; semodule -l | grep sshd_shadow_read; exit 1; }
     rm -rf /etc/ssh/ssh_host_*
     echo "Make sure to use NetworkManager"
     touch /etc/NetworkManager/NetworkManager.conf
