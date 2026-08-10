@@ -641,7 +641,7 @@ locals {
       # move the config file into place and adjust permissions
       "[ -f /tmp/config.yaml ] && mv /tmp/config.yaml /etc/rancher/rke2/config.yaml",
       "chmod 0600 /etc/rancher/rke2/config.yaml",
-      "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml && chmod 0600 /etc/rancher/rke2/encryption-config.yaml",
+      "[ -s /tmp/encryption-config.yaml ] && mv /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml && chmod 0600 /etc/rancher/rke2/encryption-config.yaml && restorecon -F /etc/rancher/rke2/encryption-config.yaml",
       # if the server has already been initialized just stop here
       "[ -e /etc/rancher/rke2/rke2.yaml ] && exit 0",
       local.install_additional_kubernetes_environment,
@@ -3402,6 +3402,9 @@ else
   if [ -s /tmp/encryption-config.yaml ]; then
     cp /tmp/encryption-config.yaml /etc/rancher/rke2/encryption-config.yaml
     chmod 0600 /etc/rancher/rke2/encryption-config.yaml
+    if command -v restorecon >/dev/null 2>&1; then
+      restorecon -F /etc/rancher/rke2/encryption-config.yaml
+    fi
   fi
   if systemctl is-active --quiet rke2-server; then
     restart_or_signal_update rke2-server || (echo "Error: Failed to restart rke2-server. Restoring /etc/rancher/rke2/config.yaml from backup" && cp /tmp/config_$DATE.yaml /etc/rancher/rke2/config.yaml && restart_or_signal_update rke2-server)
