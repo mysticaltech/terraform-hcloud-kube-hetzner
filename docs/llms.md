@@ -558,6 +558,9 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Minimum Requirement (Initial Cluster Create):** Typically, at least one agent nodepool with `count >= 1` is needed, unless it's a single-node cluster where the control plane also acts as a worker (in which case, agent nodepool counts can be 0).
   * **Nodepool Attributes (per map):** Most attributes are the same as for `control_plane_nodepools` (`name`, `server_type`, `location`, `labels`, `taints`, `count`, `swap_size`, `zram_size`, `kubelet_args`, `placement_group`, `backups`, `enable_public_ipv4`/`enable_public_ipv6`).
   * **Specific Agent Nodepool Attributes/Examples:**
+    * **`delete_protection` (Boolean, Optional, specific to agent nodepools):**
+      * Default: `false`.
+      * If `true`, enables Hetzner delete and rebuild protection on every server in this nodepool, protecting them from accidental deletion. While enabled it also blocks `terraform destroy` — set it back to `false` and apply before destroying the nodes. Useful for nodes storing database data on local/node storage. See [terraform-provider-hcloud#1014](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1014).
     * **`longhorn_volume_size` (Number, Optional, specific to agent nodepools if Longhorn is enabled):**
       * If `enable_longhorn = true` (a global module setting), this attribute can be added to an agent nodepool definition.
       * **Purpose:** Instructs the module to create a Hetzner Cloud Volume of the specified size (in GB, e.g., `20` for 20GB) for *each node* in this pool. Longhorn will then be configured to use these dedicated Hetzner Volumes for its storage replicas instead of using the node's local disk.
@@ -931,24 +934,28 @@ The example shows three control plane nodepools, each with one node, in differen
 **Section 2.8: Resource Protection and Backup Options**
 
 ```terraform
-  # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
-  # This does not protect deletion from Terraform itself.
+  # Enable delete protection on compatible resources to prevent accidental deletion.
+  # Hetzner delete protection also blocks "terraform destroy" (see the note below).
   # enable_delete_protection = {
   #   floating_ip   = true
   #   load_balancer = true
   #   volume        = true # Applies to volumes created for Longhorn via longhorn_volume_size
   # }
+
+  # Protect the nodes/servers themselves per agent nodepool (see agent_nodepools):
+  # delete_protection = true
 ```
 
 * **`enable_delete_protection` (Map of Booleans, Optional):**
   * **Purpose:** Enables Hetzner Cloud's "delete protection" feature on specific resource types created by this module.
   * **Mechanism:** When delete protection is enabled on a resource in Hetzner Cloud, it cannot be deleted directly from the Hetzner Cloud Console (UI or hcloud CLI) until the protection is first disabled.
-  * **Terraform Interaction:** This protection does *not* prevent `terraform destroy` from deleting the resources. Terraform will typically first disable the protection and then delete the resource.
+  * **Terraform Interaction:** Hetzner delete protection *also* blocks `terraform destroy` (and OpenTofu): the destroy fails while protection is enabled, so the flag must be set back to `false` and applied before the resource can be destroyed. See [terraform-provider-hcloud#1014](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1014).
   * **Scope:**
     * `floating_ip = true`: Protects Hetzner Floating IPs (e.g., for egress nodepools).
     * `load_balancer = true`: Protects the Hetzner Load Balancer.
     * `volume = true`: Protects Hetzner Volumes (e.g., those created if `longhorn_volume_size` is used in an agent nodepool).
-  * **Benefit:** Adds an extra safety layer against accidental manual deletions in the Hetzner console.
+  * **Note:** This variable does *not* cover the nodes/servers. To protect servers, set `delete_protection = true` on the relevant `agent_nodepools` entry.
+  * **Benefit:** Adds an extra safety layer against accidental deletions.
 
 ```terraform
   # Enable etcd snapshot backups to S3 storage.

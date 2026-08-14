@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🚀 New Features
+
+- Added a per-nodepool `delete_protection` option (bool, default `false`) to `agent_nodepools`. When enabled, Hetzner delete and rebuild protection is set on every server in the nodepool, guarding nodes (e.g. those holding database data on local storage) against accidental deletion. Existing clusters are unaffected until the flag is set.
+
 ### 🐛 Bug Fixes
 
 - Made the generated-site contract test portable to clean GitHub Actions runners instead of requiring undeclared `rg`. CI installs Zsh and Fish and fails closed when a documented shell verifier is missing; local runs print an explicit skip when an optional shell is unavailable.

@@ -58,6 +58,7 @@ module "agents" {
   location                      = each.value.location
   server_type                   = each.value.server_type
   backups                       = each.value.backups
+  delete_protection             = each.value.delete_protection
   ipv4_subnet_id                = local.use_per_nodepool_subnets ? hcloud_network_subnet.agent[[for i, v in var.agent_nodepools : i if v.name == each.value.nodepool_name][0]].id : hcloud_network_subnet.agent[0].id
   dns_servers                   = var.dns_servers
   registries_config             = local.registries_config_effective

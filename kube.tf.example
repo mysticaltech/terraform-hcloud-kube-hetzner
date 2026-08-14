@@ -419,6 +419,12 @@ module "kube-hetzner" {
       # Something worth noting is that Volume storage is slower than node storage, which is achieved by not mentioning longhorn_volume_size or setting it to 0.
       # So for something like DBs, you definitely want node storage, for other things like backups, volume storage is fine, and cheaper.
       # longhorn_volume_size = 20
+
+      # Protect every server in this nodepool from accidental deletion (default: false).
+      # When true, Hetzner delete and rebuild protection is enabled on the servers, which
+      # also blocks "terraform destroy" until the protection is disabled again. Useful for
+      # nodes holding database data on local/node storage.
+      # delete_protection = true
       # Set any path inside /var/ folder to have the ability to use an additional storage class along with the default one, which by default must be set in helm values to
       # /var/longhorn
       # longhorn_mount_path = "/var/lib/longhorn"
@@ -725,8 +731,10 @@ module "kube-hetzner" {
   # Leave empty to keep metrics reachable only from inside the cluster.
   # cluster_autoscaler_metrics_firewall_source = ["myipv4", "10.0.0.0/8"]
 
-  # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
-  # This does not protect deletion from Terraform itself.
+  # Enable delete protection on compatible resources to prevent accidental deletion.
+  # Hetzner delete protection also blocks "terraform destroy" (and OpenTofu): the destroy
+  # fails until the protection is disabled, see https://github.com/hetznercloud/terraform-provider-hcloud/issues/1014
+  # To protect the nodes/servers themselves, use the per-nodepool "delete_protection" option on agent_nodepools above.
   # enable_delete_protection = {
   #   floating_ip   = true
   #   load_balancer = true

@@ -146,6 +146,12 @@ variable "backups" {
   default     = false
 }
 
+variable "delete_protection" {
+  description = "Enable Hetzner Cloud delete and rebuild protection on the server. Blocks deletion (including terraform destroy) until disabled."
+  type        = bool
+  default     = false
+}
+
 variable "packages_to_install" {
   description = "Packages to install"
   type        = list(string)
