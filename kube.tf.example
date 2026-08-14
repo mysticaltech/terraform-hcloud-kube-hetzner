@@ -424,6 +424,10 @@ module "kube-hetzner" {
       # When true, Hetzner delete and rebuild protection is enabled on the servers, which
       # also blocks "terraform destroy" until the protection is disabled again. Useful for
       # nodes holding database data on local/node storage.
+      # NOTE: despite the hcloud provider docs, protection is NOT auto-lifted before a delete
+      # (only hcloud_zone_rrset does that), so this is a real two-apply gate: set
+      # delete_protection = false and apply once before a destroy/count decrease can remove the
+      # node. See https://github.com/hetznercloud/terraform-provider-hcloud/issues/1206
       # delete_protection = true
       # Set any path inside /var/ folder to have the ability to use an additional storage class along with the default one, which by default must be set in helm values to
       # /var/longhorn
@@ -734,6 +738,9 @@ module "kube-hetzner" {
   # Enable delete protection on compatible resources to prevent accidental deletion.
   # Hetzner delete protection also blocks "terraform destroy" (and OpenTofu): the destroy
   # fails until the protection is disabled, see https://github.com/hetznercloud/terraform-provider-hcloud/issues/1014
+  # Note: contrary to the provider docs, protection is NOT auto-lifted before a delete (only
+  # hcloud_zone_rrset does), so it is a real two-apply gate rather than a silent bypass, see
+  # https://github.com/hetznercloud/terraform-provider-hcloud/issues/1206
   # To protect the nodes/servers themselves, use the per-nodepool "delete_protection" option on agent_nodepools above.
   # enable_delete_protection = {
   #   floating_ip   = true
