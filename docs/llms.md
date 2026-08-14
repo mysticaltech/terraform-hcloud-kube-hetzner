@@ -558,6 +558,10 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Minimum Requirement (Initial Cluster Create):** Typically, at least one agent nodepool with `count >= 1` is needed, unless it's a single-node cluster where the control plane also acts as a worker (in which case, agent nodepool counts can be 0).
   * **Nodepool Attributes (per map):** Most attributes are the same as for `control_plane_nodepools` (`name`, `server_type`, `location`, `labels`, `taints`, `count`, `swap_size`, `zram_size`, `kubelet_args`, `placement_group`, `backups`, `enable_public_ipv4`/`enable_public_ipv6`).
   * **Specific Agent Nodepool Attributes/Examples:**
+    * **`delete_protection` (Boolean, Optional, specific to agent nodepools):**
+      * Default: `false`.
+      * If `true`, enables Hetzner delete and rebuild protection on every server in this nodepool, protecting them from accidental deletion. While enabled it also blocks `terraform destroy` — set it back to `false` and apply before destroying the nodes. Useful for nodes storing database data on local/node storage. See [terraform-provider-hcloud#1014](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1014).
+      * **Important — the protection is a genuine two-apply gate:** The hcloud provider's documentation claims it automatically lifts delete protection before deleting a resource, but in practice it does **not** — a maintainer audit found that of all hcloud resources only `hcloud_zone_rrset` lifts protection automatically; `hcloud_server` (and every other resource) does not. A `terraform destroy`, or reducing a nodepool `count`, therefore *fails* on the protected server instead of silently removing the protection, so you must explicitly set `delete_protection = false` and run one `apply` before a second `apply`/`destroy` can remove the node. This is the intended behavior for this feature — it makes the flag behave like AWS RDS deletion protection and guards against an accidental `terraform apply` recreating a node and losing its local database storage (and its legacy pricing). See the discussion in [terraform-provider-hcloud#1206](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1206).
     * **`longhorn_volume_size` (Number, Optional, specific to agent nodepools if Longhorn is enabled):**
       * If `enable_longhorn = true` (a global module setting), this attribute can be added to an agent nodepool definition.
       * **Purpose:** Instructs the module to create a Hetzner Cloud Volume of the specified size (in GB, e.g., `20` for 20GB) for *each node* in this pool. Longhorn will then be configured to use these dedicated Hetzner Volumes for its storage replicas instead of using the node's local disk.
@@ -931,24 +935,28 @@ The example shows three control plane nodepools, each with one node, in differen
 **Section 2.8: Resource Protection and Backup Options**
 
 ```terraform
-  # Enable delete protection on compatible resources to prevent accidental deletion from the Hetzner Cloud Console.
-  # This does not protect deletion from Terraform itself.
+  # Enable delete protection on compatible resources to prevent accidental deletion.
+  # Hetzner delete protection also blocks "terraform destroy" (see the note below).
   # enable_delete_protection = {
   #   floating_ip   = true
   #   load_balancer = true
   #   volume        = true # Applies to volumes created for Longhorn via longhorn_volume_size
   # }
+
+  # Protect the nodes/servers themselves per agent nodepool (see agent_nodepools):
+  # delete_protection = true
 ```
 
 * **`enable_delete_protection` (Map of Booleans, Optional):**
   * **Purpose:** Enables Hetzner Cloud's "delete protection" feature on specific resource types created by this module.
   * **Mechanism:** When delete protection is enabled on a resource in Hetzner Cloud, it cannot be deleted directly from the Hetzner Cloud Console (UI or hcloud CLI) until the protection is first disabled.
-  * **Terraform Interaction:** This protection does *not* prevent `terraform destroy` from deleting the resources. Terraform will typically first disable the protection and then delete the resource.
+  * **Terraform Interaction:** Hetzner delete protection *also* blocks `terraform destroy` (and OpenTofu): the destroy fails while protection is enabled, so the flag must be set back to `false` and applied before the resource can be destroyed. See [terraform-provider-hcloud#1014](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1014). Despite the hcloud provider docs stating that protection is automatically lifted before a delete, this does not actually happen for these resource types (a maintainer audit found only `hcloud_zone_rrset` does so) — so protection acts as a real two-apply gate rather than being silently bypassed. See [terraform-provider-hcloud#1206](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1206).
   * **Scope:**
     * `floating_ip = true`: Protects Hetzner Floating IPs (e.g., for egress nodepools).
     * `load_balancer = true`: Protects the Hetzner Load Balancer.
     * `volume = true`: Protects Hetzner Volumes (e.g., those created if `longhorn_volume_size` is used in an agent nodepool).
-  * **Benefit:** Adds an extra safety layer against accidental manual deletions in the Hetzner console.
+  * **Note:** This variable does *not* cover the nodes/servers. To protect servers, set `delete_protection = true` on the relevant `agent_nodepools` entry.
+  * **Benefit:** Adds an extra safety layer against accidental deletions.
 
 ```terraform
   # Enable etcd snapshot backups to S3 storage.

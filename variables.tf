@@ -1202,6 +1202,7 @@ variable "agent_nodepools" {
     taints                = list(string)
     longhorn_volume_size  = optional(number)
     longhorn_mount_path   = optional(string, "/var/longhorn")
+    delete_protection     = optional(bool, false)
     append_random_suffix  = optional(bool, true)
     swap_size             = optional(string, "")
     zram_size             = optional(string, "")

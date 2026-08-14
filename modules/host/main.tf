@@ -29,6 +29,8 @@ resource "hcloud_server" "server" {
   firewall_ids       = local.effective_firewall_ids
   placement_group_id = var.placement_group_id
   backups            = var.backups
+  delete_protection  = var.delete_protection
+  rebuild_protection = var.delete_protection
   user_data          = data.cloudinit_config.config.rendered
   keep_disk          = var.keep_disk_size
   public_net {

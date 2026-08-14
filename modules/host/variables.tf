@@ -146,6 +146,12 @@ variable "backups" {
   default     = false
 }
 
+variable "delete_protection" {
+  description = "Enable Hetzner Cloud delete and rebuild protection on the server. Blocks deletion (including terraform destroy) until disabled. Protection is not auto-lifted before a delete (see hcloud provider issue #1206), so it acts as a two-apply gate."
+  type        = bool
+  default     = false
+}
+
 variable "packages_to_install" {
   description = "Packages to install"
   type        = list(string)

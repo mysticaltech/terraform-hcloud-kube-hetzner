@@ -186,6 +186,25 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
             expect_success=True,
         ),
         Scenario(
+            name="agent-nodepool-delete-protection-valid",
+            extra_module_hcl="",
+            expect_success=True,
+            expect_output=("delete_protection", "rebuild_protection"),
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name              = "agent"
+                server_type       = "cx23"
+                location          = "nbg1"
+                labels            = []
+                taints            = []
+                count             = 1
+                delete_protection = true
+              }
+            ]
+            """,
+        ),
+        Scenario(
             name="cilium-gateway-api-valid",
             extra_module_hcl="""
             cni_plugin                 = "cilium"
