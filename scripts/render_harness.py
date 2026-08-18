@@ -480,6 +480,7 @@ def base_render_vars() -> dict[str, Any]:
     }
 
     top_level = {
+        "automatically_upgrade_os": True,
         "cloudinit_runcmd_common": "- echo render-harness-common",
         "cloudinit_runcmd_extra": [],
         "cloudinit_write_files_common": (
@@ -1155,6 +1156,54 @@ def run_autoscaler_standard_node_ip_checks() -> None:
     )
 
 
+def run_autoscaler_os_upgrade_timer_checks() -> None:
+    label = "autoscaler OS upgrade timer cloud-init"
+    timer_command = "systemctl enable --now transactional-update.timer"
+    agent_install = "/var/pre_install/install-k8s-agent.sh"
+
+    def runcmd_for(upgrade_os: bool) -> list:
+        render_vars = base_render_vars()
+        render_vars["automatically_upgrade_os"] = upgrade_os
+        _, document = render_cloudinit_with_vars(
+            render_vars,
+            REPO_ROOT / "templates/autoscaler-cloudinit.yaml.tpl",
+        )
+        runcmd = document.get("runcmd")
+        if not isinstance(runcmd, list):
+            fail(label, f"runcmd is not a list for automatically_upgrade_os={upgrade_os}")
+        return runcmd
+
+    enabled = runcmd_for(True)
+
+    def index_of(runcmd: list, needle: str) -> int:
+        for position, item in enumerate(runcmd):
+            if isinstance(item, str) and needle in item:
+                return position
+            if isinstance(item, list) and any(needle in part for part in item):
+                return position
+        return -1
+
+    timer_index = index_of(enabled, timer_command)
+    if timer_index < 0:
+        fail(label, "autoscaler nodes never re-enable transactional-update.timer")
+    if timer_index != len(enabled) - 1:
+        fail(label, "the timer must be re-enabled by the last runcmd entry")
+
+    agent_index = index_of(enabled, agent_install)
+    if agent_index < 0:
+        fail(label, "rendered runcmd has no agent install entry")
+    if timer_index < agent_index:
+        fail(label, "re-enabling the timer must not race the Kubernetes bootstrap")
+
+    if index_of(runcmd_for(False), timer_command) >= 0:
+        fail(label, "automatically_upgrade_os = false must not re-enable the timer")
+
+    print_pass(
+        label,
+        "re-enables transactional-update.timer after the agent install, and only when automatically_upgrade_os is true",
+    )
+
+
 def run_autoscaler_tailscale_bootstrap_scope_checks() -> None:
     tailscale_vars = base_render_vars()
     tailscale_vars["tailscale_bootstrap_script"] = """set -euo pipefail
@@ -1734,6 +1783,7 @@ def main() -> int:
         run_node_annotation_cloudinit_checks(scratch)
         run_autoscaler_standard_node_ip_checks()
         run_autoscaler_tailscale_bootstrap_scope_checks()
+        run_autoscaler_os_upgrade_timer_checks()
         run_autoscaler_overlay_node_ip_checks()
         run_autoscaler_manifest_checks(scratch)
         run_kubeconfig_checks(scratch)
