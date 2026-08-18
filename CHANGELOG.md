@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Bug Fixes
 
+- Cluster Autoscaler nodes now re-enable `transactional-update.timer` at the end of cloud-init when `automatically_upgrade_os` is true (the default). The shared runcmd preamble disables the timer for the duration of first boot and only `terraform_data.os_upgrade_toggle` re-enabled it, which exists per `hcloud_server` and therefore never runs for autoscaler-created nodes; those nodes stayed on the snapshot's packages indefinitely and never produced the `/var/run/reboot-required` sentinel kured reboots on. Existing autoscaled nodes keep their current user-data until the autoscaler recycles them.
 - Made the generated-site contract test portable to clean GitHub Actions runners instead of requiring undeclared `rg`. CI installs Zsh and Fish and fails closed when a documented shell verifier is missing; local runs print an explicit skip when an optional shell is unavailable.
 
 ### 🔧 Changes

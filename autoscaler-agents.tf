@@ -230,6 +230,7 @@ data "cloudinit_config" "autoscaler_config" {
         multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
         multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled
         tailscale_bootstrap_script          = local.tailscale_cloud_init_bootstrap_enabled ? local.tailscale_bootstrap_script_autoscaler_by_index[count.index] : ""
+        automatically_upgrade_os            = var.automatically_upgrade_os
       }
     )
   }
@@ -285,6 +286,7 @@ data "cloudinit_config" "autoscaler_config_rke2" {
         multinetwork_transport_ipv4_enabled = local.multinetwork_transport_ipv4_enabled
         multinetwork_transport_ipv6_enabled = local.multinetwork_transport_ipv6_enabled
         tailscale_bootstrap_script          = local.tailscale_cloud_init_bootstrap_enabled ? local.tailscale_bootstrap_script_autoscaler_by_index[count.index] : ""
+        automatically_upgrade_os            = var.automatically_upgrade_os
       }
     )
   }

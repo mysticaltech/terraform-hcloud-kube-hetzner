@@ -370,3 +370,15 @@ ${indent(2, "\n${chomp(tailscale_bootstrap_script)}")}
 
 # Start the Kubernetes agent install script
 - ['/bin/bash', '/var/pre_install/install-k8s-agent.sh']
+%{if automatically_upgrade_os~}
+
+# Re-enable automatic OS updates. The shared runcmd preamble disables
+# transactional-update.timer for the duration of first boot; on host-module nodes
+# terraform_data.os_upgrade_toggle turns it back on after provisioning, but nodes created
+# by the Cluster Autoscaler have no such resource and would stay disabled forever. This
+# runs last, after the agent install, so re-enabling can no longer race the bootstrap.
+# --now is required: enable alone only creates the symlink, and the unit would not be
+# pulled in until timers.target on the next boot.
+- |
+  systemctl enable --now transactional-update.timer || true
+%{endif~}
