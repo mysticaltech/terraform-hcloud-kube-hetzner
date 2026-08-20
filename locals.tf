@@ -3751,6 +3751,35 @@ cloudinit_runcmd_common = <<EOT
 - [sed, '-i', 's/^root:!/root:/', '/etc/shadow']
 - [systemctl, 'restart', 'sshd']
 
+# Keep the Hetzner metadata service reachable when the private-network DHCP
+# server advertises a classless static route (option 121 / RFC 3442) for
+# 169.254.169.254 via the private gateway. That path black-holes on affected
+# networks, and because the offered route is a /32 it beats the public default
+# route by longest-prefix-match at any metric - so ipv4.never-default and
+# ipv4.route-metric on the private connection cannot prevent it. Pin the same
+# /32 via the public gateway at a lower metric instead, persisted in the public
+# connection profile so it survives DHCP renewals and reboots (runcmd is
+# per-instance only). The DHCP route is deliberately left in place, since
+# deleting it would only bring it back on the next renewal. Nodes with no route
+# to the public gateway are left alone, because there metadata legitimately has
+# to traverse the private network.
+- |
+  METADATA_IP=169.254.169.254
+  PUBLIC_GW=172.31.1.1
+  METADATA_METRIC=100
+  PUB_IF=$(ip -4 route get "$PUBLIC_GW" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}')
+  if [ -z "$PUB_IF" ]; then
+    echo "Info: no route to $PUBLIC_GW; leaving $METADATA_IP routing unchanged."
+  else
+    if systemctl is-active --quiet NetworkManager; then
+      PUB_CONN=$(nmcli -g GENERAL.CONNECTION device show "$PUB_IF" 2>/dev/null | head -1)
+      if [ -n "$PUB_CONN" ] && ! nmcli -g ipv4.routes connection show "$PUB_CONN" 2>/dev/null | grep -q "$METADATA_IP/32"; then
+        nmcli connection modify "$PUB_CONN" +ipv4.routes "$METADATA_IP/32 $PUBLIC_GW $METADATA_METRIC" >/dev/null 2>&1 || echo "Warning: could not persist the $METADATA_IP route on $PUB_CONN." >&2
+      fi
+    fi
+    ip -4 route replace "$METADATA_IP/32" via "$PUBLIC_GW" dev "$PUB_IF" metric "$METADATA_METRIC" 2>/dev/null || echo "Warning: could not pin $METADATA_IP via $PUBLIC_GW dev $PUB_IF." >&2
+  fi
+
 EOT
 
 }
