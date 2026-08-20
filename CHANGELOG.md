@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Bug Fixes
 
+- Kept the Hetzner metadata service reachable when the private-network DHCP server advertises a classless static route (option 121 / RFC 3442) for `169.254.169.254` via the private gateway. That path black-holes on affected networks, and because the offered route is a `/32` it beats the public default route by longest-prefix-match at any metric, so `ipv4.never-default` and `ipv4.route-metric` on the private connection could not prevent it; `hcloud-csi-node` crashlooped on `failed to fetch server ID from metadata service` and stalled the DaemonSet rollout. All node types, including autoscaler nodes, now pin the same `/32` via the public gateway at a lower metric, persisted in the public connection profile so it survives DHCP lease renewals and reboots. Nodes with no route to the public gateway are left untouched, since there metadata legitimately traverses the private network (#2268).
 - Made the generated-site contract test portable to clean GitHub Actions runners instead of requiring undeclared `rg`. CI installs Zsh and Fish and fails closed when a documented shell verifier is missing; local runs print an explicit skip when an optional shell is unavailable.
 
 ### 🔧 Changes
