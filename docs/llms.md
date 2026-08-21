@@ -558,6 +558,11 @@ The example shows three control plane nodepools, each with one node, in differen
   * **Minimum Requirement (Initial Cluster Create):** Typically, at least one agent nodepool with `count >= 1` is needed, unless it's a single-node cluster where the control plane also acts as a worker (in which case, agent nodepool counts can be 0).
   * **Nodepool Attributes (per map):** Most attributes are the same as for `control_plane_nodepools` (`name`, `server_type`, `location`, `labels`, `taints`, `count`, `swap_size`, `zram_size`, `kubelet_args`, `placement_group`, `backups`, `enable_public_ipv4`/`enable_public_ipv6`).
   * **Specific Agent Nodepool Attributes/Examples:**
+    * **`extra_firewall_ids` (List of Numbers, Optional):**
+      * Attaches existing Hetzner Cloud Firewalls only to servers in this static agent nodepool.
+      * The nodepool list is merged with the module-wide `extra_firewall_ids`; entries in `nodes[*].extra_firewall_ids` add further IDs for individual nodes.
+      * Use this instead of a separate `hcloud_firewall_attachment` when the same servers are managed by this module, so one `hcloud_server.firewall_ids` owner retains a convergent plan.
+      * When both public interfaces are disabled, firewall IDs are intentionally not attached because Hetzner Cloud Firewalls apply only to public networking.
     * **`longhorn_volume_size` (Number, Optional, specific to agent nodepools if Longhorn is enabled):**
       * If `enable_longhorn = true` (a global module setting), this attribute can be added to an agent nodepool definition.
       * **Purpose:** Instructs the module to create a Hetzner Cloud Volume of the specified size (in GB, e.g., `20` for 20GB) for *each node* in this pool. Longhorn will then be configured to use these dedicated Hetzner Volumes for its storage replicas instead of using the node's local disk.

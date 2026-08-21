@@ -18,6 +18,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCALS_TF = REPO_ROOT / "locals.tf"
 AGENTS_TF = REPO_ROOT / "agents.tf"
+VARIABLES_TF = REPO_ROOT / "variables.tf"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 RENDER_SSH_AUTHORIZED_KEY = (
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKubeHetznerRenderHarness render-comment"
@@ -287,6 +288,40 @@ def assert_agent_private_ipv4_contract(scratch: "TerraformScratch") -> None:
     print_pass(
         "agent private IPv4 contract",
         "v2 per-pool offsets are preserved; shared primary-agent offsets are unique across pools; external agents remain unpinned",
+    )
+
+
+def assert_agent_extra_firewall_ids_contract() -> None:
+    """Keep scoped agent firewalls under the owning hcloud_server resource."""
+
+    variables_source = normalize_hcl(VARIABLES_TF.read_text(encoding="utf-8"))
+    locals_source = normalize_hcl(LOCALS_TF.read_text(encoding="utf-8"))
+    agents_source = normalize_hcl(AGENTS_TF.read_text(encoding="utf-8"))
+
+    if variables_source.count("extra_firewall_ids=optional(list(number),[])") < 2:
+        fail(
+            "agent extra firewall IDs",
+            "nodepool and map-backed node schemas must both expose extra_firewall_ids",
+        )
+
+    required_local_fragments = (
+        "extra_firewall_ids:nodepool_obj.extra_firewall_ids",
+        "extra_firewall_ids:distinct(concat(nodepool_obj.extra_firewall_ids,coalesce(node_obj.extra_firewall_ids,[])))",
+    )
+    missing_locals = [fragment for fragment in required_local_fragments if fragment not in locals_source]
+    if missing_locals:
+        fail("agent extra firewall IDs", f"missing local merge fragments: {missing_locals!r}")
+
+    required_agent_fragment = (
+        "extra_firewall_ids=each.value.disable_ipv4&&each.value.disable_ipv6?[]:"
+        "distinct(concat(var.extra_firewall_ids,each.value.extra_firewall_ids))"
+    )
+    if required_agent_fragment not in agents_source:
+        fail("agent extra firewall IDs", "agent host module does not merge global and scoped IDs")
+
+    print_pass(
+        "agent extra firewall IDs",
+        "count and map nodepools merge scoped IDs into the owning hcloud_server",
     )
 
 
@@ -1717,6 +1752,7 @@ def main() -> int:
         scratch = TerraformScratch(temp_dir, base_render_vars())
         assert_addon_default_versions()
         assert_agent_private_ipv4_contract(scratch)
+        assert_agent_extra_firewall_ids_contract()
         assert_opensuse_ssh_cloudinit_contract()
         assert_baked_selinux_package_contract()
         assert_kubernetes_artifact_architecture_contract()
