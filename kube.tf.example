@@ -375,6 +375,11 @@ module "kube-hetzner" {
       # primary_ipv4_id = 123456
       # primary_ipv6_id = 123457
 
+      # Attach existing Hetzner Cloud Firewalls only to this agent nodepool.
+      # These IDs are merged with the module-wide extra_firewall_ids list.
+      # Individual entries in a nodes map may add further IDs.
+      # extra_firewall_ids = [123456]
+
       # In node_transport_mode = "tailscale", every active agent nodepool must
       # set network_scope explicitly so Terraform can validate the topology at plan time:
       # network_scope = "primary"
@@ -482,6 +487,7 @@ module "kube-hetzner" {
         "1" : {
           location = "fsn1"
           # os                        = "microos" # optional per-node override
+          # extra_firewall_ids        = [234567]
           labels = [
             "testing-labels=a1",
           ]

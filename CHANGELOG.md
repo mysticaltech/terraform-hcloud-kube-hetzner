@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🚀 New Features
 
 - Static control-plane and agent nodes now advertise dual-stack `node-ip` values that match configured cluster CIDR families, making the existing Cilium IPv6 CIDR inputs plan-validated on the standard private-network topology where validation passes (#2170, #2244, #2245; thanks @mgazza, @bkero).
+- Static agent nodepools and individual map-backed agent nodes can now add scoped `extra_firewall_ids`. The module merges them with global firewall IDs and keeps the owning `hcloud_server` resource authoritative, avoiding perpetual detach plans caused by a competing `hcloud_firewall_attachment`.
 
 ### 🐛 Bug Fixes
 

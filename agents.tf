@@ -53,7 +53,7 @@ module "agents" {
   ssh_additional_public_keys    = length(var.ssh_hcloud_key_label) > 0 ? concat(local.ssh_additional_public_keys, [for key in data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys.*.public_key : trimspace(key)]) : local.ssh_additional_public_keys
   ssh_authorized_keys_exclusive = var.ssh_authorized_keys_exclusive
   firewall_ids                  = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : [hcloud_firewall.k3s.id] # Cannot attach a firewall when public interfaces are disabled
-  extra_firewall_ids            = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : var.extra_firewall_ids
+  extra_firewall_ids            = each.value.disable_ipv4 && each.value.disable_ipv6 ? [] : distinct(concat(var.extra_firewall_ids, each.value.extra_firewall_ids))
   placement_group_id            = var.enable_placement_groups ? (each.value.placement_group == null ? hcloud_placement_group.agent[each.value.placement_group_index].id : hcloud_placement_group.agent_named[each.value.placement_group].id) : null
   location                      = each.value.location
   server_type                   = each.value.server_type
