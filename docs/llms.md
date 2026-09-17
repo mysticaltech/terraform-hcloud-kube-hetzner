@@ -1454,7 +1454,7 @@ Excellent! Let's continue our meticulous dissection.
 ```terraform
   # If you want to disable the automatic upgrade of k3s, you can set below to "false".
   # The default channel follows upstream stable. For production pinning, set k3s_version to an exact release tag.
-  # v1.33 and v1.36 are supported minor-line channels when k3s_version is empty.
+  # v1.33, v1.36 and v1.37 are supported minor-line channels when k3s_version is empty.
   # Bootstrap uses the module-reviewed release; automated upgrades follow the live channel.
   # For production use, always use an HA setup with at least 3 control-plane nodes and 2 agents, and keep this on for maximum security.
 
@@ -1585,7 +1585,7 @@ Excellent! Let's continue our meticulous dissection.
 ```terraform
   # Selects stable, latest, or testing. Initial bootstrap uses the exact channel release
   # reviewed with this module version; automated upgrades can follow the live channel.
-  # For minor-line patch following, use k3s_channel = "v1.36" with k3s_version = "".
+  # For minor-line patch following, use k3s_channel = "v1.37" with k3s_version = "".
   # For an exact release, set k3s_version; it also pins automated upgrades.
   # see https://rancher.com/docs/k3s/latest/en/upgrades/basic/ and https://update.k3s.io/v1-release/channels
   # ⚠️ If you are going to use Rancher addons for instance, it's always a good idea to fix the kube version to one minor version below the latest stable,
@@ -1602,7 +1602,7 @@ Excellent! Let's continue our meticulous dissection.
     * `"stable"`: Points to the latest stable k3s release.
     * `"latest"`: Points to the most recent k3s release, which might include release candidates or newer patches than "stable".
     * `"testing"`: For pre-release versions. Not for production.
-    * `"v1.33"` and `"v1.36"`: Supported minor-line channels when `k3s_version` is empty. Bootstrap uses a reviewed snapshot; automated upgrades follow only that minor's patch line.
+    * `"v1.33"`, `"v1.36"` and `"v1.37"`: Supported minor-line channels when `k3s_version` is empty. Bootstrap uses a reviewed snapshot; automated upgrades follow only that minor's patch line.
     * Other accepted minor values (e.g., `"v1.30"`, `"v1.29"`): Require an exact `k3s_version`, which owns installation and upgrade behavior.
   * **Rancher Compatibility (⚠️):** Rancher often has specific Kubernetes version compatibility requirements. Choose a `k3s_version` that is supported by the version of Rancher you intend to use (if `enable_rancher = true`). Pinning one minor below the absolute latest stable is still good practice for broader addon compatibility.
   * **Reference:** The k3s documentation links explain channels in detail.
@@ -3399,7 +3399,7 @@ These variables are part of the current v3 module contract and should be conside
   * **Default:** `rke2_channel = "v1.32"`, `rke2_version = "v1.32.5+rke2r1"`.
   * **Purpose:** Selects the RKE2 install channel or exact RKE2 version.
   * **Considerations:** Exact versions supersede channels. Initial channel bootstrap uses the release snapshot reviewed with the module; later automated upgrades can follow the configured live channel.
-  * **Supported unpinned channels:** `stable`, `latest`, `testing`, and `v1.36`. Explicitly set `rke2_version = ""` to follow a channel instead of the default exact-version pin.
+  * **Supported unpinned channels:** `stable`, `latest`, `testing`, `v1.36`, and `v1.37`. Explicitly set `rke2_version = ""` to follow a channel instead of the default exact-version pin.
 
 * **`rke2_artifact_sha256` (Map of Strings, Optional):**
   * **Default:** `{}`.
