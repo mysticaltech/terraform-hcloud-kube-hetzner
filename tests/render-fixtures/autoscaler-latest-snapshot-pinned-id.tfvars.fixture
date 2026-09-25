@@ -1,0 +1,12 @@
+autoscaler_nodepools = [
+  {
+    name        = "autoscaler"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 1
+    os          = "leapmicro"
+  }
+]
+
+cluster_autoscaler_snapshot_selection = "latest"
