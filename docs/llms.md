@@ -870,6 +870,10 @@ The example shows three control plane nodepools, each with one node, in differen
   # Server/node creation timeout variable:
   #   - cluster_autoscaler_server_creation_timeout: Sets the timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it (defaults to 15, unit is minutes)
   #
+  # Snapshot selection variable:
+  #   - cluster_autoscaler_snapshot_selection: "id" (default) pins the snapshot resolved at plan time. "latest" makes the autoscaler pick the
+  #     newest distro-labeled snapshot when it creates a server, so rebuilding snapshots (e.g. on a CI schedule) needs no re-apply.
+  #
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
@@ -878,6 +882,7 @@ The example shows three control plane nodepools, each with one node, in differen
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
   # cluster_autoscaler_server_creation_timeout = 15
+  # cluster_autoscaler_snapshot_selection = "id"
 ```
 
 * **Cluster Autoscaler Binary Configuration (Conditional on `autoscaler_nodepools` being set):**
