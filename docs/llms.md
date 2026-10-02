@@ -194,6 +194,17 @@ module "kube-hetzner" {
   * **Caution:** Setting this too high could theoretically make brute-force attacks slightly easier if other security measures are weak, but the primary defense is strong key management.
 
 ```terraform
+  # If Terraform runs where the Hetzner private network is reachable (in-cluster CI, VPN),
+  # provisioner SSH connections can use node private IPs instead of public IPs.
+  # ssh_use_private_network = true
+```
+
+* **`ssh_use_private_network` (Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Makes every Terraform SSH/provisioning connection target the node's private network IP instead of its public IP. `node_connection_overrides` and the Tailscale transport still take precedence when set.
+  * **Use Case:** Running Terraform from a runner that can route to the cluster's private network (e.g. an in-cluster Atlantis pod, VPN, or WireGuard peer) while node firewalls deny SSH from public sources. Nodes without a private IP still fall back to their public addresses.
+
+```terraform
   # If you want to use an ssh key that is already registered within hetzner cloud, you can pass its id.
   # If no id is passed, a new ssh key will be registered within hetzner cloud.
   # It is important that exactly this key is passed via `ssh_public_key` & `ssh_private_key` variables.
