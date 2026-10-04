@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Negative plan tests for validation-contract preconditions."""
+"""Negative plan tests for validation-contract preconditions.
+
+A case may instead be a positive control (expect_success=True): the plan must
+succeed and must not report expected_substring. Use it next to a negative case
+when an input relaxes a precondition, so the boundary is pinned from both sides.
+"""
 
 from __future__ import annotations
 
@@ -39,6 +44,7 @@ class Case:
     var_file: Path
     target: str
     expected_substring: str
+    expect_success: bool = False
 
 
 CASES = [
@@ -143,6 +149,50 @@ CASES = [
         var_file=FIXTURE_DIR / "dualstack-tailscale-transport.tfvars.fixture",
         target="module.sut.terraform_data.validation_contract",
         expected_substring='node_transport_mode="tailscale" cannot be combined',
+    ),
+    Case(
+        name="autoscaler-network-attachments-over-limit",
+        var_file=FIXTURE_DIR / "autoscaler-network-attachments-over-limit.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="at most 100 attached resources",
+    ),
+    Case(
+        name="autoscaler-max-nodes-total-over-limit",
+        var_file=FIXTURE_DIR / "autoscaler-max-nodes-total-over-limit.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="at most 100 attached resources",
+    ),
+    Case(
+        name="autoscaler-max-nodes-total-within-limit",
+        var_file=FIXTURE_DIR / "autoscaler-max-nodes-total-within-limit.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="at most 100 attached resources",
+        expect_success=True,
+    ),
+    Case(
+        name="autoscaler-max-nodes-total-old-autoscaler",
+        var_file=FIXTURE_DIR / "autoscaler-max-nodes-total-old-autoscaler.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="at most 100 attached resources",
+    ),
+    Case(
+        name="autoscaler-max-nodes-total-overridden",
+        var_file=FIXTURE_DIR / "autoscaler-max-nodes-total-overridden.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="at most 100 attached resources",
+    ),
+    Case(
+        name="autoscaler-max-nodes-total-enforce-min-size",
+        var_file=FIXTURE_DIR / "autoscaler-max-nodes-total-enforce-min-size.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="at most 100 attached resources",
+    ),
+    Case(
+        name="autoscaler-max-nodes-total-above-pool-sum",
+        var_file=FIXTURE_DIR / "autoscaler-max-nodes-total-above-pool-sum.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring="at most 100 attached resources",
+        expect_success=True,
     ),
 ]
 
@@ -289,11 +339,18 @@ def run_case(case: Case) -> str:
     )
     output = combined_output(result)
 
-    if result.returncode == 0:
+    if case.expect_success:
+        if result.returncode == 0:
+            print(f"PASS {case.name}: plan succeeded as expected")
+            return "executed"
+        if case.expected_substring in output:
+            print(f"FAIL {case.name}: plan must not report {case.expected_substring!r}")
+            print(output.strip())
+            return "failed"
+    elif result.returncode == 0:
         print(f"FAIL {case.name}: plan succeeded but this case must fail")
         return "failed"
-
-    if case.expected_substring in output:
+    elif case.expected_substring in output:
         print(f"PASS {case.name}: failed as expected ({case.expected_substring})")
         return "executed"
 
@@ -305,7 +362,10 @@ def run_case(case: Case) -> str:
         print(f"SKIP {case.name}: needs a real HCLOUD_TOKEN to evaluate data-dependent contracts ({first_line})")
         return "skipped"
 
-    print(f"FAIL {case.name}: expected substring {case.expected_substring!r} not found")
+    if case.expect_success:
+        print(f"FAIL {case.name}: plan failed but this case must succeed")
+    else:
+        print(f"FAIL {case.name}: expected substring {case.expected_substring!r} not found")
     print(output.strip())
     return "failed"
 

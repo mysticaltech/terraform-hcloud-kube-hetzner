@@ -1,0 +1,27 @@
+# Before v1.35 Cluster Autoscaler does not count cordoned or NotReady nodes
+# against --max-nodes-total, so the full max_nodes sum applies:
+# 1 + 3 + 100 + 1 = 105 attachments.
+cluster_autoscaler_version    = "v1.34.5"
+cluster_autoscaler_extra_args = ["--max-nodes-total=99"]
+
+agent_nodepools = [
+  {
+    name        = "agent"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 3
+    os          = "leapmicro"
+  }
+]
+
+autoscaler_nodepools = [
+  {
+    name        = "autoscaled"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 100
+  }
+]

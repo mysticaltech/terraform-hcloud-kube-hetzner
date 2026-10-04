@@ -1,0 +1,11 @@
+# 1 control plane + 1 agent + 100 autoscaler max_nodes + 1 ingress load
+# balancer = 103 attachments on the primary Network.
+autoscaler_nodepools = [
+  {
+    name        = "autoscaled"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 100
+  }
+]

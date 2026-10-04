@@ -1,0 +1,14 @@
+# A cap above the pools' own maximum keeps max_nodes as the limit:
+# 1 + 1 + 50 + 1 ingress load balancer = 53 attachments.
+cluster_autoscaler_version    = "v1.35.0"
+cluster_autoscaler_extra_args = ["--max-nodes-total=1000"]
+
+autoscaler_nodepools = [
+  {
+    name        = "autoscaled"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 50
+  }
+]

@@ -97,3 +97,6 @@ plan` with the expected contract substring or print an explicit `SKIP(reason)`
 when the local environment cannot load provider-backed plans. Add one fixture
 case for each new validation-contract precondition, and keep expected substrings
 specific enough that a different validation failure cannot pass accidentally.
+When an input relaxes a precondition, pair the failing case with a positive
+control (`expect_success=True`) whose plan must succeed without the contract
+error, so the boundary is pinned from both sides.

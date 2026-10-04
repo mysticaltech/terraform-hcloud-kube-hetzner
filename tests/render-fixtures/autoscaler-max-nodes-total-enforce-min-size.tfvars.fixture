@@ -1,0 +1,26 @@
+# --enforce-node-group-min-size can raise the pool to min_nodes beyond the cap:
+# 1 + 3 + (95 + 1) + 1 ingress load balancer = 101 attachments.
+cluster_autoscaler_version    = "v1.35.0"
+cluster_autoscaler_extra_args = ["--max-nodes-total=99", "--enforce-node-group-min-size=true"]
+
+agent_nodepools = [
+  {
+    name        = "agent"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 3
+    os          = "leapmicro"
+  }
+]
+
+autoscaler_nodepools = [
+  {
+    name        = "autoscaled"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 1
+    max_nodes   = 100
+  }
+]

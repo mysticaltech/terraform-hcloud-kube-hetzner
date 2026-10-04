@@ -1,0 +1,26 @@
+# Cluster Autoscaler uses the last occurrence (500, as a separate value), which
+# the check cannot read, so the full max_nodes sum applies: 105 attachments.
+cluster_autoscaler_version    = "v1.35.0"
+cluster_autoscaler_extra_args = ["--max-nodes-total=99", "--max-nodes-total", "500"]
+
+agent_nodepools = [
+  {
+    name        = "agent"
+    server_type = "cx23"
+    location    = "nbg1"
+    labels      = []
+    taints      = []
+    count       = 3
+    os          = "leapmicro"
+  }
+]
+
+autoscaler_nodepools = [
+  {
+    name        = "autoscaled"
+    server_type = "cx23"
+    location    = "nbg1"
+    min_nodes   = 0
+    max_nodes   = 100
+  }
+]
