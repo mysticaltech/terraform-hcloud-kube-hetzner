@@ -334,6 +334,65 @@ locals {
     local.validation_external_autoscaler_network_ids
   ))
 
+  # Cluster Autoscaler's --max-nodes-total (0 = unlimited) caps its normal
+  # scale-ups. From v1.35 the cap counts every node in the cluster snapshot,
+  # control planes and static agents included, so the autoscaler adds at most
+  # max-nodes-total minus the static nodes, however high the per-pool max_nodes
+  # are. Up to v1.34 only ready, schedulable nodes count, so cordoned or
+  # NotReady nodes free slots and the per-pool sum is kept. Cluster Autoscaler
+  # accepts other spellings of the flag and the last occurrence wins, so the
+  # cap is only honoured when that occurrence is --max-nodes-total=<digits>.
+  validation_cluster_autoscaler_counts_all_nodes = try(
+    provider::semvers::compare(trimprefix(var.cluster_autoscaler_version, "v"), "1.35.0"), -1
+  ) >= 0
+
+  validation_cluster_autoscaler_max_nodes_total_args = [
+    for arg in var.cluster_autoscaler_extra_args : arg
+    if can(regex("^--?max[-_]nodes[-_]total(=|$)", arg))
+  ]
+
+  validation_cluster_autoscaler_max_nodes_total = (
+    local.validation_cluster_autoscaler_counts_all_nodes && !contains(var.cluster_autoscaler_extra_args, "--")
+    ? tonumber(try(regex("^--max-nodes-total=([0-9]+)$", local.validation_cluster_autoscaler_max_nodes_total_args[length(local.validation_cluster_autoscaler_max_nodes_total_args) - 1])[0], "0"))
+    : 0
+  )
+
+  validation_autoscaler_node_budget = (
+    local.validation_cluster_autoscaler_max_nodes_total > 0
+    ? max(0, local.validation_cluster_autoscaler_max_nodes_total - local.validation_control_plane_count - local.validation_agent_count)
+    : local.validation_autoscaler_max_count
+  )
+
+  # --enforce-node-group-min-size raises each node group to min_nodes without
+  # checking --max-nodes-total, so the autoscaler can exceed the cap by up to
+  # the min_nodes of its pools. Any spelling counts as enabled unless its last
+  # occurrence is explicitly false.
+  validation_cluster_autoscaler_enforce_min_size_args = [
+    for arg in var.cluster_autoscaler_extra_args : arg
+    if can(regex("^--?enforce[-_]node[-_]group[-_]min[-_]size(=|$)", arg))
+  ]
+
+  validation_cluster_autoscaler_enforces_min_size = (
+    length(local.validation_cluster_autoscaler_enforce_min_size_args) > 0 &&
+    !can(regex("=(0|f|F|false|FALSE|False)$", try(local.validation_cluster_autoscaler_enforce_min_size_args[length(local.validation_cluster_autoscaler_enforce_min_size_args) - 1], "")))
+  )
+
+  validation_autoscaler_min_nodes_by_network = {
+    for network_id in local.validation_referenced_network_ids :
+    network_id => sum(concat([0], [
+      for nodepool in var.autoscaler_nodepools :
+      (nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == network_id ? nodepool.min_nodes : 0
+    ]))
+  }
+
+  validation_autoscaler_max_nodes_by_network = {
+    for network_id in local.validation_referenced_network_ids :
+    network_id => sum(concat([0], [
+      for nodepool in var.autoscaler_nodepools :
+      (nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == network_id ? nodepool.max_nodes : 0
+    ]))
+  }
+
   validation_network_attachment_count_by_network = {
     for network_id in local.validation_referenced_network_ids :
     network_id => (
@@ -369,10 +428,12 @@ locals {
           ]
         )
       ]))) + (
-      sum(concat([0], [
-        for nodepool in var.autoscaler_nodepools :
-        (nodepool.network_scope == "primary" ? 0 : coalesce(nodepool.network_id, 0)) == network_id ? nodepool.max_nodes : 0
-      ]))
+      min(
+        local.validation_autoscaler_max_nodes_by_network[network_id],
+        local.validation_autoscaler_node_budget + (
+          local.validation_cluster_autoscaler_enforces_min_size ? local.validation_autoscaler_min_nodes_by_network[network_id] : 0
+        )
+      )
       ) + (
       network_id == 0 && var.nat_router != null ? (try(var.nat_router.enable_redundancy, false) ? 2 : 1) : 0
       ) + (

@@ -96,7 +96,7 @@ resource "terraform_data" "validation_contract" {
         for _, attachment_count in local.validation_network_attachment_count_by_network :
         attachment_count <= 100
       ])
-      error_message = "Each Hetzner private network supports at most 100 attached resources. Reduce static nodes, autoscaler max_nodes, NAT routers, load balancers, control-plane fanout, or extra_network_ids per network."
+      error_message = "Each Hetzner private network supports at most 100 attached resources. Reduce static nodes, autoscaler max_nodes (or, with cluster_autoscaler_version v1.35 or newer, cap the autoscaler cluster-wide with --max-nodes-total in cluster_autoscaler_extra_args), NAT routers, load balancers, control-plane fanout, or extra_network_ids per network."
     }
 
     # Moved from variable "multinetwork_mode" validation near variables.tf:280.
