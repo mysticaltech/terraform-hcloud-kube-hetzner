@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- The per-Network attachment check now honours Cluster Autoscaler's `--max-nodes-total=<n>` from `cluster_autoscaler_extra_args` when `cluster_autoscaler_version` is v1.35 or newer. Those versions count control planes and static agents against the cap, so each Network now counts the autoscaler at no more than `n` minus the static nodes, plus its autoscaler `min_nodes` when `--enforce-node-group-min-size` is enabled, instead of the full sum of `max_nodes`. Older autoscaler versions (including the default), configurations without the flag, and other spellings of the flag are validated exactly as before. No plan changes.
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes
