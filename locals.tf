@@ -377,6 +377,9 @@ EOT
   cert_manager_version   = local.addon_version_inputs.cert_manager == "latest" ? "*" : coalesce(local.addon_version_inputs.cert_manager, local.addon_default_versions.cert_manager)
   rancher_version        = local.addon_version_inputs.rancher == "latest" ? "*" : coalesce(local.addon_version_inputs.rancher, local.addon_default_versions.rancher)
 
+  # Chart v40 moved service.type into service.spec; floating versions follow the modern schema.
+  traefik_service_type_in_spec = try(tonumber(split(".", trimprefix(local.traefik_version, "v"))[0]) >= 40, true)
+
   kured_manifest_body                     = var.enable_kured ? data.http.kured_manifest[0].response_body : ""
   system_upgrade_controller_manifest_body = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest[0].response_body : ""
   system_upgrade_controller_crd_body      = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_crd[0].response_body : ""
@@ -3265,7 +3268,12 @@ deployment:
   replicas: ${local.ingress_replica_count}
 service:
   enabled: true
+%{if local.traefik_service_type_in_spec~}
+  spec:
+    type: LoadBalancer
+%{else~}
   type: LoadBalancer
+%{endif~}
 %{if !local.using_klipper_lb}
   annotations:
 %{if local.combine_load_balancers_effective}

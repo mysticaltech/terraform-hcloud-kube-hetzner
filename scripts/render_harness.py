@@ -1187,6 +1187,7 @@ def base_render_vars() -> dict[str, Any]:
         "secrets_encryption_config_file": "/tmp/kh-render-harness-encryption.yaml",
         "secrets_encryption_install_script": rendered_encryption_install_script,
         "secrets_encryption_staging_file": "/tmp/kh-render-harness-encryption-stage.yaml",
+        "traefik_service_type_in_spec": True,
         "post_install_readiness_wait_deployment_commands": "true",
         "post_install_readiness_wait_helm_job_commands_300": "true",
         "post_install_readiness_wait_helm_job_commands_900": "true",

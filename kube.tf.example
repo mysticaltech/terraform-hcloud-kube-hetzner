@@ -1760,6 +1760,7 @@ image:
 
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
   # If you want to merge extra values into defaults (or traefik_values), use traefik_merge_values.
+  # Chart v40+ uses service.spec.type; for earlier chart pins, put type directly under service.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   traefik_values = <<-EOT
 deployment:
@@ -1767,7 +1768,8 @@ deployment:
 additionalArguments: []
 service:
   enabled: true
-  type: LoadBalancer
+  spec:
+    type: LoadBalancer
   annotations:
     "load-balancer.hetzner.cloud/name": "k3s"
     "load-balancer.hetzner.cloud/use-private-ip": "true"
