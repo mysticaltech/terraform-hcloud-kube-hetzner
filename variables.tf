@@ -148,6 +148,12 @@ variable "ssh_private_key" {
   }
 }
 
+variable "ssh_use_private_network" {
+  description = "Whether Terraform SSH/provisioning connections to nodes use the Hetzner private network IPs instead of public IPs. Enable when the machine running Terraform can reach the private network directly (e.g. an in-cluster CI runner, VPN, or WireGuard/Tailscale peer), for example when node firewalls no longer allow SSH from the runner's public egress IP."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_hcloud_key_label" {
   description = "Additional SSH public Keys by hcloud label. e.g. role=admin"
   type        = string

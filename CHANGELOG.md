@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🚀 New Features
+
+- Add `ssh_use_private_network` to route Terraform SSH/provisioning connections over the Hetzner private network (node private IPs) instead of public IPs, for runners that can reach the private network directly (in-cluster CI, VPN, WireGuard peers). Default is off; no resource recreation or behavior change for existing clusters.
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes
