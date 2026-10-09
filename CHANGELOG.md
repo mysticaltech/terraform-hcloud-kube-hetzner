@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- NAT bootstrap readiness no longer masks cloud-init failure. Legacy exit 0 remains unchanged and fatal exit 1 still stops dependent work; exit 2 is accepted only for a structured completed/enabled run with completed stages, no fatal errors, and `WARNING`-only recoverable entries. Unknown, malformed, incomplete, or mixed error categories fail closed; diagnostics contain status/counts rather than raw log bodies. This does not repair guest routes or provide a quorum-safe existing-cluster NAT migration (Refs #2283; thanks @clemlesne).
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes

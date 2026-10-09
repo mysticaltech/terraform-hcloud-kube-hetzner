@@ -259,7 +259,64 @@ resource "terraform_data" "nat_router_await_cloud_init" {
   }
 
   provisioner "remote-exec" {
-    inline = ["cloud-init status --wait > /dev/null"]
+    inline = [<<-EOT
+      cloud_init_rc=0
+      cloud-init status --wait >/dev/null 2>&1 || cloud_init_rc=$?
+      case "$cloud_init_rc" in
+        0) exit 0 ;;
+        2) ;;
+        *) printf 'NAT cloud-init status: command_failed (exit=%s)\n' "$cloud_init_rc" >&2; exit "$cloud_init_rc" ;;
+      esac
+
+      # Exit 2 (23.4+) is not necessarily fatal. Never print the raw status/log bodies.
+      status_rc=0
+      status_json=$(cloud-init status --format json 2>/dev/null) || status_rc=$?
+      if [ "$status_rc" -ne 2 ]; then
+        printf 'NAT cloud-init status: inconsistent_response (exit=%s)\n' "$status_rc" >&2
+        exit 2
+      fi
+      printf '%s' "$status_json" | python3 -c '
+      import json, math, sys
+      try:
+          data = json.load(sys.stdin)
+          stages = [data[key] for key in ("init-local", "init", "modules-config", "modules-final")]
+          for report in [data, *stages]:
+              if not isinstance(report, dict):
+                  raise ValueError()
+              errors, recoverable = report["errors"], report["recoverable_errors"]
+              if not isinstance(errors, list) or not isinstance(recoverable, dict):
+                  raise ValueError()
+              if any(not isinstance(item, str) or not item.strip() for item in errors):
+                  raise ValueError()
+              if set(recoverable) - {"WARNING"}:
+                  raise ValueError()
+              for entries in recoverable.values():
+                  if not isinstance(entries, list) or any(not isinstance(item, str) or not item.strip() for item in entries):
+                      raise ValueError()
+          complete = True
+          for stage in stages:
+              start, finished = stage["start"], stage["finished"]
+              if any(type(value) not in (int, float) or not math.isfinite(value) for value in (start, finished)):
+                  raise ValueError()
+              complete = complete and 0 <= start <= finished and finished > 0
+          fatal = len(data["errors"])
+          stage_fatal = sum(len(stage["errors"]) for stage in stages)
+          warnings = len(data["recoverable_errors"].get("WARNING", []))
+          stage_warnings = [entry for stage in stages for entry in stage["recoverable_errors"].get("WARNING", [])]
+          ready = (data["status"] == "done" and data["extended_status"] == "degraded done"
+                   and data["stage"] is None and data["boot_status_code"] in
+                   ("enabled-by-generator", "enabled-by-kernel-cmdline", "enabled-by-sysvinit")
+                   and complete and not fatal and not stage_fatal and warnings > 0
+                   and sorted(data["recoverable_errors"]["WARNING"]) == sorted(stage_warnings))
+          print("NAT cloud-init status: %s (errors=%d stage_errors=%d warnings=%d)" %
+                ("done_warning_only" if ready else "rejected", fatal, stage_fatal, warnings))
+          sys.exit(0 if ready else 2)
+      except (KeyError, TypeError, ValueError, OverflowError):
+          print("NAT cloud-init status: invalid_json_or_schema", file=sys.stderr)
+          sys.exit(2)
+      '
+    EOT
+    ]
   }
 }
 moved {
