@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade Notes
+
+- Traefik chart v40+ uses `service.spec.type`; custom `traefik_values` or `traefik_merge_values` must use the chart-native path. Earlier chart pins still use `service.type`. Generated values are corrected, but custom YAML is not automatically translated. Applying modern generated values reruns addon orchestration and readiness checks; inspect the saved plan separately from HCloud infrastructure changes.
+- Existing redundant NAT pairs replay readiness and reconciliation because the rendered cloud-init hash changes. Reconciliation restarts keepalived, and the two routers can restart concurrently during a normal apply; review a saved populated-state plan and a controlled one-router-at-a-time maintenance/recovery procedure before rollout. This is not a zero-replacement or uninterrupted-egress guarantee (Refs #2282).
+
+### Bug Fixes
+
+- Correct generated Traefik Service type values for chart v40+ while preserving earlier chart pins and user override precedence (#2296; thanks @loxy).
+- Cap the inferred Cilium base MTU at the smallest declared `extra_robot_nodes[].mtu`, including when Robot CCM is disabled. Cloud-only defaults and explicit Helm overrides are unchanged. Manually joined nodes still require an explicit underlay budget, and existing pods need controlled recreation to pick up changed MTUs; see [Cilium MTU diagnostics](docs/cilium-upgrades.md#use-the-smallest-underlay) (Refs #2286; thanks @ChrisKretschmer).
+- Wait for the two-router alias handoff's asynchronous actions, retain terminal responses received at the deadline, reject mismatched/malformed action and alias readback responses, and bound further observation requests. This remains a one-shot best-effort handoff, not N-replica self-healing, partition fencing, or recovery from an ambiguous mutation (Refs #2282; thanks @clemlesne).
+- NAT bootstrap readiness no longer masks cloud-init failure. Legacy exit 0 remains unchanged and fatal exit 1 still stops dependent work; exit 2 is accepted only for a structured completed/enabled run with completed stages, no fatal errors, and `WARNING`-only recoverable entries. Unknown, malformed, incomplete, or mixed error categories fail closed; diagnostics contain status/counts rather than raw log bodies. This does not repair guest routes or provide a quorum-safe existing-cluster NAT migration (Refs #2283; thanks @clemlesne).
+
+### Documentation
+
+- Correct Longhorn volume lifecycle guidance and document one-node-at-a-time retirement and resize gates. Draining alone does not evacuate all replicas or preserve local data; automatic lifecycle handling remains tracked in #2299 (thanks @clemlesne).
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes

@@ -93,11 +93,33 @@ cilium hubble ui
 Adjust `count` in any nodepool and run `terraform apply`. Constraints:
 
 - First control-plane nodepool minimum: **1**
-- Drain nodes before removing: `kubectl drain <node-name>`
+- Drain the exact nodes selected by the plan before removing them: `kubectl drain <node-name> --ignore-daemonsets`
 - Only remove nodepools from the **end** of the list
 - Rename nodepools only when count is **0**
 
 **Advanced:** Replace `count` with a `nodes` map for individual node control—see `kube.tf.example`.
+
+### Resizing or Retiring Longhorn Agents
+
+Terraform does not automatically cordon, drain, or evacuate Longhorn replicas before agent deletion or a `server_type` update. The hcloud provider powers off a running server before changing its type, even when the plan says **update in place**. A pool-wide type change can interrupt several storage nodes together. `terraform apply -parallelism=1` limits concurrent Terraform operations but does not wait for Kubernetes readiness, workload recovery, or Longhorn replica health between nodes. Kubernetes upgrade drain settings and Kured do not wrap these Terraform operations.
+
+Resizing is limited to the same CPU architecture and a target plan whose disk can hold the server's current disk. `keep_disk = true` avoids enlarging the disk during an upscale; it does not shrink an already enlarged disk, preserve it after server deletion, or enable an Arm/x86 transition. See the [Hetzner rescale constraints](https://docs.hetzner.com/cloud/servers/faq/) and [provider resize implementation](https://github.com/hetznercloud/terraform-provider-hcloud/blob/v1.70.0/internal/server/resource.go).
+
+For permanent retirement or an incompatible hardware move, use an operator-controlled migration:
+
+1. Verify independent, restorable backups. Add the replacement storage pool at the end of the list without changing the old pool's positions or names. Apply that addition separately and wait for its Kubernetes nodes and Longhorn disks to be ready and schedulable, with enough capacity and suitable replica placement to evacuate the old nodes.
+2. Review a plan for a **single** old node's removal. Count-based pools remove the highest index first; match the planned server ID/name to the Kubernetes node, rather than choosing an arbitrary node to drain. Keep emptied middle pools at `count = 0`. Stop if unrelated servers, networks, or volumes would be removed or replaced.
+3. Cordon that node, disable its Longhorn scheduling, and request replica eviction in the Longhorn UI. Wait until all its replicas and backing images have moved off every disk, affected volumes have their required healthy replicas elsewhere, and workloads have a viable destination. The [Longhorn graceful removal guide](https://longhorn.io/docs/1.12.1/nodes-and-volumes/nodes/graceful-node-removal/) describes the checks. Insufficient capacity, anti-affinity constraints, or faulted volumes are reasons to stop, not skip eviction.
+4. Drain the node with the Kubernetes eviction API, for example `kubectl drain <node-name> --ignore-daemonsets --timeout=10m`. If it fails or times out, **do not apply the removal**. Resolve the blocking workload/PDB or storage condition first. Do not use `--disable-eviction` to bypass PDBs; `--force` permits unmanaged pods but does not bypass PDBs. Deleting `emptyDir` data requires a separate, deliberate decision. A successful drain alone does not copy local-path data or prove Longhorn disk evacuation.
+5. Only after those gates, deliberately disable applicable delete protection while the resources still exist in the configuration, apply that protection change separately, and re-plan the single-node removal. The module-managed Hetzner Volume for that removed agent key is deleted too; migrate the data before allowing this. Apply the reviewed removal, then clean up any stale Kubernetes Node and Longhorn Node metadata after the server is gone, following Longhorn's prerequisites. Wait for workload recovery and required Longhorn replica health before starting another node.
+
+Longhorn's default `block-if-contains-last-replica` drain policy blocks when the last healthy replica would be disrupted; it is not automatic evacuation. `block-for-eviction-if-contains-last-replica` evacuates replicas without a healthy counterpart, not every replica. `block-for-eviction` evacuates all replicas, but still needs viable destinations. Inspect the actual setting and placement, not just the configured replica count. See [Longhorn drain policies](https://longhorn.io/docs/1.12.1/references/settings/#node-drain-policy).
+
+For an in-place resize, drain only the node being changed, resize it, verify it returns Ready with its expected storage mounted, then uncordon it and wait for workload and replica recovery before proceeding. An existing `nodes` map can express per-node `server_type` overrides while leaving other nodes unchanged. Do not convert a count-based pool to a map blindly: node names and other derived configuration can change, so first verify the resulting plan. This remains a manual maintenance procedure, not a module-managed rolling resize.
+
+Two existing deletion safeguards are independent: `delete_protection = true` on an agent pool protects its servers; `enable_delete_protection = { volume = true }` protects managed Hetzner Volumes. Current hcloud provider deletion paths do not automatically lift those protections ([upstream tracking issue](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1206)). Server protection alone does not protect its volume, and neither option blocks resize poweroff or makes a whole apply/destroy atomic. The provider can detach a protected volume before its deletion is rejected. The provider version matters because the module specifies a minimum, not an exact pin.
+
+Managed Longhorn Volumes follow the agent resource key. Removing that key or removing its dedicated-volume configuration plans volume deletion; a same-key server replacement does not necessarily replace the Volume, so inspect both resources. A preserved or externally managed disk is not a guarantee that Longhorn will reuse its replicas on a different node identity. Stable storage ownership and automatic drain/resize orchestration are not implemented; [issue #2299](https://github.com/mysticaltech/terraform-hcloud-kube-hetzner/issues/2299) tracks this gap.
 
 ### Autoscaling
 

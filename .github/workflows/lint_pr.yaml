@@ -87,6 +87,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Fetch immutable NAT compatibility baseline
+        # Keep the single-router byte comparison without fetching all history.
+        run: git fetch --no-tags --depth=1 origin 17e4746de8c49ffd9b6825643345d7231d48c9c4
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
@@ -96,12 +100,15 @@ jobs:
           terraform_wrapper: false
 
       - name: Run render harness
-        run: python3 scripts/render_harness.py
+        run: |
+          python3 scripts/render_harness.py
+          python3 scripts/tests/test_nat_alias_actions.py
 
       - name: Test Kubernetes channel contracts (provider-free)
         run: |
           python3 -m pip install python-hcl2==7.3.1
           python3 scripts/tests/test_kubernetes_channels.py --cli terraform
+          python3 scripts/tests/test_network_attachments.py --cli terraform
 
       - name: Run negative contract tests (tokenless)
         run: python3 scripts/contract_negative_tests.py
@@ -109,7 +116,10 @@ jobs:
       - name: Check migration plan and Cilium guidance regressions
         run: |
           python3 scripts/tests/test_migration_network_plan.py
+          python3 scripts/tests/test_nat_cloudinit_readiness.py
           python3 scripts/tests/test_cilium_intake.py
+          python3 scripts/tests/test_traefik_service_type.py
+          python3 scripts/tests/test_cilium_mtu.py
 
   packer-validate:
     runs-on: ubuntu-latest
@@ -249,4 +259,4 @@ jobs:
           persist-credentials: false
 
       - name: terraform fmt
-        uses: dflook/terraform-fmt-check@1946c2a46d8d3a3001998f9c769a08cedcd28f5d # v3.0.1
+        uses: dflook/terraform-fmt-check@e3f43c85d3e0a6bb3adb7be8c423c22c42d572bd # v3.1.0

@@ -296,7 +296,8 @@ EOT
   gateway_api_standard_crds_resources = local.gateway_api_crds_enabled ? ["gateway-api-standard-crds.yaml"] : []
   cilium_routing_mode_effective       = local.cross_network_transport_enabled ? "tunnel" : var.cilium_routing_mode
   cilium_wireguard_effective          = local.multinetwork_overlay_enabled || var.enable_cni_wireguard_encryption
-  cilium_mtu_effective                = local.node_transport_tailscale_enabled ? var.tailscale_node_transport.kubernetes.cni_mtu : (local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450))
+  cilium_mtu_base                     = local.node_transport_tailscale_enabled ? var.tailscale_node_transport.kubernetes.cni_mtu : (local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450))
+  cilium_mtu_effective                = var.cni_plugin == "cilium" ? min(local.cilium_mtu_base, [for node in var.extra_robot_nodes : node.mtu]...) : local.cilium_mtu_base
 
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
   control_plane_private_host  = var.enable_control_plane_load_balancer ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -376,6 +377,9 @@ EOT
   csi_driver_smb_version = local.addon_version_inputs.csi_driver_smb == "latest" ? "*" : coalesce(local.addon_version_inputs.csi_driver_smb, local.addon_default_versions.csi_driver_smb)
   cert_manager_version   = local.addon_version_inputs.cert_manager == "latest" ? "*" : coalesce(local.addon_version_inputs.cert_manager, local.addon_default_versions.cert_manager)
   rancher_version        = local.addon_version_inputs.rancher == "latest" ? "*" : coalesce(local.addon_version_inputs.rancher, local.addon_default_versions.rancher)
+
+  # Chart v40 moved service.type into service.spec; floating versions follow the modern schema.
+  traefik_service_type_in_spec = try(tonumber(split(".", trimprefix(local.traefik_version, "v"))[0]) >= 40, true)
 
   kured_manifest_body                     = var.enable_kured ? data.http.kured_manifest[0].response_body : ""
   system_upgrade_controller_manifest_body = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest[0].response_body : ""
@@ -3265,7 +3269,12 @@ deployment:
   replicas: ${local.ingress_replica_count}
 service:
   enabled: true
+%{if local.traefik_service_type_in_spec~}
+  spec:
+    type: LoadBalancer
+%{else~}
   type: LoadBalancer
+%{endif~}
 %{if !local.using_klipper_lb}
   annotations:
 %{if local.combine_load_balancers_effective}
