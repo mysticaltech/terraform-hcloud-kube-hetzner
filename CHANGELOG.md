@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🚀 New Features
 
-- Add opt-in `cluster_autoscaler_snapshot_selection = "latest"` to resolve the newest available OS/distro-labeled snapshot for each new autoscaled node. Rebuilds need no re-apply, but operators must vet snapshots before publishing matching labels and retain known-good images for rollback. No matching snapshot still fails scale-up. Default `"id"` and static-node image selection remain unchanged.
+- Add opt-in `cluster_autoscaler_snapshot_selection = "latest"` to resolve the newest available OS/distro-labeled snapshot for each new autoscaled node. Rebuilds need no re-apply, but operators must vet snapshots before publishing matching labels and retain known-good images for rollback. No matching snapshot still fails scale-up. Default `"id"` behavior is unchanged; static nodes continue to use numeric plan-time IDs. In `"latest"` mode, the shared Leap Micro lookup filters to available images and can change the numeric image selected for new static nodes sharing the autoscaler's OS/architecture. Existing static servers ignore image changes.
 
 ## [3.2.1] - 2026-09-09
 
