@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### ⚠️ Upgrade Notes
 
 - RKE2 v1.36+ server configuration now explicitly disables distribution-bundled ingress so it cannot compete with KH's selected controller. Existing v1.36+ configurations may require a managed server-config rollout; inspect the saved plan and use the serial upgrade procedure in [the upgrade guide](docs/upgrades.md). The older pinned default remains unchanged. Explicit custom server-config overrides are not rewritten.
+- Resolved initial RKE2 v1.37+ configurations also disable the independent bundled Gateway API CRD chart, keeping KH's selected bundle/provider authoritative. If that chart is already installed, stop before rollout and verify the [CRD-retaining ownership handover](docs/upgrades.md#rke2-bundled-gateway-api-crds); do not uninstall CRDs or silently downgrade a newer schema. Automated upgrades do not recompute this initial-version guard.
 
 ### 🚀 New Features
 
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 🐛 Bug Fixes
 
 - Suppress RKE2 v1.36+ bundled ingress in both first-server bootstrap and managed control-plane configuration, including when KH uses another controller or none (#2294).
+- Suppress RKE2 v1.37+ standalone bundled Gateway CRDs without changing older/1.36 server YAML, KH Gateway provider selection, explicit CRD pins, or custom server-config precedence (#2294).
 
 ## [3.2.1] - 2026-09-09
 

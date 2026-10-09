@@ -3401,6 +3401,7 @@ These variables are part of the current v3 module contract and should be conside
   * **Considerations:** Exact versions supersede channels. Initial channel bootstrap uses the release snapshot reviewed with the module; later automated upgrades can follow the configured live channel.
   * **Supported unpinned channels:** `stable`, `latest`, `testing`, `v1.36`, and `v1.37`. Explicitly set `rke2_version = ""` to follow a channel instead of the default exact-version pin.
   * **Ingress ownership:** On RKE2 v1.36+, kube-hetzner sets `ingress-controller: [none]` in both bootstrap and managed server configuration. This disables the distribution's bundled ingress charts; `ingress_controller` still selects KH's controller. Older pinned server configuration stays unchanged. An explicit `control_planes_custom_config` override remains the operator's responsibility.
+  * **Gateway CRD ownership:** For a resolved initial RKE2 v1.37+ version, KH also disables the independent `rke2-gateway-api-crd` chart, including when no KH Gateway provider is enabled. `gateway_api_version` and KH's provider selection remain authoritative. This is based on the initial version, not a running version changed later by automated upgrades. Before changing an existing cluster that already installed the bundled chart, follow the [ownership handover guidance](upgrades.md#rke2-bundled-gateway-api-crds); do not blindly uninstall CRDs or downgrade their schema.
 
 * **`rke2_artifact_sha256` (Map of Strings, Optional):**
   * **Default:** `{}`.
