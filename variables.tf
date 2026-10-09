@@ -149,7 +149,7 @@ variable "ssh_private_key" {
 }
 
 variable "ssh_use_private_network" {
-  description = "Whether Terraform SSH/provisioning connections to nodes use the Hetzner private network IPs instead of public IPs. Enable when the machine running Terraform can reach the private network directly (e.g. an in-cluster CI runner, VPN, or WireGuard/Tailscale peer), for example when node firewalls no longer allow SSH from the runner's public egress IP."
+  description = "Prefer Hetzner private network IPs for Terraform SSH/provisioning to Cloud control planes and agents when the runner can reach those networks. Static-node overrides and configured Tailscale SSH transport retain precedence; nodes without private IPs fall back to public addresses. NAT bastion and Robot-node connection settings are independent."
   type        = bool
   default     = false
 }

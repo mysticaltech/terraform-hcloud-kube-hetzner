@@ -201,8 +201,9 @@ module "kube-hetzner" {
 
 * **`ssh_use_private_network` (Optional):**
   * **Default:** `false`.
-  * **Purpose:** Makes every Terraform SSH/provisioning connection target the node's private network IP instead of its public IP. `node_connection_overrides` and the Tailscale transport still take precedence when set.
-  * **Use Case:** Running Terraform from a runner that can route to the cluster's private network (e.g. an in-cluster Atlantis pod, VPN, or WireGuard peer) while node firewalls deny SSH from public sources. Nodes without a private IP still fall back to their public addresses.
+  * **Purpose:** Prefers private IPs for Cloud control-plane and agent SSH connections, including host-module create-time provisioners and autoscaler registry/kubelet updates. Static-node `node_connection_overrides` and configured Tailscale SSH transport retain precedence. Remote-exec Tailscale bootstrap uses the initial route before the tailnet route is available.
+  * **Use Case:** Running Terraform from a runner that can route to each node's Hetzner private network (e.g. an in-cluster Atlantis pod, VPN, or WireGuard peer) while node firewalls deny SSH from public sources. Nodes without a private IP still fall back to their public addresses; this is a preference, not a private-only enforcement control.
+  * **Boundaries:** This does not change NAT bastion routing (`use_private_nat_router_bastion`), explicit Robot-node hosts, firewall rules, or existing SSH listeners. Without a control-plane load balancer, the default kubeconfig endpoint follows the selected first-control-plane address; set `kubeconfig_server_address` for a different client access path.
 
 ```terraform
   # If you want to use an ssh key that is already registered within hetzner cloud, you can pass its id.
