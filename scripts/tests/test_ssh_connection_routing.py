@@ -19,8 +19,8 @@ import tempfile
 import hcl2
 
 
-def attributes(repo, filename, names):
-    source = (repo / filename).read_text()
+def attributes(repo, filename, names, source=None):
+    source = (repo / filename).read_text() if source is None else source
     found = {}
     for node in hcl2.parses_to_tree(source).find_data("attribute"):
         name = str(node.children[0].children[0])
@@ -107,6 +107,66 @@ output "host_addresses" {
   value = { legacy = local.host_private_ipv4_address, ssh = local.host_private_ssh_ipv4_address }
 }
 '''
+
+
+def host_configuration(repo, source_ref=None):
+    filename = "modules/host/locals.tf"
+    source = subprocess.check_output(["git", "show", f"{source_ref}:{filename}"], cwd=repo, text=True) if source_ref else None
+    selected = attributes(repo, filename, {
+        "name", "private_connection_host", "private_ssh_host", "default_connection_host",
+        "map_connection_host", "suffix_connection_host", "provisioner_connection_host",
+    }, source)
+    expressions = "\n".join(selected.values()).replace("random_string.server.id", "var.suffix")
+    expressions = expressions.replace("hcloud_server.server", "var.server").replace("var.", "var.case.")
+    return '''variable "case" {}
+locals {
+''' + expressions + '''
+}
+output "host_route" {
+  value = { host = local.provisioner_connection_host, default = local.default_connection_host }
+}
+'''
+
+
+def host_cases():
+    base = {"name": "test-node", "append_random_suffix": True, "suffix": "xyz", "network_id": 2,
+            "ssh_use_private_network": True, "connection_host": "", "node_connection_overrides": {},
+            "connection_host_suffix": "", "server": {"ipv4_address": "", "ipv6_address": "",
+            "network": [{"network_id": 1, "ip": "10.1.0.10"}]}}
+    routes = [
+        ("explicit", {"connection_host": "explicit.example"}, "explicit.example"),
+        ("actual-name", {"node_connection_overrides": {"test-node-xyz": "actual.example"}}, "actual.example"),
+        ("base-name", {"node_connection_overrides": {"test-node": "base.example"}}, "base.example"),
+        ("magicdns", {"connection_host_suffix": "example.ts.net"}, "test-node-xyz.example.ts.net"),
+        ("explicit-before-all", {"connection_host": " explicit.example ",
+         "node_connection_overrides": {"test-node-xyz": "actual.example", "test-node": "base.example"},
+         "connection_host_suffix": "example.ts.net"}, "explicit.example"),
+        ("actual-before-base-and-suffix", {"node_connection_overrides": {
+         "test-node-xyz": " actual.example ", "test-node": "base.example"},
+         "connection_host_suffix": "example.ts.net"}, "actual.example"),
+        ("blank-actual-before-base", {"connection_host": " ", "node_connection_overrides": {
+         "test-node-xyz": " ", "test-node": " base.example "},
+         "connection_host_suffix": "example.ts.net"}, "base.example"),
+    ]
+    for representation, networks in (("extra-only", base["server"]["network"]), ("no-network", [])):
+        for name, update, expected in routes:
+            case = copy.deepcopy(base)
+            case["server"]["network"] = copy.deepcopy(networks)
+            case.update(update)
+            yield f"{representation}/{name}", case, expected, None
+        case = copy.deepcopy(base)
+        case["server"]["network"] = copy.deepcopy(networks)
+        case.update(connection_host=" ", connection_host_suffix=" ",
+                    node_connection_overrides={"test-node-xyz": " ", "test-node": " "})
+        yield f"{representation}/no-route", case, None, None
+    for preference in (False, True):
+        case = copy.deepcopy(base)
+        case["ssh_use_private_network"] = preference
+        case["server"]["network"] = [{"network_id": 2, "ip": "10.0.0.10"}]
+        yield f"private-only/default-{preference}", case, "10.0.0.10", "10.0.0.10"
+    case = copy.deepcopy(base)
+    case["server"]["ipv4_address"] = "192.0.2.10"
+    yield "missing-primary/public-fallback", case, "192.0.2.10", "192.0.2.10"
 
 
 def check_consumers(repo):
@@ -215,13 +275,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", choices=("terraform", "tofu"), default="terraform")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--host-only", action="store_true", help="Isolate actual host-module selection from parent maps")
+    parser.add_argument("--host-source-ref", help="Read host locals from a Git revision for regression reproduction")
     args = parser.parse_args()
+    if args.host_source_ref and not args.host_only:
+        parser.error("--host-source-ref requires --host-only")
     check_consumers(args.repo.resolve())
     env = {key: value for key, value in os.environ.items() if key in {"PATH", "HOME", "TMPDIR"}}
     env.update(TF_CLI_CONFIG_FILE="/dev/null", TF_IN_AUTOMATION="1")
     with tempfile.TemporaryDirectory(prefix="kh-ssh-route-", dir="/tmp") as directory:
         root = Path(directory)
-        (root / "main.tf").write_text(configuration(args.repo.resolve()))
+        (root / "main.tf").write_text(host_configuration(args.repo.resolve(), args.host_source_ref)
+                                      if args.host_only else configuration(args.repo.resolve()))
 
         def run(*command):
             result = subprocess.run([args.cli, *command], cwd=root, env=env, text=True, capture_output=True)
@@ -231,6 +296,38 @@ def main():
         run("fmt")
         run("init", "-backend=false", "-input=false")
         run("validate", "-no-color")
+
+        def check_host_routes():
+            positive = negative = 0
+            failures = []
+            for name, values, expected, default in host_cases():
+                (root / "case.auto.tfvars.json").write_text(json.dumps({"case": values}))
+                result = subprocess.run([args.cli, "plan", "-refresh=false", "-input=false", "-no-color", "-out=plan"],
+                                        cwd=root, env=env, text=True, capture_output=True)
+                if expected is None:
+                    if not (result.returncode != 0 and "no non-null, non-empty-string arguments" in result.stderr
+                            and "local.default_connection_host is null" in result.stderr):
+                        failures.append(name)
+                        print(f"FAIL {args.cli} host-only: {name}; expected strict final-selector rejection")
+                        continue
+                    negative += 1
+                else:
+                    if result.returncode != 0:
+                        failures.append(name)
+                        print(f"FAIL {args.cli} host-only: {name}; plan rejected usable route\n{result.stderr}")
+                        continue
+                    plan = json.loads(run("show", "-json", "plan"))
+                    actual = plan["planned_values"]["outputs"]["host_route"]["value"]
+                    assert actual == {"host": expected, "default": default}, (name, actual)
+                    assert not plan.get("resource_changes"), "Host fixture must not create infrastructure"
+                    positive += 1
+                print(f"PASS {args.cli} host-only: {name}")
+            assert not failures, f"Host-route regressions: {failures}"
+            print(f"PASS {args.cli}: {positive} host-only routes + {negative} strict no-route negatives")
+
+        if args.host_only:
+            check_host_routes()
+            return
         count = 0
         for name, values, expected in cases():
             (root / "case.auto.tfvars.json").write_text(json.dumps({"case": values}))
@@ -256,6 +353,10 @@ def main():
         assert result.returncode != 0 and "no non-null, non-empty-string arguments" in result.stderr
         print(f"PASS {args.cli}: missing-primary-without-public rejects unroutable static hosts")
         print(f"PASS {args.cli}: {count} provider-free routing plans + 1 negative plan; no cluster access")
+        (root / "main.tf").write_text(host_configuration(args.repo.resolve()))
+        run("fmt")
+        run("validate", "-no-color")
+        check_host_routes()
 
 
 if __name__ == "__main__":

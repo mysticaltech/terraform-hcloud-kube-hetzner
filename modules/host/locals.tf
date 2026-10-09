@@ -29,11 +29,12 @@ locals {
     if network.network_id == var.network_id
   ]).ip, null)
 
-  default_connection_host = var.ssh_use_private_network ? coalesce(
+  # An absent default route must not invalidate a usable higher-precedence host.
+  default_connection_host = var.ssh_use_private_network ? try(coalesce(
     local.private_ssh_host,
     hcloud_server.server.ipv4_address,
     hcloud_server.server.ipv6_address
-    ) : coalesce(
+    ), null) : coalesce(
     hcloud_server.server.ipv4_address,
     hcloud_server.server.ipv6_address,
     local.private_connection_host
