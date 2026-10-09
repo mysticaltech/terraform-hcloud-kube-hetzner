@@ -188,9 +188,12 @@ def main():
              "agent_nodepools": [], "autoscaler_nodepools": [autoscaler_pool(94)],
              "enable_control_plane_load_balancer": True,
              "nat_router": {**nat, "enable_redundancy": True, "standby_location": "fsn1"}}, None, True)
-        plan("named-static-nodes-counted", {"control_plane_nodepools": [static_pool(0, nodes={"a": {}, "b": {}})],
-             "agent_nodepools": [static_pool(0, nodes={"a": {}, "b": {}, "c": {}})],
-             "autoscaler_nodepools": [autoscaler_pool(94)]}, {"0": 100})
+        named_statics = {"control_plane_nodepools": [static_pool(None, nodes={"0": {}, "1": {}, "153": {}})],
+                         "agent_nodepools": [static_pool(None, nodes={"0": {}, "1": {}, "153": {}})],
+                         "autoscaler_nodepools": [autoscaler_pool(93)]}
+        plan("named-static-nodes-counted", named_statics, {"0": 100})
+        plan("named-static-nodes-101-rejected", {**named_statics,
+             "autoscaler_nodepools": [autoscaler_pool(94)]}, None, True)
         plan("combined-load-balancer-counted-once", {"enable_control_plane_load_balancer": True,
              "reuse_control_plane_load_balancer": True}, {"0": 100})
         plan("tailscale-external-pools", {"node_transport_mode": "tailscale", "ingress_controller": "none",
@@ -203,9 +206,9 @@ def main():
         plan("extra-network-static-fanout", {"extra_network_ids": [123], "autoscaler_nodepools": [],
              "agent_nodepools": [static_pool(99)]}, None, True)
         plan("named-agent-network-override", {"node_transport_mode": "tailscale", "ingress_controller": "none",
-             "autoscaler_nodepools": [], "agent_nodepools": [static_pool(1, network_scope="external", network_id=123,
-             nodes={"primary": {"network_scope": "primary", "network_id": None}, "inherited": {}})]},
-             {"0": 2, "123": 2})
+             "autoscaler_nodepools": [], "agent_nodepools": [static_pool(None, network_scope="external", network_id=123,
+             nodes={"0": {"network_scope": "primary", "network_id": None}, "153": {}})]},
+             {"0": 2, "123": 1})
         print(f"PASS {args.cli}: {cases} production attachment plans; no HCloud credentials or calls")
 
 
