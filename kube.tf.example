@@ -691,6 +691,12 @@ module "kube-hetzner" {
   # Server/node creation timeout variable:
   #   - cluster_autoscaler_server_creation_timeout: Sets the timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it (defaults to 15, unit is minutes)
   #
+  # Snapshot selection variable:
+  #   - cluster_autoscaler_snapshot_selection: "id" (default) pins the snapshot resolved at plan time. "latest" makes the autoscaler pick the
+  #     newest available OS/distro-labeled snapshot at each server create, without a Terraform apply gate. Do not pin *_snapshot_id for
+  #     autoscaler architectures. Vet snapshots before publishing matching labels; retain a known-good image for rollback.
+  #     No matching snapshot fails scale-up. Static nodes keep plan-time IDs. See docs/operations.md for rollback limits.
+  #
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
@@ -699,6 +705,7 @@ module "kube-hetzner" {
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
   # cluster_autoscaler_server_creation_timeout = 15
+  # cluster_autoscaler_snapshot_selection = "id"
 
   # Additional Cluster Autoscaler binary configuration
   #

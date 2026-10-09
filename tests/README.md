@@ -43,6 +43,19 @@ the external-network Tailscale plan smoke.
 
 ## Render Harness
 
+For offline full-module autoscaler snapshot plans, run after provider initialization:
+
+```bash
+terraform test -filter=tests/autoscaler-snapshots.tftest.hcl
+```
+
+These plan-only fixtures mock external providers and cover ID-mode compatibility,
+selector configuration, both architectures, distro isolation, dormant pools, and
+invalid pins or missing MicroOS labels. They require no real HCloud credential
+and do not establish live scale-up or existing-state upgrade acceptance. The
+server inventory/type mocks use generated empty lists to avoid Terraform's
+upstream nested-type override bug (#38369); size-aware behavior is not under test.
+
 For offline Cilium migration-warning regressions and the k3s/RKE2,
 kube-proxy, routing and WireGuard render matrix, run:
 

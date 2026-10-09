@@ -125,12 +125,24 @@ Managed Longhorn Volumes follow the agent resource key. Removing that key or rem
 
 Enable with `autoscaler_nodepools`. Powered by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler).
 
-> ⚠️ Autoscaled nodes use a snapshot from the initial control plane. Ensure disk sizes match.
+> ⚠️ Autoscaled nodes use the effective autoscaler OS snapshot. Ensure it fits every pool's server disk.
 > Longhorn storage should stay on static agent nodepools. Autoscaled Longhorn volumes require a write-capable Hetzner token in node user-data and leave detached volumes behind on scale-down.
 
 Cluster Autoscaler will not scale down nodes that run pods with local storage unless explicitly configured to do so. For disposable local data, add `--skip-nodes-with-local-storage=false` to `cluster_autoscaler_extra_args` or annotate individual pods with `cluster-autoscaler.kubernetes.io/safe-to-evict: "true"`.
 
 Hetzner Cloud limits server `user_data` to 32 KiB. Kube-hetzner compresses its large autoscaler cloud-init payloads and rejects an oversized rendered node configuration during `terraform plan`. The v3.2 release canary measured 29,520 bytes before user customizations, so keep custom payloads small and treat the plan guard as a hard API limit. If that guard fails, reduce custom `agent_nodes_custom_config`, `kubelet_config`, `registries_config`, node annotations, or extra bootstrap commands instead of bypassing the limit.
+
+#### Snapshot selection and rollback
+
+`cluster_autoscaler_snapshot_selection = "id"` is the default: keep the selected snapshot while the autoscaler uses its numeric ID, or re-apply the autoscaler configuration before retiring it. With opt-in `"latest"`, each server create selects the newest available snapshot matching `<os>-snapshot=yes,kube-hetzner/os=<os>,kube-hetzner/k8s-distro=<distro>` and the server's actual architecture. The current Packer templates produce these labels for MicroOS and Leap Micro, with `selinux_package_to_install` selecting `k3s` or `rke2`. No additional Terraform/provider version is required; the pinned official autoscaler `v1.33.3` supports this selector contract. Verify custom autoscaler builds separately.
+
+Only configured autoscaler architectures participate, including pools with `min_nodes = max_nodes = 0`. Do not set global `*_snapshot_id` pins for those OS/architecture pairs in `"latest"` mode; static-only architectures can remain pinned. A MicroOS legacy or partially labeled image cannot satisfy the selector.
+
+Static nodes continue to use numeric plan-time IDs. However, `"latest"` adds an available-image filter to the shared Leap Micro lookup for the autoscaler's OS/architecture. This can change the numeric image selected for a newly created static node sharing that pair, for example when a newer matching image is unavailable but an older one is available. Default `"id"` lookup behavior is unchanged. Existing static servers ignore image changes rather than rebuilding automatically.
+
+Publish matching labels only after testing a new image: `"latest"` lets it reach new autoscaled nodes without a Terraform apply gate. Multiple matching snapshots are expected; the API's `created` time, not the `built-at` or `build-id` label, controls selection. Equal creation times have no guaranteed tie-breaker. Keep a known-good matching snapshot for each architecture. Deleting an older image is safe for future selector-based creates only while another compatible match remains; no match fails scale-up, and deletion during a create can still race the API request.
+
+To roll back future creates, exclude the bad image from the selector (for example, remove its `<os>-snapshot=yes` label) and verify the newest remaining match for each architecture. This does not change or repair existing nodes, and an in-flight create may already have selected the bad image. Handle those nodes separately. Switching back to `"id"` pins the current plan-time selection, not automatically the previous good image; inspect the full plan before applying. Static nodes retain numeric IDs, and existing static servers ignore image changes rather than rebuilding automatically. Labels express operator intent, not image provenance: restrict snapshot/label write access in the HCloud project.
 
 #### Repair existing autoscaler update services
 

@@ -22,6 +22,24 @@ resource "terraform_data" "validation_contract" {
   input = true
 
   lifecycle {
+    # "latest" hands the autoscaler a distro-labeled selector. Refuse it when the
+    # lookup is pinned or lacks images with every selector label. Include dormant
+    # pools: a later scale-up must not inherit an unusable image configuration.
+    precondition {
+      condition = var.cluster_autoscaler_snapshot_selection != "latest" || length(var.autoscaler_nodepools) == 0 || alltrue([
+        for arch in local.autoscaler_snapshot_architectures :
+        local.snapshot_id_by_os[local.first_nodepool_os][arch] != "" && (
+          local.first_nodepool_os == "leapmicro"
+          ? (arch == "arm" ? var.leapmicro_arm_snapshot_id : var.leapmicro_x86_snapshot_id) == "" && try((arch == "arm" ? data.hcloud_image.leapmicro_arm_snapshot[0] : data.hcloud_image.leapmicro_x86_snapshot[0]).type == "snapshot", false)
+          : (arch == "arm" ? var.microos_arm_snapshot_id : var.microos_x86_snapshot_id) == "" && length([
+            for image in(arch == "arm" ? local.microos_arm_distro_snapshots : local.microos_x86_distro_snapshots) : image
+            if try(image.labels["kube-hetzner/os"], "") == "microos" && image.type == "snapshot"
+          ]) > 0
+        )
+      ])
+      error_message = "cluster_autoscaler_snapshot_selection=\"latest\" requires available, label-based snapshots (not backups) for every configured autoscaler architecture, not pinned via *_snapshot_id. MicroOS snapshots must carry kube-hetzner/os=microos and the matching kube-hetzner/k8s-distro label (built with the v3.1+ packer template)."
+    }
+
     precondition {
       condition = alltrue([
         for key in try(data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys, []) :

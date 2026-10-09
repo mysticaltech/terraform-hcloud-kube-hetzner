@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Accept the v1.37 channel for K3s and RKE2 without changing defaults.
 - Add `ssh_use_private_network` to prefer Hetzner private-network IPs for Terraform SSH/provisioning from runners with private-network access. Default is off. API endpoints, Kubernetes advertise addresses and control-plane config/SAN inputs keep their existing selection; opting in can replace the SSH kubeconfig-fetch resource when its host changes. That fetch-resource replacement is not Cloud-server destruction. Review an existing-state plan before applying.
+- Add opt-in `cluster_autoscaler_snapshot_selection = "latest"` to resolve the newest available OS/distro-labeled snapshot for each new autoscaled node. Rebuilds need no re-apply, but operators must vet snapshots before publishing matching labels and retain known-good images for rollback. No matching snapshot still fails scale-up. Default `"id"` behavior is unchanged; static nodes continue to use numeric plan-time IDs. In `"latest"` mode, the shared Leap Micro lookup filters to available images and can change the numeric image selected for new static nodes sharing the autoscaler's OS/architecture. Existing static servers ignore image changes.
 
 ### Bug Fixes
 

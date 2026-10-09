@@ -883,6 +883,12 @@ The example shows three control plane nodepools, each with one node, in differen
   # Server/node creation timeout variable:
   #   - cluster_autoscaler_server_creation_timeout: Sets the timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it (defaults to 15, unit is minutes)
   #
+  # Snapshot selection variable:
+  #   - cluster_autoscaler_snapshot_selection: "id" (default) pins the snapshot resolved at plan time. "latest" makes the autoscaler pick the
+  #     newest available OS/distro-labeled snapshot at each server create, without a Terraform apply gate. Do not pin *_snapshot_id for
+  #     autoscaler architectures. Vet snapshots before publishing matching labels; retain a known-good image for rollback.
+  #     No matching snapshot fails scale-up. Static nodes keep plan-time IDs. See docs/operations.md for rollback limits.
+  #
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
@@ -891,9 +897,15 @@ The example shows three control plane nodepools, each with one node, in differen
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
   # cluster_autoscaler_server_creation_timeout = 15
+  # cluster_autoscaler_snapshot_selection = "id"
 ```
 
 * **Cluster Autoscaler Binary Configuration (Conditional on `autoscaler_nodepools` being set):**
+  * **`cluster_autoscaler_snapshot_selection` (String, Optional):**
+    * **Default:** `"id"`; allowed values are `"id"` and `"latest"`.
+    * **Purpose:** `"latest"` passes an OS/distro label selector through `imagesForArch` and the legacy `HCLOUD_IMAGE` fallback. The pinned official autoscaler `v1.33.3` filters available snapshots by actual server architecture and chooses the first `created:desc` result on each create. Custom autoscaler images must support this upstream contract.
+    * **Requirements:** Every configured autoscaler architecture, even in a zero-capacity pool, needs a matching snapshot without a global `*_snapshot_id` pin. MicroOS legacy snapshots without both OS and distro labels are not eligible. Static-only architectures retain their own pins.
+    * **Operations:** This bypasses Terraform's image rollout gate for future autoscaled nodes. Retain vetted images, exclude bad images from the selector to roll back future creates, and replace already-created bad nodes separately. See [snapshot selection and rollback](operations.md#snapshot-selection-and-rollback).
   * **`cluster_autoscaler_image` (String, Optional):**
     * **Default:** `registry.k8s.io/autoscaling/cluster-autoscaler` (the official Kubernetes project image).
     * **Purpose:** Allows specifying a custom container image for the Cluster Autoscaler deployment. Useful for air-gapped environments, private registries, or custom builds.
