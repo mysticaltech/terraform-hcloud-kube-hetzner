@@ -148,6 +148,12 @@ variable "ssh_private_key" {
   }
 }
 
+variable "ssh_use_private_network" {
+  description = "Prefer Hetzner private network IPs for Terraform SSH/provisioning to Cloud control planes and agents when the runner can reach those networks. Static-node overrides and configured Tailscale SSH transport retain precedence; nodes without private IPs fall back to public addresses. NAT bastion and Robot-node connection settings are independent."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_hcloud_key_label" {
   description = "Additional SSH public Keys by hcloud label. e.g. role=admin"
   type        = string

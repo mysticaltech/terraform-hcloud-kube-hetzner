@@ -110,6 +110,14 @@ jobs:
           python3 scripts/tests/test_kubernetes_channels.py --cli terraform
           python3 scripts/tests/test_network_attachments.py --cli terraform
 
+      - name: Setup uv for isolated SSH routing test dependencies
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+
+      - name: Test SSH connection routing (provider-free)
+        run: |
+          uv run scripts/tests/test_ssh_connection_routing.py --cli terraform
+          uv run scripts/tests/test_ssh_endpoint_state.py --cli terraform
+
       - name: Run negative contract tests (tokenless)
         run: python3 scripts/contract_negative_tests.py
 

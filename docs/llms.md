@@ -194,6 +194,19 @@ module "kube-hetzner" {
   * **Caution:** Setting this too high could theoretically make brute-force attacks slightly easier if other security measures are weak, but the primary defense is strong key management.
 
 ```terraform
+  # If Terraform runs where the Hetzner private network is reachable (in-cluster CI, VPN),
+  # provisioner SSH connections can use node private IPs instead of public IPs.
+  # ssh_use_private_network = true
+```
+
+* **`ssh_use_private_network` (Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Prefers private IPs for Cloud control-plane and agent SSH connections, including host-module create-time provisioners and autoscaler registry/kubelet updates. Static-node `node_connection_overrides` and configured Tailscale SSH transport retain precedence. Remote-exec Tailscale bootstrap uses the initial route before the tailnet route is available.
+  * **Use Case:** Running Terraform from a runner that can route to each node's Hetzner private network (e.g. an in-cluster Atlantis pod, VPN, or WireGuard peer) while node firewalls deny SSH from public sources. Nodes without a private IP still fall back to their public addresses; this is a preference, not a private-only enforcement control.
+  * **Boundaries:** This does not change NAT bastion routing (`use_private_nat_router_bastion`), explicit Robot-node hosts, firewall rules, existing SSH listeners, API endpoint selection, or Kubernetes advertise/SAN/config inputs. Set `kubeconfig_server_address` explicitly for a different client access path. If the SSH host changes, Terraform replaces the SSH kubeconfig-fetch resource and reads the file again; review an existing-state plan before applying.
+  * **Primary Network:** Static Cloud nodes select their configured primary Network by ID for private SSH, including when extra networks are attached. This does not repair existing multi-network Kubernetes address outputs or establish live multi-network reachability. Autoscaled nodes with multiple private attachments still fall back to public addresses when `one(network)` is ambiguous.
+
+```terraform
   # If you want to use an ssh key that is already registered within hetzner cloud, you can pass its id.
   # If no id is passed, a new ssh key will be registered within hetzner cloud.
   # It is important that exactly this key is passed via `ssh_public_key` & `ssh_private_key` variables.

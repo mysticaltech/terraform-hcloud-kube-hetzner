@@ -18,6 +18,7 @@
 - `ssh_authorized_keys_exclusive`
 - `ssh_hcloud_key_label`
 - `ssh_max_auth_tries`
+- `ssh_use_private_network`
 - `hcloud_ssh_key_id`
 - `network_region`
 - `existing_network`

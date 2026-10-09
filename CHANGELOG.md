@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### New Features
 
 - Accept the v1.37 channel for K3s and RKE2 without changing defaults.
+- Add `ssh_use_private_network` to prefer Hetzner private-network IPs for Terraform SSH/provisioning from runners with private-network access. Default is off. API endpoints, Kubernetes advertise addresses and control-plane config/SAN inputs keep their existing selection; opting in can replace the SSH kubeconfig-fetch resource when its host changes. That fetch-resource replacement is not Cloud-server destruction. Review an existing-state plan before applying.
 
 ### Bug Fixes
 
