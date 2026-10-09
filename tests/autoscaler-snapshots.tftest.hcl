@@ -1,4 +1,5 @@
 # Offline full-module plans: no real provider reads, applies, or credentials.
+# Run through scripts/tests/test_autoscaler_snapshots.py for declared schemas.
 mock_provider "hcloud" {
   mock_resource "hcloud_network" {
     defaults = { id = "123" }
@@ -105,7 +106,7 @@ run "latest_leapmicro" {
     error_message = "Both modern and legacy configs must use the complete selector."
   }
   assert {
-    condition     = length(data.hcloud_image.leapmicro_x86_snapshot[0].with_status) == 1 && data.hcloud_image.leapmicro_x86_snapshot[0].with_status[0] == "available"
+    condition     = length(data.hcloud_image.leapmicro_x86_snapshot[0].with_status) == 1 && contains(data.hcloud_image.leapmicro_x86_snapshot[0].with_status, "available")
     error_message = "The readiness lookup must exclude unavailable Leap Micro images in latest mode."
   }
 }
