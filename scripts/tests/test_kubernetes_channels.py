@@ -99,19 +99,25 @@ def main():
         assert plan({"rke2_channel": "v1.36"}) == defaults
         print(f"PASS {args.cli}: defaults unchanged; RKE2 exact default still overrides channel")
 
-        for distro, release in (("k3s", "v1.36.3+k3s1"), ("rke2", "v1.36.3+rke2r1")):
-            for channel in ("stable", "latest", "testing", "v1.36"):
+        minor_channels = {
+            "k3s": {"v1.36": "v1.36.3+k3s1", "v1.37": "v1.37.0+k3s1"},
+            "rke2": {"v1.36": "v1.36.3+rke2r1", "v1.37": "v1.37.0+rke2r1"},
+        }
+        for distro, minors in minor_channels.items():
+            release = minors["v1.36"]
+            for channel in ("stable", "latest", "testing", *minors):
                 result = plan({f"{distro}_channel": channel, f"{distro}_version": ""})[distro]
                 assert result["plans"].count(f"channel: https://update.{distro}.io/v1-release/channels/{channel}") == 2
-                if channel == "v1.36":
-                    assert result["version"] == release
+                if channel in minors:
+                    pinned = minors[channel]
+                    assert result["version"] == pinned
                     assert set(result["digests"]) == {"amd64", "arm64"}
                     assert all(len(digest) == 64 for digest in result["digests"].values())
-                    exact = plan({f"{distro}_channel": "v1.36", f"{distro}_version": release})[distro]
-                    assert exact["version"] == release and exact["digests"] == result["digests"]
-                    assert exact["plans"].count(f"version: {release}") == 2
+                    exact = plan({f"{distro}_channel": channel, f"{distro}_version": pinned})[distro]
+                    assert exact["version"] == pinned and exact["digests"] == result["digests"]
+                    assert exact["plans"].count(f"version: {pinned}") == 2
                     assert "channel: https://" not in exact["plans"]
-            plan({f"{distro}_channel": "v1.37", f"{distro}_version": ""}, "Invalid value for variable")
+            plan({f"{distro}_channel": "v1.38", f"{distro}_version": ""}, "Invalid value for variable")
             plan({f"{distro}_channel": "v1.35", f"{distro}_version": ""}, f"When {distro}_version is empty")
             custom = plan({f"{distro}_channel": "v1.35", f"{distro}_version": release})[distro]
             assert custom["version"] == release and custom["plans"].count(f"version: {release}") == 2
@@ -119,7 +125,7 @@ def main():
         preserved = plan({"k3s_channel": "v1.33", "k3s_version": ""})["k3s"]
         assert preserved["version"] == "v1.33.13+k3s2"
         assert preserved["plans"].count("channels/v1.33") == 2
-        print(f"PASS {args.cli}: K3s v1.33 preservation channel; 19 provider-free plan cases")
+        print(f"PASS {args.cli}: K3s v1.33 preservation channel; 23 provider-free plan cases")
 
 
 if __name__ == "__main__":
