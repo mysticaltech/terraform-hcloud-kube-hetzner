@@ -334,6 +334,9 @@ locals {
     local.validation_external_autoscaler_network_ids
   ))
 
+  # max-nodes-total limits the autoscaler's Kubernetes snapshot, not attached
+  # cloud servers. Unregistered static/failed nodes can still hold attachments,
+  # so retain each pool's max_nodes when checking the hard Network limit.
   validation_network_attachment_count_by_network = {
     for network_id in local.validation_referenced_network_ids :
     network_id => (
