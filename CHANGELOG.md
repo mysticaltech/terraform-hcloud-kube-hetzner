@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🚀 New Features
+
+- Add `cluster_autoscaler_snapshot_selection = "latest"` so the Cluster Autoscaler resolves the newest distro-labeled OS snapshot at server-creation time instead of a plan-time ID. Rebuilt snapshots no longer need a re-apply, and deleting the pinned snapshot no longer breaks scale-up. Default `"id"` keeps current behavior.
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes

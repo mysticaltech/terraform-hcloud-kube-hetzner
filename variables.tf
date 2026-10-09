@@ -1700,6 +1700,17 @@ variable "cluster_autoscaler_server_creation_timeout" {
   description = "Timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it."
 }
 
+variable "cluster_autoscaler_snapshot_selection" {
+  type        = string
+  default     = "id"
+  description = "How the Cluster Autoscaler picks the OS snapshot for new nodes. \"id\" pins the snapshot resolved at plan time. \"latest\" passes a label selector instead, so the autoscaler uses the newest matching distro-labeled snapshot at server-creation time and rebuilt snapshots need no re-apply."
+
+  validation {
+    condition     = contains(["id", "latest"], var.cluster_autoscaler_snapshot_selection)
+    error_message = "cluster_autoscaler_snapshot_selection must be \"id\" or \"latest\"."
+  }
+}
+
 variable "cluster_autoscaler_replicas" {
   type        = number
   default     = 1

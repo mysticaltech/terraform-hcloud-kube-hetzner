@@ -109,6 +109,12 @@ CASES = [
         expected_substring='currently requires multinetwork_mode="cilium_public_overlay"',
     ),
     Case(
+        name="autoscaler-latest-snapshot-pinned-id",
+        var_file=FIXTURE_DIR / "autoscaler-latest-snapshot-pinned-id.tfvars.fixture",
+        target="module.sut.terraform_data.validation_contract",
+        expected_substring='cluster_autoscaler_snapshot_selection="latest" requires',
+    ),
+    Case(
         name="dualstack-nat-router",
         var_file=FIXTURE_DIR / "dualstack-nat-router.tfvars.fixture",
         target="module.sut.terraform_data.validation_contract",

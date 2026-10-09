@@ -22,6 +22,21 @@ resource "terraform_data" "validation_contract" {
   input = true
 
   lifecycle {
+    # "latest" hands the autoscaler a distro-labeled selector. Refuse it when the
+    # plan-time pick is an explicit ID or an unlabeled legacy MicroOS snapshot,
+    # since the selector would then resolve to a different image, or none.
+    precondition {
+      condition = var.cluster_autoscaler_snapshot_selection != "latest" || length(var.autoscaler_nodepools) == 0 || alltrue([
+        for arch in ["arm", "x86"] :
+        local.snapshot_id_by_os[local.first_nodepool_os][arch] == "" || (
+          local.first_nodepool_os == "leapmicro"
+          ? (arch == "arm" ? var.leapmicro_arm_snapshot_id : var.leapmicro_x86_snapshot_id) == ""
+          : (arch == "arm" ? var.microos_arm_snapshot_id : var.microos_x86_snapshot_id) == "" && length(arch == "arm" ? local.microos_arm_distro_snapshots : local.microos_x86_distro_snapshots) > 0
+        )
+      ])
+      error_message = "cluster_autoscaler_snapshot_selection=\"latest\" requires the autoscaler OS snapshots to be looked up by label, not pinned via *_snapshot_id, and MicroOS snapshots to carry the kube-hetzner/k8s-distro label (built with the v3.1+ packer template)."
+    }
+
     precondition {
       condition = alltrue([
         for key in try(data.hcloud_ssh_keys.keys_by_selector[0].ssh_keys, []) :
