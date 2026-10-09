@@ -1585,7 +1585,7 @@ Excellent! Let's continue our meticulous dissection.
 ```terraform
   # Selects stable, latest, or testing. Initial bootstrap uses the exact channel release
   # reviewed with this module version; automated upgrades can follow the live channel.
-  # For minor-line patch following, use k3s_channel = "v1.37" with k3s_version = "".
+  # For minor-line patch following, use k3s_channel = "v1.36" with k3s_version = "".
   # For an exact release, set k3s_version; it also pins automated upgrades.
   # see https://rancher.com/docs/k3s/latest/en/upgrades/basic/ and https://update.k3s.io/v1-release/channels
   # ⚠️ If you are going to use Rancher addons for instance, it's always a good idea to fix the kube version to one minor version below the latest stable,

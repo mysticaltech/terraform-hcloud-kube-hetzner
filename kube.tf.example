@@ -1896,8 +1896,8 @@ replicas: 3
   # myipv4_ref = "myipv4"
 
   # RKE2 exact version/channel controls. rke2_version wins over rke2_channel.
-  # To follow v1.37 patches, clear the default exact-version pin with rke2_version = "".
-  # rke2_channel = "v1.37"
+  # To follow v1.36 patches, clear the default exact-version pin with rke2_version = "".
+  # rke2_channel = "v1.36"
   # rke2_version = ""
   # Optional independent pins for exact versions not reviewed in this module release.
   # Missing architectures use that exact official release's checksum publication.
