@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🚀 New Features
 
-- Add `cluster_autoscaler_snapshot_selection = "latest"` so the Cluster Autoscaler resolves the newest distro-labeled OS snapshot at server-creation time instead of a plan-time ID. Rebuilt snapshots no longer need a re-apply, and deleting the pinned snapshot no longer breaks scale-up. Default `"id"` keeps current behavior.
+- Add opt-in `cluster_autoscaler_snapshot_selection = "latest"` to resolve the newest available OS/distro-labeled snapshot for each new autoscaled node. Rebuilds need no re-apply, but operators must vet snapshots before publishing matching labels and retain known-good images for rollback. No matching snapshot still fails scale-up. Default `"id"` and static-node image selection remain unchanged.
 
 ## [3.2.1] - 2026-09-09
 

@@ -170,6 +170,7 @@ data "hcloud_image" "leapmicro_x86_snapshot" {
   count             = contains(var.enabled_architectures, "x86") && local.os_arch_requirements.leapmicro.x86 && var.leapmicro_x86_snapshot_id == "" ? 1 : 0
   with_selector     = "leapmicro-snapshot=yes,kube-hetzner/os=leapmicro,kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
   with_architecture = "x86"
+  with_status       = var.cluster_autoscaler_snapshot_selection == "latest" && local.first_nodepool_os == "leapmicro" && contains(local.autoscaler_snapshot_architectures, "x86") ? ["available"] : null
   most_recent       = true
 }
 
@@ -177,5 +178,6 @@ data "hcloud_image" "leapmicro_arm_snapshot" {
   count             = contains(var.enabled_architectures, "arm") && local.os_arch_requirements.leapmicro.arm && var.leapmicro_arm_snapshot_id == "" ? 1 : 0
   with_selector     = "leapmicro-snapshot=yes,kube-hetzner/os=leapmicro,kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
   with_architecture = "arm"
+  with_status       = var.cluster_autoscaler_snapshot_selection == "latest" && local.first_nodepool_os == "leapmicro" && contains(local.autoscaler_snapshot_architectures, "arm") ? ["available"] : null
   most_recent       = true
 }

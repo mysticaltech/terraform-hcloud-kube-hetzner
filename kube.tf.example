@@ -688,7 +688,9 @@ module "kube-hetzner" {
   #
   # Snapshot selection variable:
   #   - cluster_autoscaler_snapshot_selection: "id" (default) pins the snapshot resolved at plan time. "latest" makes the autoscaler pick the
-  #     newest distro-labeled snapshot when it creates a server, so rebuilding snapshots (e.g. on a CI schedule) needs no re-apply.
+  #     newest available OS/distro-labeled snapshot at each server create, without a Terraform apply gate. Do not pin *_snapshot_id for
+  #     autoscaler architectures. Vet snapshots before publishing matching labels; retain a known-good image for rollback.
+  #     No matching snapshot fails scale-up. Static nodes keep plan-time IDs. See docs/operations.md for rollback limits.
   #
   # Example:
   #

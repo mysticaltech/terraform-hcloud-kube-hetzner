@@ -7,10 +7,13 @@ locals {
     for os in ["microos", "leapmicro"] :
     os => "${os}-snapshot=yes,kube-hetzner/os=${os},kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
   }
+  autoscaler_snapshot_architectures = distinct([
+    for pool in var.autoscaler_nodepools : substr(pool.server_type, 0, 3) == "cax" ? "arm" : "x86"
+  ])
   autoscaler_image_by_arch = {
     for arch in ["arm", "x86"] : arch => (
-      var.cluster_autoscaler_snapshot_selection == "latest" && local.snapshot_id_by_os[local.first_nodepool_os][arch] != ""
-      ? local.autoscaler_snapshot_selector[local.first_nodepool_os]
+      var.cluster_autoscaler_snapshot_selection == "latest"
+      ? (contains(local.autoscaler_snapshot_architectures, arch) ? local.autoscaler_snapshot_selector[local.first_nodepool_os] : "")
       : tostring(local.snapshot_id_by_os[local.first_nodepool_os][arch])
     )
   }
@@ -19,8 +22,8 @@ locals {
     local.autoscaler_image_by_arch[substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? "arm" : "x86"]
   )
 
-  # Only include architectures with a resolved snapshot id. This avoids writing empty values
-  # into the autoscaler config when the cluster doesn't use that architecture.
+  # ID mode preserves the plan-time image map. Latest mode includes only
+  # configured autoscaler architectures, independently of data-source knownness.
   imageList = length(var.autoscaler_nodepools) == 0 ? {} : merge(
     local.autoscaler_image_by_arch["arm"] != "" ? { arm64 = local.autoscaler_image_by_arch["arm"] } : {},
     local.autoscaler_image_by_arch["x86"] != "" ? { amd64 = local.autoscaler_image_by_arch["x86"] } : {},
@@ -175,7 +178,9 @@ resource "terraform_data" "configure_autoscaler" {
 
   depends_on = [
     terraform_data.kustomization,
-    terraform_data.rke2_kustomization
+    terraform_data.rke2_kustomization,
+    # Snapshot checks can defer until apply when provider data is unknown.
+    terraform_data.validation_contract,
   ]
 
   lifecycle {

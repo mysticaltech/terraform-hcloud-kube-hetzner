@@ -1703,7 +1703,7 @@ variable "cluster_autoscaler_server_creation_timeout" {
 variable "cluster_autoscaler_snapshot_selection" {
   type        = string
   default     = "id"
-  description = "How the Cluster Autoscaler picks the OS snapshot for new nodes. \"id\" pins the snapshot resolved at plan time. \"latest\" passes a label selector instead, so the autoscaler uses the newest matching distro-labeled snapshot at server-creation time and rebuilt snapshots need no re-apply."
+  description = "How the Cluster Autoscaler picks the OS snapshot for new nodes. \"id\" pins the plan-time snapshot. \"latest\" selects the newest available matching OS/distro snapshot at each server create, without a Terraform apply gate. Requires label-based snapshots for every configured autoscaler architecture, including dormant pools. Keep known-good snapshots for rollback; no match fails scale-up. Static nodes keep plan-time IDs."
 
   validation {
     condition     = contains(["id", "latest"], var.cluster_autoscaler_snapshot_selection)
