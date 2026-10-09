@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade Notes
+
+- Traefik chart v40+ uses `service.spec.type`; custom `traefik_values` or `traefik_merge_values` must use the chart-native path. Earlier chart pins still use `service.type`. Generated values are corrected, but custom YAML is not automatically translated. Applying modern generated values reruns addon orchestration and readiness checks; inspect the saved plan separately from HCloud infrastructure changes.
+
+### Bug Fixes
+
+- Correct generated Traefik Service type values for chart v40+ while preserving earlier chart pins and user override precedence (#2296; thanks @loxy).
+
+### Documentation
+
+- Correct Longhorn volume lifecycle guidance and document one-node-at-a-time retirement and resize gates. Draining alone does not evacuate all replicas or preserve local data; automatic lifecycle handling remains tracked in #2299 (thanks @clemlesne).
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes
