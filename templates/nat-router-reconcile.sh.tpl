@@ -230,12 +230,12 @@ assert_local_master() {
 # API acceptance is not completion. Do not race the peer's release action.
 wait_for_action() {
   local response="$1" action_id status deadline remaining request_timeout
-  action_id=$(printf '%s' "$response" | jq -er '.action.id | numbers | select(. > 0 and floor == .)' 2>/dev/null) || return 1
+  action_id=$(printf '%s' "$response" | jq -er '.action.id | numbers | select(. > 0 and . <= 9007199254740991 and floor == .)' 2>/dev/null) || return 1
   deadline=$((SECONDS + 60))
   while true; do
     # Always inspect a received response, even when the last GET used the remaining budget.
     status=$(printf '%s' "$response" | jq -er --argjson action_id "$action_id" '
-      .action | select(type == "object" and .id == $action_id and (.id | type) == "number"
+      .action | select(type == "object" and .id == $action_id and (.id | type) == "number" and .id <= 9007199254740991
         and (.status | type) == "string" and has("error") and .error == null)
       | .status' 2>/dev/null) || return 1
     case "$status" in

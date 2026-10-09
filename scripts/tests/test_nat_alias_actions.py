@@ -48,6 +48,10 @@ case "$url" in
       peer_malformed) echo '{}' ;;
       peer_invalid_id) echo '{"action":{"id":"not-an-id","status":"success"}}' ;;
       peer_success_with_error) echo '{"action":{"id":1,"status":"success","error":{"message":"fake-token-do-not-print"}}}' ;;
+      peer_id_max) touch "$TEST_ROOT/cleared"; action 9007199254740991 success ;;
+      peer_id_max_running|peer_poll_above_max) action 9007199254740991 running ;;
+      peer_id_above_max) touch "$TEST_ROOT/cleared"; action 9007199254740992 success ;;
+      peer_id_above_max_running) action 9007199254740992 running ;;
       peer_running|peer_poll_error|deadline|peer_boundary_*|poll_*|sleep_expiry|short_budget) action 1 running ;;
       *) touch "$TEST_ROOT/cleared"; action 1 success ;;
     esac
@@ -78,8 +82,18 @@ case "$url" in
     case "$SCENARIO" in
       own_http_error) exit 22 ;;
       own_error) action 2 error ;;
+      own_id_max) action 9007199254740991 success ;;
+      own_id_max_running|own_poll_above_max) action 9007199254740991 running ;;
+      own_id_above_max) action 9007199254740992 success ;;
+      own_id_above_max_running) action 9007199254740992 running ;;
       own_running|own_boundary_*|own_poll_mismatched_id) action 2 running ;;
       *) action 2 success ;;
+    esac
+    ;;
+  */actions/9007199254740991)
+    case "$SCENARIO" in
+      peer_poll_above_max|own_poll_above_max) action 9007199254740992 success ;;
+      *) touch "$TEST_ROOT/cleared"; action 9007199254740991 success ;;
     esac
     ;;
   */actions/2)
@@ -199,6 +213,16 @@ class NatAliasActionTests(unittest.TestCase):
                     assignment,
                 )
                 self.assertEqual(result.stdout, "")
+                for server_id in (100, 200):
+                    self.assertLessEqual(
+                        requests.count(f"https://api.hetzner.cloud/v1/servers/{server_id}/actions/change_alias_ips"), 1
+                    )
+                if "id_max_running" in scenario or "poll_above_max" in scenario:
+                    self.assertEqual(requests.count("https://api.hetzner.cloud/v1/actions/9007199254740991"), 1)
+                if "id_above_max" in scenario:
+                    self.assertFalse(any("/v1/actions/" in url for url in requests))
+                if scenario.startswith("own_") and "above_max" in scenario:
+                    self.assertNotIn("https://api.hetzner.cloud/v1/servers/100", requests)
                 if "boundary" in scenario:
                     action_id = 1 if scenario.startswith("peer_") else 2
                     self.assertEqual(requests.count(f"https://api.hetzner.cloud/v1/actions/{action_id}"), 1)
@@ -255,6 +279,20 @@ class NatAliasActionTests(unittest.TestCase):
 
     def test_invalid_action_id_stops_assignment(self):
         self.assert_scenario("peer_invalid_id", False, assignment=False)
+
+    def test_maximum_action_id_is_accepted(self):
+        for scenario in ("peer_id_max", "own_id_max", "peer_id_max_running", "own_id_max_running"):
+            self.assert_scenario(scenario, True)
+
+    def test_out_of_range_initial_action_id_stops_advancement(self):
+        for scenario in ("peer_id_above_max", "peer_id_above_max_running"):
+            self.assert_scenario(scenario, False, assignment=False)
+        for scenario in ("own_id_above_max", "own_id_above_max_running"):
+            self.assert_scenario(scenario, False)
+
+    def test_out_of_range_polled_action_id_stops_advancement(self):
+        self.assert_scenario("peer_poll_above_max", False, assignment=False)
+        self.assert_scenario("own_poll_above_max", False)
 
     def test_success_with_action_error_stops_assignment(self):
         self.assert_scenario("peer_success_with_error", False, assignment=False)
