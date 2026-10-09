@@ -1897,6 +1897,7 @@ replicas: 3
 
   # RKE2 exact version/channel controls. rke2_version wins over rke2_channel.
   # To follow v1.36 patches, clear the default exact-version pin with rke2_version = "".
+  # On v1.36+, KH disables RKE2's bundled ingress and manages the selected controller.
   # rke2_channel = "v1.36"
   # rke2_version = ""
   # Optional independent pins for exact versions not reviewed in this module release.

@@ -3400,6 +3400,7 @@ These variables are part of the current v3 module contract and should be conside
   * **Purpose:** Selects the RKE2 install channel or exact RKE2 version.
   * **Considerations:** Exact versions supersede channels. Initial channel bootstrap uses the release snapshot reviewed with the module; later automated upgrades can follow the configured live channel.
   * **Supported unpinned channels:** `stable`, `latest`, `testing`, `v1.36`, and `v1.37`. Explicitly set `rke2_version = ""` to follow a channel instead of the default exact-version pin.
+  * **Ingress ownership:** On RKE2 v1.36+, kube-hetzner sets `ingress-controller: [none]` in both bootstrap and managed server configuration. This disables the distribution's bundled ingress charts; `ingress_controller` still selects KH's controller. Older pinned server configuration stays unchanged. An explicit `control_planes_custom_config` override remains the operator's responsibility.
 
 * **`rke2_artifact_sha256` (Map of Strings, Optional):**
   * **Default:** `{}`.

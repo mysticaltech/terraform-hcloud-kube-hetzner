@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Upgrade Notes
+
+- RKE2 v1.36+ server configuration now explicitly disables distribution-bundled ingress so it cannot compete with KH's selected controller. Existing v1.36+ configurations may require a managed server-config rollout; inspect the saved plan and use the serial upgrade procedure in [the upgrade guide](docs/upgrades.md). The older pinned default remains unchanged. Explicit custom server-config overrides are not rewritten.
+
 ### 🚀 New Features
 
 - Accept the v1.37 channel for K3s and RKE2 without changing defaults.
+
+### 🐛 Bug Fixes
+
+- Suppress RKE2 v1.36+ bundled ingress in both first-server bootstrap and managed control-plane configuration, including when KH uses another controller or none (#2294).
 
 ## [3.2.1] - 2026-09-09
 

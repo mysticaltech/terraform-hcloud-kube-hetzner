@@ -2665,6 +2665,11 @@ EOT
   # Disable distribution-bundled addons that kube-hetzner replaces or manages.
   disable_extras      = concat(var.enable_local_storage ? [] : ["local-storage"], local.using_klipper_lb ? [] : ["servicelb"], ["traefik"], var.enable_metrics_server ? [] : ["metrics-server"])
   disable_rke2_extras = ["rke2-ingress-nginx"]
+  # RKE2 v1.36+ defaults to bundled Traefik; KH owns ingress chart selection.
+  # Leave older server YAML unchanged to avoid an unrelated configuration rollout.
+  rke2_ingress_config = try(tonumber(regex("^v?1\\.([0-9]+)\\.", local.rke2_initial_version)[0]) >= 36, false) ? {
+    ingress-controller = ["none"]
+  } : {}
 
   # Determine if scheduling should be allowed on control plane nodes, which will be always true for single node clusters and clusters or if scheduling is allowed on control plane nodes
   allow_scheduling_on_control_plane = local.is_single_node_cluster ? true : var.allow_scheduling_on_control_plane
