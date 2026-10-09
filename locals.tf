@@ -296,7 +296,8 @@ EOT
   gateway_api_standard_crds_resources = local.gateway_api_crds_enabled ? ["gateway-api-standard-crds.yaml"] : []
   cilium_routing_mode_effective       = local.cross_network_transport_enabled ? "tunnel" : var.cilium_routing_mode
   cilium_wireguard_effective          = local.multinetwork_overlay_enabled || var.enable_cni_wireguard_encryption
-  cilium_mtu_effective                = local.node_transport_tailscale_enabled ? var.tailscale_node_transport.kubernetes.cni_mtu : (local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450))
+  cilium_mtu_base                     = local.node_transport_tailscale_enabled ? var.tailscale_node_transport.kubernetes.cni_mtu : (local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450))
+  cilium_mtu_effective                = var.cni_plugin == "cilium" ? min(local.cilium_mtu_base, [for node in var.extra_robot_nodes : node.mtu]...) : local.cilium_mtu_base
 
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
   control_plane_private_host  = var.enable_control_plane_load_balancer ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address

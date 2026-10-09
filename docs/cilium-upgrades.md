@@ -41,7 +41,10 @@ The base MTU must fit the smallest node-to-node underlay used by the cluster,
 including nodes joined outside Terraform. Hetzner's [vSwitch guidance](https://docs.hetzner.com/robot/dedicated-server/network/vswitch/)
 limits the VLAN interface MTU to 1400. A manually joined Robot node can therefore
 need a smaller Cilium base even when Robot CCM is disabled. The module cannot
-discover that node or its path MTU from your Terraform inputs.
+discover that node or its path MTU from your Terraform inputs. For nodes declared
+in `extra_robot_nodes`, the inferred base is capped at the smallest declared
+`mtu`, even without Robot CCM. The node input's default remains 1350; a smaller
+Tailscale/overlay base remains smaller, and explicit Helm MTU overrides still win.
 
 If the smallest underlay is confirmed to be 1400, set the base through the
 existing values merge (inside your module block):

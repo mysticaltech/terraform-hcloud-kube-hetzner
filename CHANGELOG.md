@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- Cap the inferred Cilium base MTU at the smallest declared `extra_robot_nodes[].mtu`, including when Robot CCM is disabled. Cloud-only defaults and explicit Helm overrides are unchanged. Manually joined nodes still require an explicit underlay budget, and existing pods need controlled recreation to pick up changed MTUs; see [Cilium MTU diagnostics](docs/cilium-upgrades.md#use-the-smallest-underlay) (Refs #2286; thanks @ChrisKretschmer).
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes
