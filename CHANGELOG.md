@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🚀 New Features
 
-- Add `ssh_use_private_network` to route Terraform SSH/provisioning connections over the Hetzner private network (node private IPs) instead of public IPs, for runners that can reach the private network directly (in-cluster CI, VPN, WireGuard peers). Default is off; no resource recreation or behavior change for existing clusters.
+- Add `ssh_use_private_network` to prefer Hetzner private-network IPs for Terraform SSH/provisioning from runners with private-network access. Default is off. API endpoints, Kubernetes advertise addresses and control-plane config/SAN inputs keep their existing selection; opting in can replace the SSH kubeconfig-fetch resource when its host changes. That fetch-resource replacement is not Cloud-server destruction. Review an existing-state plan before applying.
 
 ## [3.2.1] - 2026-09-09
 

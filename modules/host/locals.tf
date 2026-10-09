@@ -24,8 +24,13 @@ locals {
     try([for network in hcloud_server.server.network : network.ip][0], null)
   )
 
+  private_ssh_host = try(one([
+    for network in hcloud_server.server.network : network
+    if network.network_id == var.network_id
+  ]).ip, null)
+
   default_connection_host = var.ssh_use_private_network ? coalesce(
-    local.private_connection_host,
+    local.private_ssh_host,
     hcloud_server.server.ipv4_address,
     hcloud_server.server.ipv6_address
     ) : coalesce(

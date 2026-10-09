@@ -44,7 +44,7 @@ locals {
         )
       )
       :
-      (can(local.first_control_plane_ip) ? local.first_control_plane_ip : "unknown")
+      (can(local.first_control_plane_endpoint_ip) ? local.first_control_plane_endpoint_ip : "unknown")
   ))
   kubeconfig_server_host = provider::assert::ipv6(local.kubeconfig_server_address) ? "[${local.kubeconfig_server_address}]" : local.kubeconfig_server_address
   kubeconfig_server      = "https://${local.kubeconfig_server_host}:${var.kubernetes_api_port}"

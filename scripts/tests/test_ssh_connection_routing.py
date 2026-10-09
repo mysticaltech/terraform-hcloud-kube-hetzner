@@ -31,6 +31,16 @@ def attributes(repo, filename, names):
     return found
 
 
+def output_expression(repo, name):
+    source = (repo / "modules/host/out.tf").read_text()
+    blocks = [node for node in hcl2.parses_to_tree(source).find_data("block")
+              if source[node.meta.start_pos:node.meta.end_pos].startswith(f'output "{name}"')]
+    assert len(blocks) == 1, name
+    value = next(node for node in blocks[0].find_data("attribute")
+                 if str(node.children[0].children[0]) == "value")
+    return source[value.children[-1].meta.start_pos:value.children[-1].meta.end_pos]
+
+
 def configuration(repo):
     expressions = []
     for filename, role in (("agents.tf", "agent"), ("control_planes.tf", "control_plane")):
@@ -41,11 +51,14 @@ def configuration(repo):
         assert "ssh_use_private_network       = var.ssh_use_private_network" in source
 
     selected = attributes(repo, "modules/host/locals.tf", {
-        "private_connection_host", "default_connection_host", "map_connection_host",
+        "private_connection_host", "private_ssh_host", "default_connection_host", "map_connection_host",
         "suffix_connection_host", "provisioner_connection_host",
     })
     expressions.extend(expression.replace("hcloud_server.server", "var.case.server")
                        for expression in selected.values())
+    for name in ("private_ipv4_address", "private_ssh_ipv4_address"):
+        expressions.append(f"host_{name} = " + output_expression(repo, name).replace(
+            "hcloud_server.server", "var.case.server"))
     # Read both autoscaler connection blocks rather than assuming they match.
     source = (repo / "autoscaler-agents.tf").read_text()
     source = source[source.index('resource "terraform_data" "autoscaled_nodes_registries"'):]
@@ -66,7 +79,10 @@ def configuration(repo):
                    for expression in expressions]
     return '''variable "case" {}
 locals {
-  nodes = { n = var.case.node }
+  nodes = { n = merge(var.case.node, {
+    private_ipv4_address = local.host_private_ipv4_address
+    private_ssh_ipv4_address = local.host_private_ssh_ipv4_address
+  }) }
   name = var.case.node.name
   agent_override_base_names = { n = var.case.name }
   control_plane_override_base_names = { n = var.case.name }
@@ -86,6 +102,9 @@ output "routes" {
     autoscaler_0 = local.autoscaler_0
     autoscaler_1 = local.autoscaler_1
   }
+}
+output "host_addresses" {
+  value = { legacy = local.host_private_ipv4_address, ssh = local.host_private_ssh_ipv4_address }
 }
 '''
 
@@ -119,9 +138,11 @@ def check_consumers(repo):
             count += 1
         for trigger in re.findall(r"triggers_replace\s*=\s*\{.*?\}", source, re.S):
             assert "ssh_use_private_network" not in trigger
-    assert 'first_control_plane_ip = local.control_plane_ips[' in (repo / "init.tf").read_text()
+    assert re.search(r'first_control_plane_ip\s*= local.control_plane_ips\[',
+                     (repo / "init.tf").read_text())
     assert "local.first_control_plane_ip" in (repo / "kubeconfig.tf").read_text()
     assert "local.first_control_plane_ip" in (repo / "kustomization_user.tf").read_text()
+    assert count == 44, f"Review new/removed connection blocks: {count}"
     print(f"PASS source contract: {count} connection consumers; NAT/Robot routes remain independent")
 
 
@@ -129,8 +150,7 @@ def cases():
     public = "192.0.2.10"
     private = "10.0.0.10"
     ipv6 = "2001:db8::10"
-    node = {"name": "test-node-xyz", "ipv4_address": public, "ipv6_address": ipv6,
-            "private_ipv4_address": private}
+    node = {"name": "test-node-xyz", "ipv4_address": public, "ipv6_address": ipv6}
     base = {"node": node, "server": {**node, "network": [{"network_id": 2, "ip": private}]},
             "ssh_use_private_network": False, "node_connection_overrides": {},
             "name": "test-node", "network_id": 2, "connection_host": "",
@@ -143,8 +163,6 @@ def cases():
         values.update(update or {})
         values["node"].update(node_update or {})
         values["server"].update(node_update or {})
-        if node_update and "private_ipv4_address" in node_update:
-            values["server"]["network"] = []
         routes = dict.fromkeys(route_names, expected)
         routes.update(route_update or {})
         return name, values, routes
@@ -157,7 +175,7 @@ def cases():
     yield case("private-only-nat-fallback", node_update={"ipv4_address": "", "ipv6_address": ""},
                expected=private)
     yield case("no-private-fallback", {"ssh_use_private_network": True},
-               node_update={"private_ipv4_address": ""})
+               node_update={"network": []})
     for name in ("test-node", "test-node-xyz"):
         yield case(f"override-{name}", {"ssh_use_private_network": True, "tailnet": True,
                    "node_connection_overrides": {name: "override.example"},
@@ -181,6 +199,16 @@ def cases():
                "server": {**base["server"], "network": [{"network_id": 1, "ip": "10.1.0.10"},
                                                           {"network_id": 2, "ip": private}]}},
                expected=private, route_update={"autoscaler_0": public, "autoscaler_1": public})
+    yield case("primary-network-after-extra", {"ssh_use_private_network": True,
+               "server": {**base["server"], "network": [{"network_id": 2, "ip": private},
+                                                          {"network_id": 1, "ip": "10.1.0.10"}]}},
+               expected=private, route_update={"autoscaler_0": public, "autoscaler_1": public})
+    yield case("multi-network-default-public", {
+               "server": {**base["server"], "network": [{"network_id": 1, "ip": "10.1.0.10"},
+                                                          {"network_id": 2, "ip": private}]}})
+    yield case("missing-primary-not-arbitrary-extra", {"ssh_use_private_network": True,
+               "server": {**base["server"], "network": [{"network_id": 1, "ip": "10.1.0.10"}]}},
+               route_update={"autoscaler_0": "10.1.0.10", "autoscaler_1": "10.1.0.10"})
 
 
 def main():
@@ -210,10 +238,24 @@ def main():
             plan = json.loads(run("show", "-json", "plan"))
             actual = plan["planned_values"]["outputs"]["routes"]["value"]
             assert actual == expected, (name, actual, expected)
+            addresses = plan["planned_values"]["outputs"]["host_addresses"]["value"]
+            networks = values["server"]["network"]
+            assert addresses["legacy"] == (networks[0]["ip"] if len(networks) == 1 else "")
+            primary = [network["ip"] for network in networks if network["network_id"] == values["network_id"]]
+            assert addresses["ssh"] == (primary[0] if len(primary) == 1 else "")
             assert not plan.get("resource_changes"), "Routing fixture must not create infrastructure"
             print(f"PASS {args.cli}: {name}")
             count += 1
-        print(f"PASS {args.cli}: {count} provider-free routing plans; no cluster access")
+        # No configured primary attachment or public route: fail, not an extra-network guess.
+        _, invalid, _ = next(case for case in cases() if case[0] == "missing-primary-not-arbitrary-extra")
+        invalid["node"].update(ipv4_address="", ipv6_address="")
+        invalid["server"].update(ipv4_address="", ipv6_address="")
+        (root / "case.auto.tfvars.json").write_text(json.dumps({"case": invalid}))
+        result = subprocess.run([args.cli, "plan", "-refresh=false", "-input=false", "-no-color"],
+                                cwd=root, env=env, text=True, capture_output=True)
+        assert result.returncode != 0 and "no non-null, non-empty-string arguments" in result.stderr
+        print(f"PASS {args.cli}: missing-primary-without-public rejects unroutable static hosts")
+        print(f"PASS {args.cli}: {count} provider-free routing plans + 1 negative plan; no cluster access")
 
 
 if __name__ == "__main__":
