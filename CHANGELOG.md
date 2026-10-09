@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade Notes
+
+- Existing redundant NAT pairs replay readiness and reconciliation because the rendered cloud-init hash changes. Reconciliation restarts keepalived, and the two routers can restart concurrently during a normal apply; review a saved populated-state plan and a controlled one-router-at-a-time maintenance/recovery procedure before rollout. This is not a zero-replacement or uninterrupted-egress guarantee (Refs #2282).
+
+### Bug Fixes
+
+- Wait for the two-router alias handoff's asynchronous actions, retain terminal responses received at the deadline, reject mismatched/malformed action and alias readback responses, and bound further observation requests. This remains a one-shot best-effort handoff, not N-replica self-healing, partition fencing, or recovery from an ambiguous mutation (Refs #2282; thanks @clemlesne).
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes

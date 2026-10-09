@@ -229,18 +229,28 @@ assert_local_master() {
 
 # API acceptance is not completion. Do not race the peer's release action.
 wait_for_action() {
-  local response="$1" action_id status deadline
-  action_id=$(printf '%s' "$response" | jq -er '.action.id | numbers | select(. > 0 and floor == .)') || return 1
+  local response="$1" action_id status deadline remaining request_timeout
+  action_id=$(printf '%s' "$response" | jq -er '.action.id | numbers | select(. > 0 and floor == .)' 2>/dev/null) || return 1
   deadline=$((SECONDS + 60))
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    status=$(printf '%s' "$response" | jq -er '.action.status') || return 1
+  while true; do
+    # Always inspect a received response, even when the last GET used the remaining budget.
+    status=$(printf '%s' "$response" | jq -er --argjson action_id "$action_id" '
+      .action | select(type == "object" and .id == $action_id and (.id | type) == "number"
+        and (.status | type) == "string" and has("error") and .error == null)
+      | .status' 2>/dev/null) || return 1
     case "$status" in
-      success) printf '%s' "$response" | jq -e '.action.error == null' >/dev/null; return $? ;;
+      success) return 0 ;;
       running) ;;
       *) return 1 ;;
     esac
+    remaining=$((deadline - SECONDS))
+    [ "$remaining" -gt 0 ] || break
     sleep 1
-    response=$(api_request -H "Authorization: Bearer $HCLOUD_TOKEN" \
+    remaining=$((deadline - SECONDS))
+    [ "$remaining" -gt 0 ] || break
+    request_timeout=15
+    if [ "$remaining" -lt "$request_timeout" ]; then request_timeout=$remaining; fi
+    response=$(api_request --max-time "$request_timeout" -H "Authorization: Bearer $HCLOUD_TOKEN" \
       "https://api.hetzner.cloud/v1/actions/$action_id") || return 1
   done
   echo "NAT alias action did not complete before the deadline." >&2
@@ -278,7 +288,13 @@ wait_for_action "$ACTION"
 SERVER=$(api_request -H "Authorization: Bearer $HCLOUD_TOKEN" \
   "https://api.hetzner.cloud/v1/servers/$MY_ID")
 printf '%s' "$SERVER" | jq -e --arg net_id "$NET_ID" --arg vip "$VIP" \
-  'any(.server.private_net[]; (.network | tostring) == $net_id and (.alias_ips | index($vip)) != null)' >/dev/null
+  'def ipv4: type == "string"
+    and test("^(0|[1-9][0-9]{0,2})(\\.(0|[1-9][0-9]{0,2})){3}$")
+    and (split(".") | all(.[]; tonumber <= 255));
+  .server | select(type == "object") | .private_net | select(type == "array")
+  | select(all(.[]; type == "object" and (.network | type) == "number"
+      and (.alias_ips | type == "array" and all(.[]; ipv4))))
+  | any(.[]; (.network | tostring) == $net_id and any(.alias_ips[]; . == $vip))' >/dev/null 2>&1
 EOF
 chown keepalived_script:keepalived_script /usr/local/bin/hcloud-alias-failover.sh
 chmod 0700 /usr/local/bin/hcloud-alias-failover.sh

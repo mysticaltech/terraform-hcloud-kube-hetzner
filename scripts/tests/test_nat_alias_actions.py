@@ -23,9 +23,15 @@ set -eu
 args=" $* "
 [[ "$args" == *" --connect-timeout 5 "* && "$args" == *" --max-time 15 "* ]] || exit 90
 [[ "$args" != *" --retry "* ]] || exit 91
+timeout=0
+previous=""
 for arg in "$@"; do
+  if [ "$previous" = "--max-time" ]; then timeout="$arg"; fi
   case "$arg" in http*) url="$arg" ;; esac
+  previous="$arg"
 done
+[ "$timeout" -gt 0 ] && [ "$timeout" -le 15 ] || exit 93
+[ "$SCENARIO" != "short_budget" ] || [[ "$url" != */actions/1 ]] || [ "$timeout" -eq 3 ] || exit 94
 printf '%s\n' "$url" >> "$COMMAND_LOG"
 action() {
   printf '{"action":{"id":%s,"status":"%s","error":null}}\n' "$1" "$2"
@@ -42,13 +48,27 @@ case "$url" in
       peer_malformed) echo '{}' ;;
       peer_invalid_id) echo '{"action":{"id":"not-an-id","status":"success"}}' ;;
       peer_success_with_error) echo '{"action":{"id":1,"status":"success","error":{"message":"fake-token-do-not-print"}}}' ;;
-      peer_running|peer_poll_error|deadline) action 1 running ;;
+      peer_running|peer_poll_error|deadline|peer_boundary_*|poll_*|sleep_expiry|short_budget) action 1 running ;;
       *) touch "$TEST_ROOT/cleared"; action 1 success ;;
     esac
     ;;
   */actions/1)
     case "$SCENARIO" in
       peer_poll_error) exit 28 ;;
+      poll_mismatched_id) action 999 success ;;
+      poll_string_id) echo '{"action":{"id":"1","status":"success","error":null}}' ;;
+      poll_boolean_id) echo '{"action":{"id":true,"status":"success","error":null}}' ;;
+      poll_missing_error) echo '{"action":{"id":1,"status":"success"}}' ;;
+      poll_invalid_error) echo '{"action":{"id":1,"status":"success","error":false}}' ;;
+      poll_invalid_status) echo '{"action":{"id":1,"status":true,"error":null}}' ;;
+      poll_unknown_status) action 1 unknown ;;
+      poll_malformed) echo '{"action":[]}' ;;
+      peer_boundary_*)
+        echo "$BOUNDARY_TIME" > "$TEST_ROOT/clock"
+        status="${SCENARIO#peer_boundary_}"
+        [ "$status" != success ] || touch "$TEST_ROOT/cleared"
+        action 1 "$status"
+        ;;
       *) touch "$TEST_ROOT/cleared"; action 1 success ;;
     esac
     ;;
@@ -58,16 +78,34 @@ case "$url" in
     case "$SCENARIO" in
       own_http_error) exit 22 ;;
       own_error) action 2 error ;;
-      own_running) action 2 running ;;
+      own_running|own_boundary_*|own_poll_mismatched_id) action 2 running ;;
       *) action 2 success ;;
     esac
     ;;
-  */actions/2) action 2 success ;;
+  */actions/2)
+    case "$SCENARIO" in
+      own_poll_mismatched_id) action 999 success ;;
+      own_boundary_*)
+        echo "$BOUNDARY_TIME" > "$TEST_ROOT/clock"
+        action 2 "${SCENARIO#own_boundary_}"
+        ;;
+      *) action 2 success ;;
+    esac
+    ;;
   */servers/100)
     case "$SCENARIO" in
       readback_http_error) exit 28 ;;
       readback_missing) echo '{"server":{"private_net":[{"network":12345,"alias_ips":[]}]}}' ;;
       readback_wrong_network) echo '{"server":{"private_net":[{"network":54321,"alias_ips":["10.0.0.1"]}]}}' ;;
+      readback_string_alias) echo '{"server":{"private_net":[{"network":12345,"alias_ips":"10.0.0.10"}]}}' ;;
+      readback_substring_alias) echo '{"server":{"private_net":[{"network":12345,"alias_ips":["10.0.0.10"]}]}}' ;;
+      readback_bad_element) echo '{"server":{"private_net":[{"network":12345,"alias_ips":["10.0.0.1",123]}]}}' ;;
+      readback_invalid_ip) echo '{"server":{"private_net":[{"network":12345,"alias_ips":["10.0.0.1","999.0.0.2"]}]}}' ;;
+      readback_empty_string) echo '{"server":{"private_net":[{"network":12345,"alias_ips":["10.0.0.1",""]}]}}' ;;
+      readback_null_alias) echo '{"server":{"private_net":[{"network":12345,"alias_ips":null}]}}' ;;
+      readback_object_networks) echo '{"server":{"private_net":{"network":12345,"alias_ips":["10.0.0.1"]}}}' ;;
+      readback_string_network) echo '{"server":{"private_net":[{"network":"12345","alias_ips":["10.0.0.1"]}]}}' ;;
+      readback_malformed) echo '{"server":null}' ;;
       *) echo '{"server":{"private_net":[{"network":12345,"alias_ips":["10.0.0.1"]}]}}' ;;
     esac
     ;;
@@ -102,7 +140,7 @@ class NatAliasActionTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.render_temp.cleanup()
 
-    def run_scenario(self, script, scenario):
+    def run_scenario(self, script, scenario, boundary_time=60):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bin_dir = root / "bin"
@@ -119,13 +157,23 @@ class NatAliasActionTests(unittest.TestCase):
             )
             ip.chmod(0o755)
             sleep = bin_dir / "sleep"
-            sleep.write_text("#!/bin/sh\nexit 0\n")
+            sleep.write_text(
+                '#!/bin/sh\n'
+                'case "$SCENARIO" in\n'
+                '  sleep_expiry) echo 60 > "$TEST_ROOT/clock" ;;\n'
+                '  short_budget) echo 57 > "$TEST_ROOT/clock" ;;\n'
+                'esac\n'
+            )
             sleep.chmod(0o755)
             env_file = root / "hcloud.env"
             env_file.write_text('export HCLOUD_TOKEN="fake-token-do-not-print"\n')
             executable = script.replace("/etc/keepalived/hcloud.env", str(env_file))
             if scenario == "deadline":
                 executable = executable.replace("deadline=$((SECONDS + 60))", "deadline=$SECONDS")
+            # Advance a deterministic clock from the fake GET/sleep, without a real minute-long wait.
+            (root / "clock").write_text("0\n")
+            executable = executable.replace("$SECONDS", "$(test_clock)").replace("SECONDS", "$(test_clock)")
+            executable = 'test_clock() { cat "$TEST_ROOT/clock"; }\n' + executable
             log = root / "commands.log"
             env = {
                 "PATH": f"{bin_dir}:/usr/bin:/bin",
@@ -133,6 +181,7 @@ class NatAliasActionTests(unittest.TestCase):
                 "SCENARIO": scenario,
                 "COMMAND_LOG": str(log),
                 "TEST_ROOT": str(root),
+                "BOUNDARY_TIME": str(boundary_time),
             }
             result = subprocess.run(
                 ["bash"], input=executable, text=True, capture_output=True, env=env, check=False
@@ -140,16 +189,21 @@ class NatAliasActionTests(unittest.TestCase):
             self.assertNotIn("fake-token-do-not-print", result.stdout + result.stderr)
             return result, log.read_text().splitlines() if log.exists() else []
 
-    def assert_scenario(self, scenario, success, assignment=True):
+    def assert_scenario(self, scenario, success, assignment=True, boundary_time=60):
         for name, script in self.scripts.items():
             with self.subTest(template=name, scenario=scenario):
-                result, requests = self.run_scenario(script, scenario)
+                result, requests = self.run_scenario(script, scenario, boundary_time)
                 self.assertEqual(result.returncode == 0, success, result.stderr)
                 self.assertEqual(
                     any("/servers/100/actions/change_alias_ips" in url for url in requests),
                     assignment,
                 )
                 self.assertEqual(result.stdout, "")
+                if "boundary" in scenario:
+                    action_id = 1 if scenario.startswith("peer_") else 2
+                    self.assertEqual(requests.count(f"https://api.hetzner.cloud/v1/actions/{action_id}"), 1)
+                if scenario in ("deadline", "sleep_expiry"):
+                    self.assertFalse(any("/v1/actions/" in url for url in requests))
                 if scenario == "peer_running":
                     self.assertLess(
                         requests.index("https://api.hetzner.cloud/v1/actions/1"),
@@ -165,6 +219,21 @@ class NatAliasActionTests(unittest.TestCase):
             self.assertIsNotNone(helper)
             helpers.append(helper.group(0))
         self.assertEqual(helpers[0], helpers[1])
+
+    def test_single_router_templates_are_byte_identical_to_baseline(self):
+        variables = base_render_vars()
+        variables["enable_redundancy"] = False
+        with tempfile.TemporaryDirectory() as directory:
+            scratch = TerraformScratch(Path(directory), variables)
+            for filename in ("nat-router-cloudinit.yaml.tpl", "nat-router-reconcile.sh.tpl"):
+                relative = f"templates/{filename}"
+                baseline = subprocess.run(
+                    ["git", "show", f"17e4746de8c49ffd9b6825643345d7231d48c9c4:{relative}"],
+                    cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+                ).stdout
+                previous = scratch.write_template(f"baseline-{filename}", baseline)
+                with self.subTest(template=filename):
+                    self.assertEqual(scratch.render_string(previous), scratch.render_string(REPO_ROOT / relative))
 
     def test_immediate_success(self):
         self.assert_scenario("success", True)
@@ -204,6 +273,38 @@ class NatAliasActionTests(unittest.TestCase):
 
     def test_expired_action_deadline_stops_assignment(self):
         self.assert_scenario("deadline", False, assignment=False)
+
+    def test_received_terminal_success_at_or_after_deadline_is_retained(self):
+        for boundary in (60, 61):
+            self.assert_scenario("peer_boundary_success", True, boundary_time=boundary)
+            self.assert_scenario("own_boundary_success", True, boundary_time=boundary)
+
+    def test_received_error_or_running_at_deadline_fails_without_another_poll(self):
+        for status in ("error", "running"):
+            self.assert_scenario(f"peer_boundary_{status}", False, assignment=False)
+            self.assert_scenario(f"own_boundary_{status}", False)
+
+    def test_sleep_cannot_start_a_poll_after_expiry(self):
+        self.assert_scenario("sleep_expiry", False, assignment=False)
+
+    def test_next_poll_is_bounded_by_remaining_budget(self):
+        self.assert_scenario("short_budget", True)
+
+    def test_polled_action_identity_and_types_are_required(self):
+        for scenario in (
+            "poll_mismatched_id", "poll_string_id", "poll_boolean_id", "poll_missing_error",
+            "poll_invalid_error", "poll_invalid_status", "poll_unknown_status", "poll_malformed",
+        ):
+            self.assert_scenario(scenario, False, assignment=False)
+        self.assert_scenario("own_poll_mismatched_id", False)
+
+    def test_readback_requires_network_array_and_exact_valid_ip_strings(self):
+        for scenario in (
+            "readback_string_alias", "readback_substring_alias", "readback_bad_element",
+            "readback_invalid_ip", "readback_empty_string", "readback_null_alias",
+            "readback_object_networks", "readback_string_network", "readback_malformed",
+        ):
+            self.assert_scenario(scenario, False)
 
     def test_own_http_failure_is_not_success(self):
         self.assert_scenario("own_http_error", False)
