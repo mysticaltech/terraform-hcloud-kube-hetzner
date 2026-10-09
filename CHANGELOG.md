@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - Correct generated Traefik Service type values for chart v40+ while preserving earlier chart pins and user override precedence (#2296; thanks @loxy).
+- Cap the inferred Cilium base MTU at the smallest declared `extra_robot_nodes[].mtu`, including when Robot CCM is disabled. Cloud-only defaults and explicit Helm overrides are unchanged. Manually joined nodes still require an explicit underlay budget, and existing pods need controlled recreation to pick up changed MTUs; see [Cilium MTU diagnostics](docs/cilium-upgrades.md#use-the-smallest-underlay) (Refs #2286; thanks @ChrisKretschmer).
 
 ### Documentation
 
