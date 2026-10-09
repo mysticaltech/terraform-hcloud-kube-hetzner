@@ -1,15 +1,32 @@
 locals {
   cluster_prefix    = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
   first_nodepool_os = length(var.autoscaler_nodepools) == 0 ? local.default_autoscaler_os : local.autoscaler_nodepools_os[0]
+  # With "latest", the autoscaler resolves this selector itself on every server create
+  # (newest available snapshot of the node's architecture), so snapshot rebuilds need no re-apply.
+  autoscaler_snapshot_selector = {
+    for os in ["microos", "leapmicro"] :
+    os => "${os}-snapshot=yes,kube-hetzner/os=${os},kube-hetzner/k8s-distro=${local.kubernetes_distribution}"
+  }
+  autoscaler_snapshot_architectures = distinct([
+    for pool in var.autoscaler_nodepools : substr(pool.server_type, 0, 3) == "cax" ? "arm" : "x86"
+  ])
+  autoscaler_image_by_arch = {
+    for arch in ["arm", "x86"] : arch => (
+      var.cluster_autoscaler_snapshot_selection == "latest"
+      ? (contains(local.autoscaler_snapshot_architectures, arch) ? local.autoscaler_snapshot_selector[local.first_nodepool_os] : "")
+      : tostring(local.snapshot_id_by_os[local.first_nodepool_os][arch])
+    )
+  }
+
   first_nodepool_snapshot_id = length(var.autoscaler_nodepools) == 0 ? "" : (
-    local.snapshot_id_by_os[local.first_nodepool_os][substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? "arm" : "x86"]
+    local.autoscaler_image_by_arch[substr(var.autoscaler_nodepools[0].server_type, 0, 3) == "cax" ? "arm" : "x86"]
   )
 
-  # Only include architectures with a resolved snapshot id. This avoids writing empty values
-  # into the autoscaler config when the cluster doesn't use that architecture.
+  # ID mode preserves the plan-time image map. Latest mode includes only
+  # configured autoscaler architectures, independently of data-source knownness.
   imageList = length(var.autoscaler_nodepools) == 0 ? {} : merge(
-    local.snapshot_id_by_os[local.first_nodepool_os]["arm"] != "" ? { arm64 = tostring(local.snapshot_id_by_os[local.first_nodepool_os]["arm"]) } : {},
-    local.snapshot_id_by_os[local.first_nodepool_os]["x86"] != "" ? { amd64 = tostring(local.snapshot_id_by_os[local.first_nodepool_os]["x86"]) } : {},
+    local.autoscaler_image_by_arch["arm"] != "" ? { arm64 = local.autoscaler_image_by_arch["arm"] } : {},
+    local.autoscaler_image_by_arch["x86"] != "" ? { amd64 = local.autoscaler_image_by_arch["x86"] } : {},
   )
 
   nodeConfigName = var.use_cluster_name_in_node_name ? "${var.cluster_name}-" : ""
@@ -161,7 +178,9 @@ resource "terraform_data" "configure_autoscaler" {
 
   depends_on = [
     terraform_data.kustomization,
-    terraform_data.rke2_kustomization
+    terraform_data.rke2_kustomization,
+    # Snapshot checks can defer until apply when provider data is unknown.
+    terraform_data.validation_contract,
   ]
 
   lifecycle {
@@ -323,7 +342,7 @@ resource "terraform_data" "autoscaled_nodes_registries" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = local.tailscale_use_tailnet_for_terraform ? "${each.value.name}.${local.tailscale_magicdns_domain}" : coalesce(each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
+    host           = local.tailscale_use_tailnet_for_terraform ? "${each.value.name}.${local.tailscale_magicdns_domain}" : coalesce(var.ssh_use_private_network ? try(one(each.value.network).ip, null) : null, each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
     port           = var.ssh_port
 
     bastion_host        = local.ssh_bastion.bastion_host
@@ -357,7 +376,7 @@ resource "terraform_data" "autoscaled_nodes_kubelet_config" {
     user           = "root"
     private_key    = var.ssh_private_key
     agent_identity = local.ssh_agent_identity
-    host           = local.tailscale_use_tailnet_for_terraform ? "${each.value.name}.${local.tailscale_magicdns_domain}" : coalesce(each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
+    host           = local.tailscale_use_tailnet_for_terraform ? "${each.value.name}.${local.tailscale_magicdns_domain}" : coalesce(var.ssh_use_private_network ? try(one(each.value.network).ip, null) : null, each.value.ipv4_address, each.value.ipv6_address, try(one(each.value.network).ip, null))
     port           = var.ssh_port
 
     bastion_host        = local.ssh_bastion.bastion_host

@@ -72,6 +72,11 @@ module "kube-hetzner" {
   # If you use SSH agent and have issues with SSH connecting to your nodes, you can increase the number of auth tries (default is 2)
   # ssh_max_auth_tries = 10
 
+  # If the machine running Terraform can reach the Hetzner private network directly
+  # (e.g. in-cluster CI, VPN, WireGuard peer), make provisioner SSH connections use
+  # node private IPs instead of public IPs.
+  # ssh_use_private_network = true
+
   # If you want to use an ssh key that is already registered within hetzner cloud, you can pass its id.
   # If no id is passed, a new ssh key will be registered within hetzner cloud.
   # It is important that exactly this key is passed via `ssh_public_key` & `ssh_private_key` variables.
@@ -686,6 +691,12 @@ module "kube-hetzner" {
   # Server/node creation timeout variable:
   #   - cluster_autoscaler_server_creation_timeout: Sets the timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it (defaults to 15, unit is minutes)
   #
+  # Snapshot selection variable:
+  #   - cluster_autoscaler_snapshot_selection: "id" (default) pins the snapshot resolved at plan time. "latest" makes the autoscaler pick the
+  #     newest available OS/distro-labeled snapshot at each server create, without a Terraform apply gate. Do not pin *_snapshot_id for
+  #     autoscaler architectures. Vet snapshots before publishing matching labels; retain a known-good image for rollback.
+  #     No matching snapshot fails scale-up. Static nodes keep plan-time IDs. See docs/operations.md for rollback limits.
+  #
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
@@ -694,6 +705,7 @@ module "kube-hetzner" {
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
   # cluster_autoscaler_server_creation_timeout = 15
+  # cluster_autoscaler_snapshot_selection = "id"
 
   # Additional Cluster Autoscaler binary configuration
   #
@@ -1019,7 +1031,7 @@ module "kube-hetzner" {
 
   # If you want to disable the automatic upgrade of k3s, you can set below to "false".
   # The default channel follows upstream stable. For production pinning, set k3s_version to an exact release tag.
-  # v1.33 and v1.36 are supported minor-line channels when k3s_version is empty.
+  # v1.33, v1.36 and v1.37 are supported minor-line channels when k3s_version is empty.
   # Bootstrap uses the module-reviewed release; automated upgrades can follow the live minor channel.
   # Other minor channels require an exact k3s_version, which also pins automated upgrades.
   # For production use, always use an HA setup with at least 3 control-plane nodes and 2 agents, and keep this on for maximum security.
@@ -1107,7 +1119,7 @@ module "kube-hetzner" {
 
   # Selects stable, latest, or testing. Initial bootstrap uses the exact channel release reviewed
   # with this module version; automated upgrades can continue following the live channel.
-  # v1.33 and v1.36 are accepted for pinning to a Kubernetes minor line, so the System Upgrade
+  # v1.33, v1.36 and v1.37 are accepted for pinning to a Kubernetes minor line, so the System Upgrade
   # Controller follows patch releases of that minor only. For an exact release, use k3s_version.
   # see https://rancher.com/docs/k3s/latest/en/upgrades/basic/ and https://update.k3s.io/v1-release/channels
   # ⚠️ If you are going to use Rancher addons for instance, it's always a good idea to fix the kube version to one minor version below the latest stable,
@@ -1760,6 +1772,7 @@ image:
 
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
   # If you want to merge extra values into defaults (or traefik_values), use traefik_merge_values.
+  # Chart v40+ uses service.spec.type; for earlier chart pins, put type directly under service.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   traefik_values = <<-EOT
 deployment:
@@ -1767,7 +1780,8 @@ deployment:
 additionalArguments: []
 service:
   enabled: true
-  type: LoadBalancer
+  spec:
+    type: LoadBalancer
   annotations:
     "load-balancer.hetzner.cloud/name": "k3s"
     "load-balancer.hetzner.cloud/use-private-ip": "true"
@@ -1897,6 +1911,7 @@ replicas: 3
 
   # RKE2 exact version/channel controls. rke2_version wins over rke2_channel.
   # To follow v1.36 patches, clear the default exact-version pin with rke2_version = "".
+  # On v1.36+, KH disables RKE2's bundled ingress and manages the selected controller.
   # rke2_channel = "v1.36"
   # rke2_version = ""
   # Optional independent pins for exact versions not reviewed in this module release.

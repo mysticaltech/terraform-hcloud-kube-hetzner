@@ -13,6 +13,12 @@ output "private_ipv4_address" {
   depends_on = [terraform_data.initial_readiness, terraform_data.os_upgrade_timer]
 }
 
+# SSH can select the primary attachment without changing existing Kubernetes IP outputs.
+output "private_ssh_ipv4_address" {
+  value      = local.private_ssh_host != null ? local.private_ssh_host : ""
+  depends_on = [terraform_data.initial_readiness, terraform_data.os_upgrade_timer]
+}
+
 output "name" {
   value      = hcloud_server.server.name
   depends_on = [terraform_data.initial_readiness, terraform_data.os_upgrade_timer]

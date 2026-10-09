@@ -18,6 +18,7 @@
 - `ssh_authorized_keys_exclusive`
 - `ssh_hcloud_key_label`
 - `ssh_max_auth_tries`
+- `ssh_use_private_network`
 - `hcloud_ssh_key_id`
 - `network_region`
 - `existing_network`
@@ -68,6 +69,7 @@
 - `cluster_autoscaler_log_to_stderr`
 - `cluster_autoscaler_stderr_threshold`
 - `cluster_autoscaler_server_creation_timeout`
+- `cluster_autoscaler_snapshot_selection`
 - `cluster_autoscaler_extra_args`
 - `cluster_autoscaler_replicas`
 - `cluster_autoscaler_resource_limits`

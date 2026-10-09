@@ -122,6 +122,19 @@ Use the `kustomization_backup.yaml` file created during installation:
 2. Update source URLs to latest versions
 3. Apply: `kubectl apply -k ./`
 
+### RKE2 bundled Gateway API CRDs
+
+RKE2 v1.37 introduces an independent `rke2-gateway-api-crd` Helm chart. When the module's resolved initial version is v1.37+, KH disables that chart in both server configuration writers so it cannot adopt KH-managed Gateway CRDs or override `gateway_api_version`. This also applies when KH Gateway providers are disabled. Older initial versions retain their previous YAML; automatic Kubernetes upgrades do not recompute that initial-version guard. Explicit `control_planes_custom_config.disable` overrides replace the module's list, so retaining bundled CRDs is an intentional operator-owned choice.
+
+For an existing cluster that already installed the bundled chart, **stop before applying the new configuration and verify an ownership handover**. Do not delete Gateway CRDs: that deletes the Gateway and Route resources they contain.
+
+1. Back up the CRDs and all Gateway API resources. Record each CRD's UID, served/stored versions, bundle-version annotation and Helm owner, plus resource counts. Inspect the actual chart release and its server manifest on every control plane.
+2. Select a single lifecycle owner and a bundle supported by the chosen Gateway controller. If handing ownership to KH, explicitly pin a compatible `gateway_api_version` that preserves the installed schema; do not allow the derived older bundle to overwrite newer CRDs. Check the upstream safe-upgrades admission policy rather than removing it merely to force a downgrade.
+3. Verify retention in the **installed Helm release manifest**, not just live annotations. The exact v1.37.0 chart `rke2-gateway-api-crd-1.6.101` marks its ten standard CRDs `helm.sh/resource-policy: keep`. The three optional experimental `gateway.networking.x-k8s.io` CRDs and its admission policy/binding lack that annotation; uninstalling an experimental-enabled release can delete those CRDs and their resources. Package defaults leave experimental CRDs disabled, but do not infer the installed release's values. Another chart version or a modified release needs its own inspection. Do not blindly uninstall the chart or publish a generic uninstall command.
+4. Perform the reviewed handover and serial server-config rollout in a maintenance window. Confirm the bundled chart is no longer reconciling, the intended owner/version remains, all recorded CRD UIDs and Gateway/Route objects survive, and controller status and traffic are healthy before continuing.
+
+This is a required operator review boundary, not an automated migration. Neither a provider-free plan nor the packaged `keep` annotation proves a live handover. See the [RKE2 v1.37 release notes](https://docs.rke2.io/release-notes/v1.37.X) and [exact standalone chart package](https://rke2-charts.rancher.io/assets/rke2-gateway-api-crd/rke2-gateway-api-crd-1.6.101.tgz).
+
 ---
 
 ## Module version upgrades

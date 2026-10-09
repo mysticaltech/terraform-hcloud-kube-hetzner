@@ -73,7 +73,8 @@ resource "hcloud_load_balancer_target" "cluster" {
 }
 
 locals {
-  first_control_plane_ip = local.control_plane_ips[keys(local.control_plane_ips)[0]]
+  first_control_plane_ip          = local.control_plane_ips[keys(local.control_plane_ips)[0]]
+  first_control_plane_endpoint_ip = local.control_plane_default_endpoint_ips[keys(local.control_plane_default_endpoint_ips)[0]]
 }
 
 resource "terraform_data" "first_control_plane" {
@@ -138,7 +139,7 @@ resource "terraform_data" "first_control_plane" {
           } : {
           tls-san = concat(
             compact([
-              local.first_control_plane_ip,
+              local.first_control_plane_endpoint_ip,
               local.control_plane_endpoint_host,
               local.kubeconfig_server_address != "" ? local.kubeconfig_server_address : null,
               module.control_planes[keys(module.control_planes)[0]].private_ipv4_address != "" ? module.control_planes[keys(module.control_planes)[0]].private_ipv4_address : null,
@@ -289,6 +290,7 @@ resource "terraform_data" "control_plane_setup_rke2" {
           cluster-dns                 = local.cluster_dns
           cni                         = local.rke2_cni
         },
+        local.rke2_ingress_config,
         local.multinetwork_overlay_enabled ? {
           node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[keys(module.control_planes)[0]].ipv6_address : null]))
         } : {},

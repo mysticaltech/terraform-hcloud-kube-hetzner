@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade Notes
+
+- Traefik chart v40+ uses `service.spec.type`; custom `traefik_values` or `traefik_merge_values` must use the chart-native path. Earlier chart pins still use `service.type`. Generated values are corrected, but custom YAML is not automatically translated. Applying modern generated values reruns addon orchestration and readiness checks; inspect the saved plan separately from HCloud infrastructure changes.
+- Existing redundant NAT pairs replay readiness and reconciliation because the rendered cloud-init hash changes. Reconciliation restarts keepalived, and the two routers can restart concurrently during a normal apply; review a saved populated-state plan and a controlled one-router-at-a-time maintenance/recovery procedure before rollout. This is not a zero-replacement or uninterrupted-egress guarantee (Refs #2282).
+- RKE2 v1.36+ server configuration now explicitly disables distribution-bundled ingress so it cannot compete with KH's selected controller. Existing v1.36+ configurations may require a managed server-config rollout; inspect the saved plan and use the serial upgrade procedure in [the upgrade guide](docs/upgrades.md). The older pinned default remains unchanged. Explicit custom server-config overrides are not rewritten.
+- Resolved initial RKE2 v1.37+ configurations also disable the independent bundled Gateway API CRD chart, keeping KH's selected bundle/provider authoritative. If that chart is already installed, stop before rollout and verify the [CRD-retaining ownership handover](docs/upgrades.md#rke2-bundled-gateway-api-crds); do not uninstall CRDs or silently downgrade a newer schema. Automated upgrades do not recompute this initial-version guard.
+
+### New Features
+
+- Accept the v1.37 channel for K3s and RKE2 without changing defaults.
+- Add `ssh_use_private_network` to prefer Hetzner private-network IPs for Terraform SSH/provisioning from runners with private-network access. Default is off. API endpoints, Kubernetes advertise addresses and control-plane config/SAN inputs keep their existing selection; opting in can replace the SSH kubeconfig-fetch resource when its host changes. That fetch-resource replacement is not Cloud-server destruction. Review an existing-state plan before applying.
+- Add opt-in `cluster_autoscaler_snapshot_selection = "latest"` to resolve the newest available OS/distro-labeled snapshot for each new autoscaled node. Rebuilds need no re-apply, but operators must vet snapshots before publishing matching labels and retain known-good images for rollback. No matching snapshot still fails scale-up. Default `"id"` behavior is unchanged; static nodes continue to use numeric plan-time IDs. In `"latest"` mode, the shared Leap Micro lookup filters to available images and can change the numeric image selected for new static nodes sharing the autoscaler's OS/architecture. Existing static servers ignore image changes.
+
+### Bug Fixes
+
+- Correct generated Traefik Service type values for chart v40+ while preserving earlier chart pins and user override precedence (#2296; thanks @loxy).
+- Cap the inferred Cilium base MTU at the smallest declared `extra_robot_nodes[].mtu`, including when Robot CCM is disabled. Cloud-only defaults and explicit Helm overrides are unchanged. Manually joined nodes still require an explicit underlay budget, and existing pods need controlled recreation to pick up changed MTUs; see [Cilium MTU diagnostics](docs/cilium-upgrades.md#use-the-smallest-underlay) (Refs #2286; thanks @ChrisKretschmer).
+- Wait for the two-router alias handoff's asynchronous actions, retain terminal responses received at the deadline, reject mismatched/malformed action and alias readback responses, and bound further observation requests. This remains a one-shot best-effort handoff, not N-replica self-healing, partition fencing, or recovery from an ambiguous mutation (Refs #2282; thanks @clemlesne).
+- NAT bootstrap readiness no longer masks cloud-init failure. Legacy exit 0 remains unchanged and fatal exit 1 still stops dependent work; exit 2 is accepted only for a structured completed/enabled run with completed stages, no fatal errors, and `WARNING`-only recoverable entries. Unknown, malformed, incomplete, or mixed error categories fail closed; diagnostics contain status/counts rather than raw log bodies. This does not repair guest routes or provide a quorum-safe existing-cluster NAT migration (Refs #2283; thanks @clemlesne).
+- Suppress RKE2 v1.36+ bundled ingress in both first-server bootstrap and managed control-plane configuration, including when KH uses another controller or none (#2294).
+- Suppress RKE2 v1.37+ standalone bundled Gateway CRDs without changing older/1.36 server YAML, KH Gateway provider selection, explicit CRD pins, or custom server-config precedence (#2294).
+
+### Documentation
+
+- Correct Longhorn volume lifecycle guidance and document one-node-at-a-time retirement and resize gates. Draining alone does not evacuate all replicas or preserve local data; automatic lifecycle handling remains tracked in #2299 (thanks @clemlesne).
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes

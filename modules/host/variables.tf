@@ -27,6 +27,12 @@ variable "node_connection_overrides" {
   default     = {}
 }
 
+variable "ssh_use_private_network" {
+  description = "Whether Terraform provisioners should prefer the server's private network IP for SSH connections."
+  type        = bool
+  default     = false
+}
+
 variable "os_snapshot_id" {
   description = "OS snapshot ID to be used."
   type        = string

@@ -296,7 +296,8 @@ EOT
   gateway_api_standard_crds_resources = local.gateway_api_crds_enabled ? ["gateway-api-standard-crds.yaml"] : []
   cilium_routing_mode_effective       = local.cross_network_transport_enabled ? "tunnel" : var.cilium_routing_mode
   cilium_wireguard_effective          = local.multinetwork_overlay_enabled || var.enable_cni_wireguard_encryption
-  cilium_mtu_effective                = local.node_transport_tailscale_enabled ? var.tailscale_node_transport.kubernetes.cni_mtu : (local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450))
+  cilium_mtu_base                     = local.node_transport_tailscale_enabled ? var.tailscale_node_transport.kubernetes.cni_mtu : (local.multinetwork_overlay_enabled ? var.multinetwork_cilium_mtu : (local.use_robot_ccm ? 1350 : 1450))
+  cilium_mtu_effective                = var.cni_plugin == "cilium" ? min(local.cilium_mtu_base, [for node in var.extra_robot_nodes : node.mtu]...) : local.cilium_mtu_base
 
   control_plane_endpoint_host = var.control_plane_endpoint != null ? one(compact(regexall("^(?:https?://)?(?:.*@)?(?:\\[([a-fA-F0-9:]+)\\]|([^:/?#]+))", var.control_plane_endpoint)[0])) : null
   control_plane_private_host  = var.enable_control_plane_load_balancer ? hcloud_load_balancer_network.control_plane.*.ip[0] : module.control_planes[keys(module.control_planes)[0]].private_ipv4_address
@@ -376,6 +377,9 @@ EOT
   csi_driver_smb_version = local.addon_version_inputs.csi_driver_smb == "latest" ? "*" : coalesce(local.addon_version_inputs.csi_driver_smb, local.addon_default_versions.csi_driver_smb)
   cert_manager_version   = local.addon_version_inputs.cert_manager == "latest" ? "*" : coalesce(local.addon_version_inputs.cert_manager, local.addon_default_versions.cert_manager)
   rancher_version        = local.addon_version_inputs.rancher == "latest" ? "*" : coalesce(local.addon_version_inputs.rancher, local.addon_default_versions.rancher)
+
+  # Chart v40 moved service.type into service.spec; floating versions follow the modern schema.
+  traefik_service_type_in_spec = try(tonumber(split(".", trimprefix(local.traefik_version, "v"))[0]) >= 40, true)
 
   kured_manifest_body                     = var.enable_kured ? data.http.kured_manifest[0].response_body : ""
   system_upgrade_controller_manifest_body = var.enable_system_upgrade_controller ? data.http.system_upgrade_controller_manifest[0].response_body : ""
@@ -1120,17 +1124,23 @@ EOT
     testing = "v1.18.2-rc3+k3s1"
     "v1.33" = "v1.33.13+k3s2"
     "v1.36" = "v1.36.3+k3s1"
+    "v1.37" = "v1.37.0+k3s1"
   }
   rke2_channel_release_manifest = {
     stable  = "v1.35.7+rke2r1"
     latest  = "v1.36.3+rke2r1"
     testing = "v1.18.9-beta22+rke2"
     "v1.36" = "v1.36.3+rke2r1"
+    "v1.37" = "v1.37.0+rke2r1"
   }
 
   # Digests were captured from the official GitHub release assets/checksum
   # files and are independent of the immutable installer script pins.
   k3s_release_sha256_manifest = {
+    "v1.37.0+k3s1" = tomap({
+      amd64 = "39eed8f53f277497dfc2542f66eab0ed68a94dfc598946dbebfb50366916c7a2"
+      arm64 = "9bc2c128a597bf7c10ee45df844f2838251ba53806f7673d7fea24a6cb1b6a99"
+    })
     "v1.36.3+k3s1" = tomap({
       amd64 = "2f98a9f8fe5782479ee2d54e70a1b10a7f6fd4cae8d38ed3098452dc6eed76b5"
       arm64 = "c9a209103f480f163b7c6a56f00862b4481927b284dc29a3716bb70d886691a8"
@@ -1145,6 +1155,10 @@ EOT
     })
   }
   rke2_release_sha256_manifest = {
+    "v1.37.0+rke2r1" = tomap({
+      amd64 = "57eed94ca59e1245234ad1f97d84a29a31c0b02a59760af3b7d4338c40d5b513"
+      arm64 = "fe98d738ee2b052674cd59ac6f28ffb3c28bf9e9cfdb025cf6ae1e03971ffd10"
+    })
     "v1.32.5+rke2r1" = tomap({
       amd64 = "ea3d90462a9fcc3825ebff121e3654af657f3cbfae783c403594216a299a5c8f"
       arm64 = "42f89ee6564da9cb8c22d510895e16ab4e175b82ada2e4527b44d351029150fc"
@@ -2653,8 +2667,14 @@ EOT
   ingress_max_replica_count = (var.ingress_max_replica_count > local.ingress_replica_count) ? var.ingress_max_replica_count : local.ingress_replica_count
 
   # Disable distribution-bundled addons that kube-hetzner replaces or manages.
-  disable_extras      = concat(var.enable_local_storage ? [] : ["local-storage"], local.using_klipper_lb ? [] : ["servicelb"], ["traefik"], var.enable_metrics_server ? [] : ["metrics-server"])
-  disable_rke2_extras = ["rke2-ingress-nginx"]
+  disable_extras = concat(var.enable_local_storage ? [] : ["local-storage"], local.using_klipper_lb ? [] : ["servicelb"], ["traefik"], var.enable_metrics_server ? [] : ["metrics-server"])
+  # RKE2 v1.37 adds an independent Gateway CRD chart; KH owns its selected bundle.
+  disable_rke2_extras = concat(["rke2-ingress-nginx"], try(tonumber(regex("^v?1\\.([0-9]+)\\.", local.rke2_initial_version)[0]) >= 37, false) ? ["rke2-gateway-api-crd"] : [])
+  # RKE2 v1.36+ defaults to bundled Traefik; KH owns ingress chart selection.
+  # Leave older server YAML unchanged to avoid an unrelated configuration rollout.
+  rke2_ingress_config = try(tonumber(regex("^v?1\\.([0-9]+)\\.", local.rke2_initial_version)[0]) >= 36, false) ? {
+    ingress-controller = ["none"]
+  } : {}
 
   # Determine if scheduling should be allowed on control plane nodes, which will be always true for single node clusters and clusters or if scheduling is allowed on control plane nodes
   allow_scheduling_on_control_plane = local.is_single_node_cluster ? true : var.allow_scheduling_on_control_plane
@@ -3265,7 +3285,12 @@ deployment:
   replicas: ${local.ingress_replica_count}
 service:
   enabled: true
+%{if local.traefik_service_type_in_spec~}
+  spec:
+    type: LoadBalancer
+%{else~}
   type: LoadBalancer
+%{endif~}
 %{if !local.using_klipper_lb}
   annotations:
 %{if local.combine_load_balancers_effective}

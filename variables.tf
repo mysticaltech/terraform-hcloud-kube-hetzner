@@ -148,6 +148,12 @@ variable "ssh_private_key" {
   }
 }
 
+variable "ssh_use_private_network" {
+  description = "Prefer Hetzner private network IPs for Terraform SSH/provisioning to Cloud control planes and agents when the runner can reach those networks. Static-node overrides and configured Tailscale SSH transport retain precedence; nodes without private IPs fall back to public addresses. NAT bastion and Robot-node connection settings are independent."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_hcloud_key_label" {
   description = "Additional SSH public Keys by hcloud label. e.g. role=admin"
   type        = string
@@ -1700,6 +1706,17 @@ variable "cluster_autoscaler_server_creation_timeout" {
   description = "Timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it."
 }
 
+variable "cluster_autoscaler_snapshot_selection" {
+  type        = string
+  default     = "id"
+  description = "How the Cluster Autoscaler picks the OS snapshot for new nodes. \"id\" pins the plan-time snapshot. \"latest\" selects the newest available matching OS/distro snapshot at each server create, without a Terraform apply gate. Requires label-based snapshots for every configured autoscaler architecture, including dormant pools. Keep known-good snapshots for rollback; no match fails scale-up. Static nodes keep plan-time IDs."
+
+  validation {
+    condition     = contains(["id", "latest"], var.cluster_autoscaler_snapshot_selection)
+    error_message = "cluster_autoscaler_snapshot_selection must be \"id\" or \"latest\"."
+  }
+}
+
 variable "cluster_autoscaler_replicas" {
   type        = number
   default     = 1
@@ -2267,10 +2284,10 @@ variable "enable_metrics_server" {
 variable "k3s_channel" {
   type        = string
   default     = "stable" # Please update kube.tf.example too when changing this variable
-  description = "Selects the k3s channel. Initial bootstrap uses the exact channel release reviewed with this module version; System Upgrade Controller plans can continue following the live channel. v1.33 and v1.36 are accepted for explicit minor-line pinning; use k3s_version for an exact release."
+  description = "Selects the k3s channel. Initial bootstrap uses the exact channel release reviewed with this module version; System Upgrade Controller plans can continue following the live channel. v1.33, v1.36 and v1.37 are accepted for explicit minor-line pinning; use k3s_version for an exact release."
 
   validation {
-    condition     = contains(["stable", "latest", "testing", "v1.16", "v1.17", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35", "v1.36"], var.k3s_channel)
+    condition     = contains(["stable", "latest", "testing", "v1.16", "v1.17", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35", "v1.36", "v1.37"], var.k3s_channel)
     error_message = "The initial k3s channel must be one of stable, latest or testing, or any of the minor kube versions like v1.26."
   }
 
@@ -2306,10 +2323,10 @@ variable "k3s_artifact_sha256" {
 variable "rke2_channel" {
   type        = string
   default     = "v1.32" # Please update kube.tf.example too when changing this variable
-  description = "Selects the RKE2 channel when rke2_version is empty. Initial bootstrap uses the exact channel release reviewed with this module version; System Upgrade Controller plans can continue following the live channel. v1.36 is accepted for minor-line pinning; explicitly clear the default rke2_version to follow a channel. Use rke2_version for an exact release."
+  description = "Selects the RKE2 channel when rke2_version is empty. Initial bootstrap uses the exact channel release reviewed with this module version; System Upgrade Controller plans can continue following the live channel. v1.36 and v1.37 are accepted for minor-line pinning; explicitly clear the default rke2_version to follow a channel. Use rke2_version for an exact release."
 
   validation {
-    condition     = contains(["stable", "latest", "testing", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35", "v1.36"], var.rke2_channel)
+    condition     = contains(["stable", "latest", "testing", "v1.18", "v1.19", "v1.20", "v1.21", "v1.22", "v1.23", "v1.24", "v1.25", "v1.26", "v1.27", "v1.28", "v1.29", "v1.30", "v1.31", "v1.32", "v1.33", "v1.34", "v1.35", "v1.36", "v1.37"], var.rke2_channel)
     error_message = "The initial rke2 channel must be one of stable, latest or testing, or any of the minor kube versions like v1.31."
   }
 

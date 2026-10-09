@@ -43,6 +43,7 @@ module "control_planes" {
   append_random_suffix          = each.value.append_random_suffix
   connection_host               = ""
   connection_host_suffix        = local.tailscale_pre_terraform_ssh_enabled ? local.tailscale_magicdns_domain : ""
+  ssh_use_private_network       = var.ssh_use_private_network
   os_snapshot_id                = try(trimspace(each.value.os_snapshot_id), "") != "" ? trimspace(each.value.os_snapshot_id) : local.snapshot_id_by_os[each.value.os][substr(each.value.server_type, 0, 3) == "cax" ? "arm" : "x86"]
   os                            = each.value.os
   base_domain                   = var.base_domain
@@ -331,13 +332,27 @@ locals {
     for k, v in module.control_planes : k => coalesce(
       lookup(var.node_connection_overrides, v.name, null),
       lookup(var.node_connection_overrides, local.control_plane_override_base_names[k], null),
+      var.ssh_use_private_network ? v.private_ssh_ipv4_address : null,
       v.ipv4_address,
       v.ipv6_address,
-      v.private_ipv4_address
+      var.ssh_use_private_network ? null : v.private_ipv4_address
     )
   }
 
   control_plane_ips = {
+    for k, v in module.control_planes : k => coalesce(
+      lookup(var.node_connection_overrides, v.name, null),
+      lookup(var.node_connection_overrides, local.control_plane_override_base_names[k], null),
+      local.tailscale_use_tailnet_for_terraform ? local.tailscale_control_plane_magicdns_hosts[k] : null,
+      var.ssh_use_private_network ? v.private_ssh_ipv4_address : null,
+      v.ipv4_address,
+      v.ipv6_address,
+      var.ssh_use_private_network ? null : v.private_ipv4_address
+    )
+  }
+
+  # Keep the historical API endpoint/SAN default independent of SSH preferences.
+  control_plane_default_endpoint_ips = {
     for k, v in module.control_planes : k => coalesce(
       lookup(var.node_connection_overrides, v.name, null),
       lookup(var.node_connection_overrides, local.control_plane_override_base_names[k], null),
@@ -391,6 +406,7 @@ locals {
       write-kubeconfig-mode       = "0644" # needed for import into rancher
       cni                         = local.rke2_cni
     },
+    local.rke2_ingress_config,
     local.multinetwork_overlay_enabled ? {
       node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[k].ipv6_address : null]))
       } : lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {

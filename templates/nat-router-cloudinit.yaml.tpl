@@ -168,8 +168,47 @@ write_files:
       PEER_IP="${ peer_private_ip }"
       CLUSTER_NAME="${ cluster_name }"
 
+      api_request() {
+        curl -f -s --connect-timeout 5 --max-time 15 "$@"
+      }
+
+      assert_local_master() {
+        ip -o -4 addr show | awk -v vip="$VIP" \
+          '{split($4, address, "/"); if (address[1] == vip) found=1} END {exit !found}'
+      }
+
+      # API acceptance is not completion. Do not race the peer's release action.
+      wait_for_action() {
+        local response="$1" action_id status deadline remaining request_timeout
+        action_id=$(printf '%s' "$response" | jq -er '.action.id | numbers | select(. > 0 and . <= 9007199254740991 and floor == .)' 2>/dev/null) || return 1
+        deadline=$((SECONDS + 60))
+        while true; do
+          # Always inspect a received response, even when the last GET used the remaining budget.
+          status=$(printf '%s' "$response" | jq -er --argjson action_id "$action_id" '
+            .action | select(type == "object" and .id == $action_id and (.id | type) == "number" and .id <= 9007199254740991
+              and (.status | type) == "string" and has("error") and .error == null)
+            | .status' 2>/dev/null) || return 1
+          case "$status" in
+            success) return 0 ;;
+            running) ;;
+            *) return 1 ;;
+          esac
+          remaining=$((deadline - SECONDS))
+          [ "$remaining" -gt 0 ] || break
+          sleep 1
+          remaining=$((deadline - SECONDS))
+          [ "$remaining" -gt 0 ] || break
+          request_timeout=15
+          if [ "$remaining" -lt "$request_timeout" ]; then request_timeout=$remaining; fi
+          response=$(api_request --max-time "$request_timeout" -H "Authorization: Bearer $HCLOUD_TOKEN" \
+            "https://api.hetzner.cloud/v1/actions/$action_id") || return 1
+        done
+        echo "NAT alias action did not complete before the deadline." >&2
+        return 1
+      }
+
       # Get own hcloud server id by calling metadata service
-      MY_ID=$(curl -f -s http://169.254.169.254/hetzner/v1/metadata/instance-id)
+      MY_ID=$(api_request http://169.254.169.254/hetzner/v1/metadata/instance-id)
 
       if [ -z "$MY_ID" ]
       then
@@ -177,7 +216,7 @@ write_files:
       fi
 
       # Get peer id by server list filtered by this cluster's NAT routers and provided peer IP
-      PEER_ID=$(curl -f -s -H "Authorization: Bearer $HCLOUD_TOKEN" \
+      PEER_ID=$(api_request -H "Authorization: Bearer $HCLOUD_TOKEN" \
         "https://api.hetzner.cloud/v1/servers?label_selector=role=nat_router,cluster=$CLUSTER_NAME" | \
         jq -r --arg peer_ip "$PEER_IP" --arg net_id "$NET_ID" '.servers[] | select(any(.private_net[]; .ip == $peer_ip and (.network | tostring) == $net_id)) | .id' | head -n 1)
 
@@ -187,14 +226,29 @@ write_files:
       fi
 
       # Remove from Peer
-      curl -f -s -X POST "https://api.hetzner.cloud/v1/servers/$PEER_ID/actions/change_alias_ips" \
+      assert_local_master
+      ACTION=$(api_request -X POST "https://api.hetzner.cloud/v1/servers/$PEER_ID/actions/change_alias_ips" \
         -H "Authorization: Bearer $HCLOUD_TOKEN" -H "Content-Type: application/json" \
-        -d "{\"network\": $NET_ID, \"alias_ips\": []}"
+        -d "{\"network\": $NET_ID, \"alias_ips\": []}")
+      wait_for_action "$ACTION"
 
       # Assign to Me
-      curl -f -s -X POST "https://api.hetzner.cloud/v1/servers/$MY_ID/actions/change_alias_ips" \
+      assert_local_master
+      ACTION=$(api_request -X POST "https://api.hetzner.cloud/v1/servers/$MY_ID/actions/change_alias_ips" \
         -H "Authorization: Bearer $HCLOUD_TOKEN" -H "Content-Type: application/json" \
-        -d "{\"network\": $NET_ID, \"alias_ips\": [\"$VIP\"]}"
+        -d "{\"network\": $NET_ID, \"alias_ips\": [\"$VIP\"]}")
+      wait_for_action "$ACTION"
+
+      SERVER=$(api_request -H "Authorization: Bearer $HCLOUD_TOKEN" \
+        "https://api.hetzner.cloud/v1/servers/$MY_ID")
+      printf '%s' "$SERVER" | jq -e --arg net_id "$NET_ID" --arg vip "$VIP" \
+        'def ipv4: type == "string"
+          and test("^(0|[1-9][0-9]{0,2})(\\.(0|[1-9][0-9]{0,2})){3}$")
+          and (split(".") | all(.[]; tonumber <= 255));
+        .server | select(type == "object") | .private_net | select(type == "array")
+        | select(all(.[]; type == "object" and (.network | type) == "number"
+            and (.alias_ips | type == "array" and all(.[]; ipv4))))
+        | any(.[]; (.network | tostring) == $net_id and any(.alias_ips[]; . == $vip))' >/dev/null 2>&1
 
   - path: /etc/keepalived/hcloud.env
     owner: keepalived_script:keepalived_script

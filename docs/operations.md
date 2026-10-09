@@ -93,22 +93,56 @@ cilium hubble ui
 Adjust `count` in any nodepool and run `terraform apply`. Constraints:
 
 - First control-plane nodepool minimum: **1**
-- Drain nodes before removing: `kubectl drain <node-name>`
+- Drain the exact nodes selected by the plan before removing them: `kubectl drain <node-name> --ignore-daemonsets`
 - Only remove nodepools from the **end** of the list
 - Rename nodepools only when count is **0**
 
 **Advanced:** Replace `count` with a `nodes` map for individual node control—see `kube.tf.example`.
 
+### Resizing or Retiring Longhorn Agents
+
+Terraform does not automatically cordon, drain, or evacuate Longhorn replicas before agent deletion or a `server_type` update. The hcloud provider powers off a running server before changing its type, even when the plan says **update in place**. A pool-wide type change can interrupt several storage nodes together. `terraform apply -parallelism=1` limits concurrent Terraform operations but does not wait for Kubernetes readiness, workload recovery, or Longhorn replica health between nodes. Kubernetes upgrade drain settings and Kured do not wrap these Terraform operations.
+
+Resizing is limited to the same CPU architecture and a target plan whose disk can hold the server's current disk. `keep_disk = true` avoids enlarging the disk during an upscale; it does not shrink an already enlarged disk, preserve it after server deletion, or enable an Arm/x86 transition. See the [Hetzner rescale constraints](https://docs.hetzner.com/cloud/servers/faq/) and [provider resize implementation](https://github.com/hetznercloud/terraform-provider-hcloud/blob/v1.70.0/internal/server/resource.go).
+
+For permanent retirement or an incompatible hardware move, use an operator-controlled migration:
+
+1. Verify independent, restorable backups. Add the replacement storage pool at the end of the list without changing the old pool's positions or names. Apply that addition separately and wait for its Kubernetes nodes and Longhorn disks to be ready and schedulable, with enough capacity and suitable replica placement to evacuate the old nodes.
+2. Review a plan for a **single** old node's removal. Count-based pools remove the highest index first; match the planned server ID/name to the Kubernetes node, rather than choosing an arbitrary node to drain. Keep emptied middle pools at `count = 0`. Stop if unrelated servers, networks, or volumes would be removed or replaced.
+3. Cordon that node, disable its Longhorn scheduling, and request replica eviction in the Longhorn UI. Wait until all its replicas and backing images have moved off every disk, affected volumes have their required healthy replicas elsewhere, and workloads have a viable destination. The [Longhorn graceful removal guide](https://longhorn.io/docs/1.12.1/nodes-and-volumes/nodes/graceful-node-removal/) describes the checks. Insufficient capacity, anti-affinity constraints, or faulted volumes are reasons to stop, not skip eviction.
+4. Drain the node with the Kubernetes eviction API, for example `kubectl drain <node-name> --ignore-daemonsets --timeout=10m`. If it fails or times out, **do not apply the removal**. Resolve the blocking workload/PDB or storage condition first. Do not use `--disable-eviction` to bypass PDBs; `--force` permits unmanaged pods but does not bypass PDBs. Deleting `emptyDir` data requires a separate, deliberate decision. A successful drain alone does not copy local-path data or prove Longhorn disk evacuation.
+5. Only after those gates, deliberately disable applicable delete protection while the resources still exist in the configuration, apply that protection change separately, and re-plan the single-node removal. The module-managed Hetzner Volume for that removed agent key is deleted too; migrate the data before allowing this. Apply the reviewed removal, then clean up any stale Kubernetes Node and Longhorn Node metadata after the server is gone, following Longhorn's prerequisites. Wait for workload recovery and required Longhorn replica health before starting another node.
+
+Longhorn's default `block-if-contains-last-replica` drain policy blocks when the last healthy replica would be disrupted; it is not automatic evacuation. `block-for-eviction-if-contains-last-replica` evacuates replicas without a healthy counterpart, not every replica. `block-for-eviction` evacuates all replicas, but still needs viable destinations. Inspect the actual setting and placement, not just the configured replica count. See [Longhorn drain policies](https://longhorn.io/docs/1.12.1/references/settings/#node-drain-policy).
+
+For an in-place resize, drain only the node being changed, resize it, verify it returns Ready with its expected storage mounted, then uncordon it and wait for workload and replica recovery before proceeding. An existing `nodes` map can express per-node `server_type` overrides while leaving other nodes unchanged. Do not convert a count-based pool to a map blindly: node names and other derived configuration can change, so first verify the resulting plan. This remains a manual maintenance procedure, not a module-managed rolling resize.
+
+Two existing deletion safeguards are independent: `delete_protection = true` on an agent pool protects its servers; `enable_delete_protection = { volume = true }` protects managed Hetzner Volumes. Current hcloud provider deletion paths do not automatically lift those protections ([upstream tracking issue](https://github.com/hetznercloud/terraform-provider-hcloud/issues/1206)). Server protection alone does not protect its volume, and neither option blocks resize poweroff or makes a whole apply/destroy atomic. The provider can detach a protected volume before its deletion is rejected. The provider version matters because the module specifies a minimum, not an exact pin.
+
+Managed Longhorn Volumes follow the agent resource key. Removing that key or removing its dedicated-volume configuration plans volume deletion; a same-key server replacement does not necessarily replace the Volume, so inspect both resources. A preserved or externally managed disk is not a guarantee that Longhorn will reuse its replicas on a different node identity. Stable storage ownership and automatic drain/resize orchestration are not implemented; [issue #2299](https://github.com/mysticaltech/terraform-hcloud-kube-hetzner/issues/2299) tracks this gap.
+
 ### Autoscaling
 
 Enable with `autoscaler_nodepools`. Powered by [Cluster Autoscaler](https://github.com/kubernetes/autoscaler).
 
-> ⚠️ Autoscaled nodes use a snapshot from the initial control plane. Ensure disk sizes match.
+> ⚠️ Autoscaled nodes use the effective autoscaler OS snapshot. Ensure it fits every pool's server disk.
 > Longhorn storage should stay on static agent nodepools. Autoscaled Longhorn volumes require a write-capable Hetzner token in node user-data and leave detached volumes behind on scale-down.
 
 Cluster Autoscaler will not scale down nodes that run pods with local storage unless explicitly configured to do so. For disposable local data, add `--skip-nodes-with-local-storage=false` to `cluster_autoscaler_extra_args` or annotate individual pods with `cluster-autoscaler.kubernetes.io/safe-to-evict: "true"`.
 
 Hetzner Cloud limits server `user_data` to 32 KiB. Kube-hetzner compresses its large autoscaler cloud-init payloads and rejects an oversized rendered node configuration during `terraform plan`. The v3.2 release canary measured 29,520 bytes before user customizations, so keep custom payloads small and treat the plan guard as a hard API limit. If that guard fails, reduce custom `agent_nodes_custom_config`, `kubelet_config`, `registries_config`, node annotations, or extra bootstrap commands instead of bypassing the limit.
+
+#### Snapshot selection and rollback
+
+`cluster_autoscaler_snapshot_selection = "id"` is the default: keep the selected snapshot while the autoscaler uses its numeric ID, or re-apply the autoscaler configuration before retiring it. With opt-in `"latest"`, each server create selects the newest available snapshot matching `<os>-snapshot=yes,kube-hetzner/os=<os>,kube-hetzner/k8s-distro=<distro>` and the server's actual architecture. The current Packer templates produce these labels for MicroOS and Leap Micro, with `selinux_package_to_install` selecting `k3s` or `rke2`. No additional Terraform/provider version is required; the pinned official autoscaler `v1.33.3` supports this selector contract. Verify custom autoscaler builds separately.
+
+Only configured autoscaler architectures participate, including pools with `min_nodes = max_nodes = 0`. Do not set global `*_snapshot_id` pins for those OS/architecture pairs in `"latest"` mode; static-only architectures can remain pinned. A MicroOS legacy or partially labeled image cannot satisfy the selector.
+
+Static nodes continue to use numeric plan-time IDs. However, `"latest"` adds an available-image filter to the shared Leap Micro lookup for the autoscaler's OS/architecture. This can change the numeric image selected for a newly created static node sharing that pair, for example when a newer matching image is unavailable but an older one is available. Default `"id"` lookup behavior is unchanged. Existing static servers ignore image changes rather than rebuilding automatically.
+
+Publish matching labels only after testing a new image: `"latest"` lets it reach new autoscaled nodes without a Terraform apply gate. Multiple matching snapshots are expected; the API's `created` time, not the `built-at` or `build-id` label, controls selection. Equal creation times have no guaranteed tie-breaker. Keep a known-good matching snapshot for each architecture. Deleting an older image is safe for future selector-based creates only while another compatible match remains; no match fails scale-up, and deletion during a create can still race the API request.
+
+To roll back future creates, exclude the bad image from the selector (for example, remove its `<os>-snapshot=yes` label) and verify the newest remaining match for each architecture. This does not change or repair existing nodes, and an in-flight create may already have selected the bad image. Handle those nodes separately. Switching back to `"id"` pins the current plan-time selection, not automatically the previous good image; inspect the full plan before applying. Static nodes retain numeric IDs, and existing static servers ignore image changes rather than rebuilding automatically. Labels express operator intent, not image provenance: restrict snapshot/label write access in the HCloud project.
 
 #### Repair existing autoscaler update services
 

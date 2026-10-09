@@ -194,6 +194,19 @@ module "kube-hetzner" {
   * **Caution:** Setting this too high could theoretically make brute-force attacks slightly easier if other security measures are weak, but the primary defense is strong key management.
 
 ```terraform
+  # If Terraform runs where the Hetzner private network is reachable (in-cluster CI, VPN),
+  # provisioner SSH connections can use node private IPs instead of public IPs.
+  # ssh_use_private_network = true
+```
+
+* **`ssh_use_private_network` (Optional):**
+  * **Default:** `false`.
+  * **Purpose:** Prefers private IPs for Cloud control-plane and agent SSH connections, including host-module create-time provisioners and autoscaler registry/kubelet updates. Static-node `node_connection_overrides` and configured Tailscale SSH transport retain precedence. Remote-exec Tailscale bootstrap uses the initial route before the tailnet route is available.
+  * **Use Case:** Running Terraform from a runner that can route to each node's Hetzner private network (e.g. an in-cluster Atlantis pod, VPN, or WireGuard peer) while node firewalls deny SSH from public sources. Nodes without a private IP still fall back to their public addresses; this is a preference, not a private-only enforcement control.
+  * **Boundaries:** This does not change NAT bastion routing (`use_private_nat_router_bastion`), explicit Robot-node hosts, firewall rules, existing SSH listeners, API endpoint selection, or Kubernetes advertise/SAN/config inputs. Set `kubeconfig_server_address` explicitly for a different client access path. If the SSH host changes, Terraform replaces the SSH kubeconfig-fetch resource and reads the file again; review an existing-state plan before applying.
+  * **Primary Network:** Static Cloud nodes select their configured primary Network by ID for private SSH, including when extra networks are attached. This does not repair existing multi-network Kubernetes address outputs or establish live multi-network reachability. Autoscaled nodes with multiple private attachments still fall back to public addresses when `one(network)` is ambiguous.
+
+```terraform
   # If you want to use an ssh key that is already registered within hetzner cloud, you can pass its id.
   # If no id is passed, a new ssh key will be registered within hetzner cloud.
   # It is important that exactly this key is passed via `ssh_public_key` & `ssh_private_key` variables.
@@ -399,7 +412,7 @@ The subsequent sections on `control_plane_nodepools` and `agent_nodepools` are e
     * **Adding/Removing Nodepools:** You can safely add new nodepool definitions to the *end* of the list or remove nodepool definitions from the *end* of the list. This is due to how the module allocates subnets (FILO - First In, Last Out, or rather, sequentially). Modifying nodepools in the middle of the list can cause existing nodepools to be re-evaluated for their subnet, potentially leading to disruption.
     * **Changing `count`:**
       * **Increasing:** Generally safe. New nodes will be provisioned.
-      * **Decreasing (to > 0):** Terraform will select nodes to remove. Ensure workloads are drained from these nodes (`kubectl drain`) before applying, to prevent data loss or service interruption.
+      * **Decreasing (to > 0):** Terraform removes the highest indices in a count-based pool. Identify those exact nodes from the plan and drain their workloads before applying. Draining alone does not preserve local-disk data or evacuate every Longhorn replica; follow [Longhorn agent retirement](operations.md#resizing-or-retiring-longhorn-agents) before allowing server or managed volume deletion.
       * **Decreasing to `0`:** The nodepool becomes effectively dormant. Its subnet remains. Before doing this, *all nodes in that pool must be drained and cordoned*.
     * **Renaming:** A nodepool can be renamed *only if its `count` is 0*. Otherwise, Terraform will see it as destroying the old and creating a new one.
     * **Removing from List:** Do not remove a nodepool definition from the list if it still has active nodes or if you intend to use it again. Set its `count` to 0 first.
@@ -581,8 +594,8 @@ The example shows three control plane nodepools, each with one node, in differen
       * If `enable_longhorn = true` (a global module setting), this attribute can be added to an agent nodepool definition.
       * **Purpose:** Instructs the module to create a Hetzner Cloud Volume of the specified size (in GB, e.g., `20` for 20GB) for *each node* in this pool. Longhorn will then be configured to use these dedicated Hetzner Volumes for its storage replicas instead of using the node's local disk.
       * **Trade-offs:**
-        * **Hetzner Volumes:** Network-attached, potentially slower than local NVMe/SSD storage on the node, but can be larger, are independently manageable, and might be cheaper for bulk storage. Good for less I/O-intensive workloads or where data persistence independent of the node's lifecycle is paramount.
-        * **Node Local Storage (if `longhorn_volume_size` is not set or 0):** Longhorn uses a directory on the node's filesystem. Faster I/O, but storage is tied to the node's disk.
+        * **Hetzner Volumes:** Network-attached and potentially slower than local NVMe/SSD storage, but can be larger. The module owns these volumes under each agent key: retiring that key also plans deletion of its volume. This is not storage lifecycle independence. Server and volume delete protection are separate safeguards; see [Longhorn agent retirement](operations.md#resizing-or-retiring-longhorn-agents).
+        * **Node Local Storage (if `longhorn_volume_size` is omitted):** Longhorn uses a directory on the node's filesystem. Faster I/O, but storage is tied to the node's disk and is lost with server deletion. Current validation requires an explicit size to be between 10 and 10240 GB; do not use `0` to switch an existing dedicated disk to local storage.
       * **Recommendation:** The comment wisely suggests local storage for databases (high I/O) and Hetzner Volumes for backups or less critical storage.
       * **Autoscaler Boundary:** Longhorn volumes are intentionally limited to static agent/control-plane nodepools. Autoscaled volume self-provisioning would require a write-capable Hetzner token in node user-data and detached volumes would be orphaned on scale-down.
     * **`floating_ip` (Boolean, Optional, specific to egress nodepool example):**
@@ -870,6 +883,12 @@ The example shows three control plane nodepools, each with one node, in differen
   # Server/node creation timeout variable:
   #   - cluster_autoscaler_server_creation_timeout: Sets the timeout (in minutes) until which a newly created server/node has to become available before giving up and destroying it (defaults to 15, unit is minutes)
   #
+  # Snapshot selection variable:
+  #   - cluster_autoscaler_snapshot_selection: "id" (default) pins the snapshot resolved at plan time. "latest" makes the autoscaler pick the
+  #     newest available OS/distro-labeled snapshot at each server create, without a Terraform apply gate. Do not pin *_snapshot_id for
+  #     autoscaler architectures. Vet snapshots before publishing matching labels; retain a known-good image for rollback.
+  #     No matching snapshot fails scale-up. Static nodes keep plan-time IDs. See docs/operations.md for rollback limits.
+  #
   # Example:
   #
   # cluster_autoscaler_image = "registry.k8s.io/autoscaling/cluster-autoscaler"
@@ -878,9 +897,15 @@ The example shows three control plane nodepools, each with one node, in differen
   # cluster_autoscaler_log_to_stderr = true
   # cluster_autoscaler_stderr_threshold = "INFO"
   # cluster_autoscaler_server_creation_timeout = 15
+  # cluster_autoscaler_snapshot_selection = "id"
 ```
 
 * **Cluster Autoscaler Binary Configuration (Conditional on `autoscaler_nodepools` being set):**
+  * **`cluster_autoscaler_snapshot_selection` (String, Optional):**
+    * **Default:** `"id"`; allowed values are `"id"` and `"latest"`.
+    * **Purpose:** `"latest"` passes an OS/distro label selector through `imagesForArch` and the legacy `HCLOUD_IMAGE` fallback. The pinned official autoscaler `v1.33.3` filters available snapshots by actual server architecture and chooses the first `created:desc` result on each create. Custom autoscaler images must support this upstream contract.
+    * **Requirements:** Every configured autoscaler architecture, even in a zero-capacity pool, needs a matching snapshot without a global `*_snapshot_id` pin. MicroOS legacy snapshots without both OS and distro labels are not eligible. Static-only architectures retain their own pins.
+    * **Operations:** This bypasses Terraform's image rollout gate for future autoscaled nodes. Retain vetted images, exclude bad images from the selector to roll back future creates, and replace already-created bad nodes separately. See [snapshot selection and rollback](operations.md#snapshot-selection-and-rollback).
   * **`cluster_autoscaler_image` (String, Optional):**
     * **Default:** `registry.k8s.io/autoscaling/cluster-autoscaler` (the official Kubernetes project image).
     * **Purpose:** Allows specifying a custom container image for the Cluster Autoscaler deployment. Useful for air-gapped environments, private registries, or custom builds.
@@ -1454,7 +1479,7 @@ Excellent! Let's continue our meticulous dissection.
 ```terraform
   # If you want to disable the automatic upgrade of k3s, you can set below to "false".
   # The default channel follows upstream stable. For production pinning, set k3s_version to an exact release tag.
-  # v1.33 and v1.36 are supported minor-line channels when k3s_version is empty.
+  # v1.33, v1.36 and v1.37 are supported minor-line channels when k3s_version is empty.
   # Bootstrap uses the module-reviewed release; automated upgrades follow the live channel.
   # For production use, always use an HA setup with at least 3 control-plane nodes and 2 agents, and keep this on for maximum security.
 
@@ -1602,7 +1627,7 @@ Excellent! Let's continue our meticulous dissection.
     * `"stable"`: Points to the latest stable k3s release.
     * `"latest"`: Points to the most recent k3s release, which might include release candidates or newer patches than "stable".
     * `"testing"`: For pre-release versions. Not for production.
-    * `"v1.33"` and `"v1.36"`: Supported minor-line channels when `k3s_version` is empty. Bootstrap uses a reviewed snapshot; automated upgrades follow only that minor's patch line.
+    * `"v1.33"`, `"v1.36"` and `"v1.37"`: Supported minor-line channels when `k3s_version` is empty. Bootstrap uses a reviewed snapshot; automated upgrades follow only that minor's patch line.
     * Other accepted minor values (e.g., `"v1.30"`, `"v1.29"`): Require an exact `k3s_version`, which owns installation and upgrade behavior.
   * **Rancher Compatibility (⚠️):** Rancher often has specific Kubernetes version compatibility requirements. Choose a `k3s_version` that is supported by the version of Rancher you intend to use (if `enable_rancher = true`). Pinning one minor below the absolute latest stable is still good practice for broader addon compatibility.
   * **Reference:** The k3s documentation links explain channels in detail.
@@ -2747,6 +2772,7 @@ image:
 
 ```terraform
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
+  # Chart v40+ uses service.spec.type; for earlier chart pins, put type directly under service.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   traefik_values = <<-EOT
 deployment:
@@ -2754,7 +2780,8 @@ deployment:
 additionalArguments: [] # Can add global static config args here too
 service:
   enabled: true
-  type: LoadBalancer # Ensure service is of type LoadBalancer
+  spec:
+    type: LoadBalancer # Ensure service is of type LoadBalancer
   annotations: # Annotations for the Hetzner Load Balancer
     "load-balancer.hetzner.cloud/name": "k3s" # Name for the LB in Hetzner console
     "load-balancer.hetzner.cloud/use-private-ip": "true" # LB uses private IP to connect to nodes
@@ -3399,7 +3426,9 @@ These variables are part of the current v3 module contract and should be conside
   * **Default:** `rke2_channel = "v1.32"`, `rke2_version = "v1.32.5+rke2r1"`.
   * **Purpose:** Selects the RKE2 install channel or exact RKE2 version.
   * **Considerations:** Exact versions supersede channels. Initial channel bootstrap uses the release snapshot reviewed with the module; later automated upgrades can follow the configured live channel.
-  * **Supported unpinned channels:** `stable`, `latest`, `testing`, and `v1.36`. Explicitly set `rke2_version = ""` to follow a channel instead of the default exact-version pin.
+  * **Supported unpinned channels:** `stable`, `latest`, `testing`, `v1.36`, and `v1.37`. Explicitly set `rke2_version = ""` to follow a channel instead of the default exact-version pin.
+  * **Ingress ownership:** On RKE2 v1.36+, kube-hetzner sets `ingress-controller: [none]` in both bootstrap and managed server configuration. This disables the distribution's bundled ingress charts; `ingress_controller` still selects KH's controller. Older pinned server configuration stays unchanged. An explicit `control_planes_custom_config` override remains the operator's responsibility.
+  * **Gateway CRD ownership:** For a resolved initial RKE2 v1.37+ version, KH also disables the independent `rke2-gateway-api-crd` chart, including when no KH Gateway provider is enabled. `gateway_api_version` and KH's provider selection remain authoritative. This is based on the initial version, not a running version changed later by automated upgrades. Before changing an existing cluster that already installed the bundled chart, follow the [ownership handover guidance](upgrades.md#rke2-bundled-gateway-api-crds); do not blindly uninstall CRDs or downgrade their schema.
 
 * **`rke2_artifact_sha256` (Map of Strings, Optional):**
   * **Default:** `{}`.

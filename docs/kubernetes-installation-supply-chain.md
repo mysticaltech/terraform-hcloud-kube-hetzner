@@ -25,7 +25,7 @@ Reviewed channel payload pins come from the official K3s and RKE2 GitHub release
 
 ## Channels and exact versions
 
-For initial bootstrap, `stable`, `latest`, `testing`, `v1.36` (both distributions), and the K3s `v1.33` preservation channel resolve to exact releases in the module's reviewed manifest. They are snapshots, not mutable runtime lookups. With an empty exact version and automated upgrades enabled, System Upgrade Controller plans follow the live channel after bootstrap. Selecting `v1.36` follows that minor's patch releases, not newer Kubernetes minors.
+For initial bootstrap, `stable`, `latest`, `testing`, `v1.36` and `v1.37` (both distributions), and the K3s `v1.33` preservation channel resolve to exact releases in the module's reviewed manifest. They are snapshots, not mutable runtime lookups. With an empty exact version and automated upgrades enabled, System Upgrade Controller plans follow the live channel after bootstrap. Selecting `v1.36` or `v1.37` follows that minor's patch releases, not newer Kubernetes minors.
 
 For RKE2 channel following, explicitly set `rke2_version = ""`; changing the channel alone does not override its default exact-version pin.
 

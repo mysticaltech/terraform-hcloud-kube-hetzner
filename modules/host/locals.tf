@@ -19,13 +19,25 @@ locals {
     if network_id != var.primary_network_key
   ])
 
-  default_connection_host = coalesce(
+  private_connection_host = try(
+    [for network in hcloud_server.server.network : network.ip if var.network_id != null && network.network_id == var.network_id][0],
+    try([for network in hcloud_server.server.network : network.ip][0], null)
+  )
+
+  private_ssh_host = try(one([
+    for network in hcloud_server.server.network : network
+    if network.network_id == var.network_id
+  ]).ip, null)
+
+  # An absent default route must not invalidate a usable higher-precedence host.
+  default_connection_host = var.ssh_use_private_network ? try(coalesce(
+    local.private_ssh_host,
+    hcloud_server.server.ipv4_address,
+    hcloud_server.server.ipv6_address
+    ), null) : coalesce(
     hcloud_server.server.ipv4_address,
     hcloud_server.server.ipv6_address,
-    try(
-      [for network in hcloud_server.server.network : network.ip if var.network_id != null && network.network_id == var.network_id][0],
-      try([for network in hcloud_server.server.network : network.ip][0], null)
-    )
+    local.private_connection_host
   )
 
   map_connection_host = (

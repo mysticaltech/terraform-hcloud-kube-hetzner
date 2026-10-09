@@ -65,12 +65,13 @@ module "sut" {
   nginx_values       = var.nginx_values
   nginx_merge_values = var.nginx_merge_values
 
-  control_plane_nodepools = var.control_plane_nodepools
-  agent_nodepools         = var.agent_nodepools
-  autoscaler_nodepools    = var.autoscaler_nodepools
-  nat_router              = var.nat_router
-  vswitch_id              = var.vswitch_id
-  extra_robot_nodes       = var.extra_robot_nodes
+  control_plane_nodepools               = var.control_plane_nodepools
+  agent_nodepools                       = var.agent_nodepools
+  autoscaler_nodepools                  = var.autoscaler_nodepools
+  cluster_autoscaler_snapshot_selection = var.cluster_autoscaler_snapshot_selection
+  nat_router                            = var.nat_router
+  vswitch_id                            = var.vswitch_id
+  extra_robot_nodes                     = var.extra_robot_nodes
 }
 
 variable "hcloud_token" {
@@ -223,4 +224,9 @@ variable "extra_robot_nodes" {
 variable "extra_firewall_ids" {
   type    = list(number)
   default = []
+}
+
+variable "cluster_autoscaler_snapshot_selection" {
+  type    = string
+  default = "id"
 }
