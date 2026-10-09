@@ -218,14 +218,43 @@ VIP="${nat_gateway_ip}"
 PEER_IP="${peer_private_ip}"
 CLUSTER_NAME="${cluster_name}"
 
-MY_ID=$(curl -f -s http://169.254.169.254/hetzner/v1/metadata/instance-id)
+api_request() {
+  curl -f -s --connect-timeout 5 --max-time 15 "$@"
+}
+
+assert_local_master() {
+  ip -o -4 addr show | awk -v vip="$VIP" \
+    '{split($4, address, "/"); if (address[1] == vip) found=1} END {exit !found}'
+}
+
+# API acceptance is not completion. Do not race the peer's release action.
+wait_for_action() {
+  local response="$1" action_id status deadline
+  action_id=$(printf '%s' "$response" | jq -er '.action.id | numbers | select(. > 0 and floor == .)') || return 1
+  deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    status=$(printf '%s' "$response" | jq -er '.action.status') || return 1
+    case "$status" in
+      success) printf '%s' "$response" | jq -e '.action.error == null' >/dev/null; return $? ;;
+      running) ;;
+      *) return 1 ;;
+    esac
+    sleep 1
+    response=$(api_request -H "Authorization: Bearer $HCLOUD_TOKEN" \
+      "https://api.hetzner.cloud/v1/actions/$action_id") || return 1
+  done
+  echo "NAT alias action did not complete before the deadline." >&2
+  return 1
+}
+
+MY_ID=$(api_request http://169.254.169.254/hetzner/v1/metadata/instance-id)
 
 if [ -z "$MY_ID" ]
 then
   exit 1
 fi
 
-PEER_ID=$(curl -f -s -H "Authorization: Bearer $HCLOUD_TOKEN" \
+PEER_ID=$(api_request -H "Authorization: Bearer $HCLOUD_TOKEN" \
   "https://api.hetzner.cloud/v1/servers?label_selector=role=nat_router,cluster=$CLUSTER_NAME" | \
   jq -r --arg peer_ip "$PEER_IP" --arg net_id "$NET_ID" '.servers[] | select(any(.private_net[]; .ip == $peer_ip and (.network | tostring) == $net_id)) | .id' | head -n 1)
 
@@ -234,13 +263,22 @@ then
   exit 1
 fi
 
-curl -f -s -X POST "https://api.hetzner.cloud/v1/servers/$PEER_ID/actions/change_alias_ips" \
+assert_local_master
+ACTION=$(api_request -X POST "https://api.hetzner.cloud/v1/servers/$PEER_ID/actions/change_alias_ips" \
   -H "Authorization: Bearer $HCLOUD_TOKEN" -H "Content-Type: application/json" \
-  -d "{\"network\": $NET_ID, \"alias_ips\": []}"
+  -d "{\"network\": $NET_ID, \"alias_ips\": []}")
+wait_for_action "$ACTION"
 
-curl -f -s -X POST "https://api.hetzner.cloud/v1/servers/$MY_ID/actions/change_alias_ips" \
+assert_local_master
+ACTION=$(api_request -X POST "https://api.hetzner.cloud/v1/servers/$MY_ID/actions/change_alias_ips" \
   -H "Authorization: Bearer $HCLOUD_TOKEN" -H "Content-Type: application/json" \
-  -d "{\"network\": $NET_ID, \"alias_ips\": [\"$VIP\"]}"
+  -d "{\"network\": $NET_ID, \"alias_ips\": [\"$VIP\"]}")
+wait_for_action "$ACTION"
+
+SERVER=$(api_request -H "Authorization: Bearer $HCLOUD_TOKEN" \
+  "https://api.hetzner.cloud/v1/servers/$MY_ID")
+printf '%s' "$SERVER" | jq -e --arg net_id "$NET_ID" --arg vip "$VIP" \
+  'any(.server.private_net[]; (.network | tostring) == $net_id and (.alias_ips | index($vip)) != null)' >/dev/null
 EOF
 chown keepalived_script:keepalived_script /usr/local/bin/hcloud-alias-failover.sh
 chmod 0700 /usr/local/bin/hcloud-alias-failover.sh
