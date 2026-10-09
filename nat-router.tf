@@ -259,8 +259,7 @@ resource "terraform_data" "nat_router_await_cloud_init" {
   }
 
   provisioner "remote-exec" {
-    inline = ["cloud-init status --wait > /dev/null || echo 'Ready to move on'"]
-    # on_failure = continue # this will fail because the reboot 
+    inline = ["cloud-init status --wait > /dev/null"]
   }
 }
 moved {
