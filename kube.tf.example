@@ -932,9 +932,10 @@ module "kube-hetzner" {
   # Example:
   # traefik_additional_options = ["--log.level=DEBUG", "--tracing=true"]
 
-  # By default traefik image tag is an empty string which uses latest image tag.
-  # The default is "".
-  # traefik_image_tag = "v3.0.0-beta5"
+  # Empty uses the selected chart's appVersion, not a floating latest image.
+  # The reviewed chart default 41.7.0 uses v3.7.14. Explicit image/chart pins and
+  # custom Helm image values are preserved; review them separately for security updates.
+  # traefik_image_tag = ""
 
   # By default traefik is configured to redirect http traffic to https, you can set this to "false" to disable the redirection.
   # The default is true.
@@ -1756,7 +1757,8 @@ image:
   # If you want to pin a specific Traefik Helm chart version, set it below.
   # Unset uses the reviewed module default. Set "latest" or legacy "*" only if you intentionally want to float to the latest chart.
   # See https://github.com/traefik/traefik-helm-chart/releases for the available versions.
-  # traefik_version = "41.0.1"
+  # traefik_version = "41.7.0"
+  # This default includes Traefik v3.7.14 security fixes. Older pins are not upgraded automatically.
 
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
   # If you want to merge extra values into defaults (or traefik_values), use traefik_merge_values.

@@ -2048,7 +2048,7 @@ variable "ingress_max_replica_count" {
 variable "traefik_image_tag" {
   type        = string
   default     = ""
-  description = "Traefik image tag. Useful to use the beta version for new features. Example: v3.0.0-beta5"
+  description = "Traefik image tag. Empty uses the selected chart's appVersion, not a floating latest image. Explicit tags and custom Helm image values are preserved; operators must review their pinned image for security updates."
 }
 
 variable "traefik_autoscaling" {
