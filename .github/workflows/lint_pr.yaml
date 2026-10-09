@@ -102,6 +102,7 @@ jobs:
         run: |
           python3 -m pip install python-hcl2==7.3.1
           python3 scripts/tests/test_kubernetes_channels.py --cli terraform
+          python3 scripts/tests/test_network_attachments.py --cli terraform
 
       - name: Run negative contract tests (tokenless)
         run: python3 scripts/contract_negative_tests.py
