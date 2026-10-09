@@ -112,6 +112,7 @@ jobs:
       - name: Check migration plan and Cilium guidance regressions
         run: |
           python3 scripts/tests/test_migration_network_plan.py
+          python3 scripts/tests/test_nat_cloudinit_readiness.py
           python3 scripts/tests/test_cilium_intake.py
           python3 scripts/tests/test_traefik_service_type.py
           python3 scripts/tests/test_cilium_mtu.py
