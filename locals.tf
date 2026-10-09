@@ -331,7 +331,7 @@ EOT
     hetzner_csi    = "2.21.2"
     kured          = "1.23.0"
     calico         = "v3.32.1"
-    traefik        = "41.0.1"
+    traefik        = "41.7.0"
     nginx          = "4.15.1"
     haproxy        = "1.52.1"
     longhorn       = "v1.12.0"

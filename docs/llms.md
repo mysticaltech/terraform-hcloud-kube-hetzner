@@ -1302,14 +1302,14 @@ Excellent! Let's continue our meticulous dissection.
   * **Reference:** The Traefik static configuration CLI reference is the definitive source.
 
 ```terraform
-  # By default traefik image tag is an empty string which uses latest image tag.
+  # Empty uses the selected chart's appVersion, not a floating latest image.
   # The default is "".
-  # traefik_image_tag = "v3.0.0-beta5"
+  # traefik_image_tag = ""
 ```
 
 * **`traefik_image_tag` (String, Optional, specific to `ingress_controller = "traefik"`):**
-  * **Default:** `""` (empty string), which usually means the Traefik Helm chart will use its default version tag (often the latest stable release).
-  * **Purpose:** Allows you to pin the Traefik Proxy container image to a specific version tag (e.g., `"v2.10.5"`, `"v3.0.0"`).
+  * **Default:** `""` (empty string), which uses the selected chart's `appVersion`. The reviewed chart default `41.7.0` uses `v3.7.14`, including the [current upstream security fixes](https://github.com/traefik/traefik/releases/tag/v3.7.14).
+  * **Purpose:** Allows you to pin the Traefik Proxy container image independently of the chart. Explicit chart/image pins and custom Helm `image.tag`/`image.digest` values are preserved, so those operators must review their effective image separately; changing the module default does not secure a pinned vulnerable image.
   * **Benefit:** Ensures version stability and allows controlled upgrades of Traefik.
 
 ```terraform
@@ -2737,13 +2737,14 @@ image:
   * Recommended when you only need to override a subset of values, such as specific image tags.
 
 ```terraform
-  # If you want to use a specific Traefik helm chart version, set it below; otherwise, leave them as-is for the latest versions.
+  # Unset uses the reviewed module default. Explicit pins are preserved.
   # See https://github.com/traefik/traefik-helm-chart/releases for the available versions.
-  # traefik_version = ""
+  # traefik_version = "41.7.0"
 ```
 
 * **`traefik_version` (String, Optional, specific to `ingress_controller = "traefik"`):**
   * **Purpose:** Allows pinning the Traefik *Helm chart version* itself, distinct from `traefik_image_tag` which pins the container image version. Helm chart versions can change structure, available values, etc., independently of the application image version.
+  * **Upgrade:** Chart `41.7.0` is the first major-41 release using Traefik `v3.7.14`; `v3.7.13` still has subsequently disclosed vulnerabilities. Review the chart's [CRD upgrade instructions](https://github.com/traefik/traefik-helm-chart/tree/v41.7.0#upgrading) and the [application migration notes](https://doc.traefik.io/traefik/v3.7/migrate/v3/) for custom routing, Gateway/Ingress-NGINX names and route precedence. A default chart change replays addon orchestration/readiness; review the saved populated-state plan before rollout. Custom values remain chart-native and are not translated.
 
 ```terraform
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml

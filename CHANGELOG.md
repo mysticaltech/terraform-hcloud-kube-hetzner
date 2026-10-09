@@ -9,8 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade Notes
 
+- The reviewed Traefik default changes from chart `41.0.1` (app `v3.7.5`) to `41.7.0` (app `v3.7.14`). Explicit chart/image pins and custom Helm image values are unchanged and require separate security review. Review [chart CRD upgrade instructions](https://github.com/traefik/traefik-helm-chart/tree/v41.7.0#upgrading) and [Traefik migration notes](https://doc.traefik.io/traefik/v3.7/migrate/v3/) for custom routing, Gateway/Ingress-NGINX naming and route precedence. The version/hash triggers replay addon orchestration and readiness, including when another ingress controller is selected; inspect a saved populated-state plan before rollout. No infrastructure- or operational-replacement exception is implied.
 - Traefik chart v40+ uses `service.spec.type`; custom `traefik_values` or `traefik_merge_values` must use the chart-native path. Earlier chart pins still use `service.type`. Generated values are corrected, but custom YAML is not automatically translated. Applying modern generated values reruns addon orchestration and readiness checks; inspect the saved plan separately from HCloud infrastructure changes.
 - Existing redundant NAT pairs replay readiness and reconciliation because the rendered cloud-init hash changes. Reconciliation restarts keepalived, and the two routers can restart concurrently during a normal apply; review a saved populated-state plan and a controlled one-router-at-a-time maintenance/recovery procedure before rollout. This is not a zero-replacement or uninterrupted-egress guarantee (Refs #2282).
+
+### Security
+
+- Update only the default Traefik chart to `41.7.0`, selecting `v3.7.14` with the [six prior fixes](https://github.com/traefik/traefik/releases/tag/v3.7.13) and [eight additional fixes](https://github.com/traefik/traefik/releases/tag/v3.7.14) for HTTP request handling, conditional NTLM/Negotiate connection reuse, TLS/routing checks and BasicAuth username enumeration. `v3.7.13` alone does not include the newer fixes. Affected-version ranges do not establish exploitability of every operator configuration. The image-tag default remains empty, preserving the selected chart's image and user override precedence.
 
 ### Bug Fixes
 
