@@ -2747,6 +2747,7 @@ image:
 
 ```terraform
   # Traefik, all Traefik helm values can be found at https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml
+  # Chart v40+ uses service.spec.type; for earlier chart pins, put type directly under service.
   # The following is an example, please note that the current indentation inside the EOT is important.
   /*   traefik_values = <<-EOT
 deployment:
@@ -2754,7 +2755,8 @@ deployment:
 additionalArguments: [] # Can add global static config args here too
 service:
   enabled: true
-  type: LoadBalancer # Ensure service is of type LoadBalancer
+  spec:
+    type: LoadBalancer # Ensure service is of type LoadBalancer
   annotations: # Annotations for the Hetzner Load Balancer
     "load-balancer.hetzner.cloud/name": "k3s" # Name for the LB in Hetzner console
     "load-balancer.hetzner.cloud/use-private-ip": "true" # LB uses private IP to connect to nodes

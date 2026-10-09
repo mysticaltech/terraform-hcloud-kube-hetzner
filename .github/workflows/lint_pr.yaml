@@ -110,6 +110,7 @@ jobs:
         run: |
           python3 scripts/tests/test_migration_network_plan.py
           python3 scripts/tests/test_cilium_intake.py
+          python3 scripts/tests/test_traefik_service_type.py
 
   packer-validate:
     runs-on: ubuntu-latest
