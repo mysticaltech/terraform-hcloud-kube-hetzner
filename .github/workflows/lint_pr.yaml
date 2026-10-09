@@ -96,7 +96,9 @@ jobs:
           terraform_wrapper: false
 
       - name: Run render harness
-        run: python3 scripts/render_harness.py
+        run: |
+          python3 scripts/render_harness.py
+          python3 scripts/tests/test_nat_alias_actions.py
 
       - name: Test Kubernetes channel contracts (provider-free)
         run: |

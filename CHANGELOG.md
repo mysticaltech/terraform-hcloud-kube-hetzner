@@ -10,11 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Upgrade Notes
 
 - Traefik chart v40+ uses `service.spec.type`; custom `traefik_values` or `traefik_merge_values` must use the chart-native path. Earlier chart pins still use `service.type`. Generated values are corrected, but custom YAML is not automatically translated. Applying modern generated values reruns addon orchestration and readiness checks; inspect the saved plan separately from HCloud infrastructure changes.
+- Existing redundant NAT pairs replay readiness and reconciliation because the rendered cloud-init hash changes. Reconciliation restarts keepalived, and the two routers can restart concurrently during a normal apply; review a saved populated-state plan and a controlled one-router-at-a-time maintenance/recovery procedure before rollout. This is not a zero-replacement or uninterrupted-egress guarantee (Refs #2282).
 
 ### Bug Fixes
 
 - Correct generated Traefik Service type values for chart v40+ while preserving earlier chart pins and user override precedence (#2296; thanks @loxy).
 - Cap the inferred Cilium base MTU at the smallest declared `extra_robot_nodes[].mtu`, including when Robot CCM is disabled. Cloud-only defaults and explicit Helm overrides are unchanged. Manually joined nodes still require an explicit underlay budget, and existing pods need controlled recreation to pick up changed MTUs; see [Cilium MTU diagnostics](docs/cilium-upgrades.md#use-the-smallest-underlay) (Refs #2286; thanks @ChrisKretschmer).
+- Wait for the two-router alias handoff's asynchronous actions, retain terminal responses received at the deadline, reject mismatched/malformed action and alias readback responses, and bound further observation requests. This remains a one-shot best-effort handoff, not N-replica self-healing, partition fencing, or recovery from an ambiguous mutation (Refs #2282; thanks @clemlesne).
 
 ### Documentation
 
