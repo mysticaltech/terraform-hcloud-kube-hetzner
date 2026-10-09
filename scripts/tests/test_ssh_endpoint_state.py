@@ -41,6 +41,10 @@ def config(repo, distribution):
     expressions.extend(attributes(repo, "kubeconfig.tf", {"kubeconfig_server_address"}).values())
     endpoint = attributes(repo, "locals.tf", {"control_plane_endpoint_host"})
     expressions.extend(endpoint.values())
+    if "local.rke2_ingress_config" in cp_source:
+        expressions.extend(attributes(repo, "locals.tf", {
+            "rke2_ingress_config", "rke2_initial_version", "rke2_channel_release_manifest",
+        }).values())
 
     # Extract both bootstrap SAN branches and advertise addresses exactly.
     for role, marker in (("k3s", 'resource "terraform_data" "first_control_plane"'),
