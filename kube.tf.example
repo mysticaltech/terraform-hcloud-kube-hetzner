@@ -1019,7 +1019,7 @@ module "kube-hetzner" {
 
   # If you want to disable the automatic upgrade of k3s, you can set below to "false".
   # The default channel follows upstream stable. For production pinning, set k3s_version to an exact release tag.
-  # v1.33 and v1.36 are supported minor-line channels when k3s_version is empty.
+  # v1.33, v1.36 and v1.37 are supported minor-line channels when k3s_version is empty.
   # Bootstrap uses the module-reviewed release; automated upgrades can follow the live minor channel.
   # Other minor channels require an exact k3s_version, which also pins automated upgrades.
   # For production use, always use an HA setup with at least 3 control-plane nodes and 2 agents, and keep this on for maximum security.
@@ -1107,7 +1107,7 @@ module "kube-hetzner" {
 
   # Selects stable, latest, or testing. Initial bootstrap uses the exact channel release reviewed
   # with this module version; automated upgrades can continue following the live channel.
-  # v1.33 and v1.36 are accepted for pinning to a Kubernetes minor line, so the System Upgrade
+  # v1.33, v1.36 and v1.37 are accepted for pinning to a Kubernetes minor line, so the System Upgrade
   # Controller follows patch releases of that minor only. For an exact release, use k3s_version.
   # see https://rancher.com/docs/k3s/latest/en/upgrades/basic/ and https://update.k3s.io/v1-release/channels
   # ⚠️ If you are going to use Rancher addons for instance, it's always a good idea to fix the kube version to one minor version below the latest stable,
@@ -1899,6 +1899,7 @@ replicas: 3
 
   # RKE2 exact version/channel controls. rke2_version wins over rke2_channel.
   # To follow v1.36 patches, clear the default exact-version pin with rke2_version = "".
+  # On v1.36+, KH disables RKE2's bundled ingress and manages the selected controller.
   # rke2_channel = "v1.36"
   # rke2_version = ""
   # Optional independent pins for exact versions not reviewed in this module release.

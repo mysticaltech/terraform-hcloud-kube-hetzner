@@ -391,6 +391,7 @@ locals {
       write-kubeconfig-mode       = "0644" # needed for import into rancher
       cni                         = local.rke2_cni
     },
+    local.rke2_ingress_config,
     local.multinetwork_overlay_enabled ? {
       node-external-ip = join(",", compact([local.multinetwork_transport_ipv4_enabled ? module.control_planes[k].ipv4_address : null, local.multinetwork_transport_ipv6_enabled ? module.control_planes[k].ipv6_address : null]))
       } : lookup(local.control_plane_external_ipv4_by_node, k, null) != null ? {

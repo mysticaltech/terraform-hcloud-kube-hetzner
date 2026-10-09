@@ -1023,18 +1023,18 @@ resource "terraform_data" "validation_contract" {
     precondition {
       condition = (
         var.k3s_version != "" ||
-        contains(["stable", "latest", "testing", "v1.33", "v1.36"], var.k3s_channel)
+        contains(["stable", "latest", "testing", "v1.33", "v1.36", "v1.37"], var.k3s_channel)
       )
-      error_message = "When k3s_version is empty, k3s_channel must be stable, latest, testing, v1.33, or v1.36. Supported channels bootstrap from the module-reviewed release; use k3s_version for an exact release."
+      error_message = "When k3s_version is empty, k3s_channel must be stable, latest, testing, v1.33, v1.36, or v1.37. Supported channels bootstrap from the module-reviewed release; use k3s_version for an exact release."
     }
 
     # Moved from variable "rke2_channel" validation near variables.tf:2888.
     precondition {
       condition = (
         var.rke2_version != "" ||
-        contains(["stable", "latest", "testing", "v1.36"], var.rke2_channel)
+        contains(["stable", "latest", "testing", "v1.36", "v1.37"], var.rke2_channel)
       )
-      error_message = "When rke2_version is empty, rke2_channel must be stable, latest, testing, or v1.36. Supported channels bootstrap from the module-reviewed release; use rke2_version for an exact release."
+      error_message = "When rke2_version is empty, rke2_channel must be stable, latest, testing, v1.36, or v1.37. Supported channels bootstrap from the module-reviewed release; use rke2_version for an exact release."
     }
 
     precondition {
