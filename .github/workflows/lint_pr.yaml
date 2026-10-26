@@ -249,4 +249,4 @@ jobs:
           persist-credentials: false
 
       - name: terraform fmt
-        uses: dflook/terraform-fmt-check@1946c2a46d8d3a3001998f9c769a08cedcd28f5d # v3.0.1
+        uses: dflook/terraform-fmt-check@b5d95a3c92f409e0e1cae4200cb7b6e1244d3182 # v3.1.2
