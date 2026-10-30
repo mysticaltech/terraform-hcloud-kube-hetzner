@@ -2486,7 +2486,7 @@ wait_deployment() {
   while true; do
     now="$(date +%s)"
     if [ "$now" -ge "$deadline" ]; then
-      echo "Timed out waiting for deployment/$name to become available in namespace $ns"
+      echo "Timed out waiting for deployment/$name (or daemonset/$name) to become available in namespace $ns"
       return 1
     fi
 
@@ -2498,6 +2498,17 @@ wait_deployment() {
         request_seconds="$(request_timeout_before_deadline)" || continue
         if $KUBECTL --request-timeout="$${request_seconds}s" -n "$ns" wait --for=condition=Available --timeout="$${request_seconds}s" "deployment/$name"; then
           return 0
+        fi
+      else
+        # Ingress controllers can run as a DaemonSet (for example
+        # controller.kind=DaemonSet), in which case no Deployment exists.
+        request_seconds="$(request_timeout_before_deadline)" || continue
+        if $KUBECTL --request-timeout="$${request_seconds}s" -n "$ns" get "daemonset/$name" >/dev/null 2>&1; then
+          echo "Waiting for daemonset/$name in namespace $ns"
+          request_seconds="$(request_timeout_before_deadline)" || continue
+          if $KUBECTL --request-timeout="$${request_seconds}s" -n "$ns" rollout status --timeout="$${request_seconds}s" "daemonset/$name"; then
+            return 0
+          fi
         fi
       fi
     fi

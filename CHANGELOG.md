@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- The post-install readiness gate now accepts a rolled-out DaemonSet when a managed ingress controller runs with `kind: DaemonSet` and no Deployment of that name exists, instead of timing out after 600 seconds (#2304).
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes

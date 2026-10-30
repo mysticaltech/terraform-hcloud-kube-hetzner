@@ -1548,6 +1548,81 @@ esac
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def run_post_install_readiness_daemonset_simulation(script: str) -> None:
+    temp_dir = Path(tempfile.mkdtemp(prefix="kh-render-readiness-daemonset-"))
+    try:
+        fake_bin = temp_dir / "bin"
+        fake_bin.mkdir()
+        kubectl_log = temp_dir / "kubectl.log"
+
+        (fake_bin / "kubectl").write_text(
+            """#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "${KH_FAKE_KUBECTL_LOG:?}"
+case "$*" in
+  "--request-timeout=30s get ns nginx")
+    exit 0
+    ;;
+  "--request-timeout=30s -n nginx get deployment/nginx-ingress-nginx-controller")
+    echo 'Error from server (NotFound): deployments.apps "nginx-ingress-nginx-controller" not found' >&2
+    exit 1
+    ;;
+  "--request-timeout=30s -n nginx get daemonset/nginx-ingress-nginx-controller")
+    exit 0
+    ;;
+  "--request-timeout=30s -n nginx rollout status --timeout=30s daemonset/nginx-ingress-nginx-controller")
+    exit 0
+    ;;
+  *)
+    echo "unexpected kubectl invocation: $*" >&2
+    exit 97
+    ;;
+esac
+""",
+            encoding="utf-8",
+        )
+        (fake_bin / "date").write_text("#!/bin/sh\necho 100\n", encoding="utf-8")
+        (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        for path in fake_bin.iterdir():
+            path.chmod(0o755)
+
+        simulation_script = script.replace("__KUBECTL__", "kubectl")
+        simulation_script += "\nwait_deployment nginx nginx-ingress-nginx-controller 30\n"
+        env = os.environ.copy()
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+        env["KH_FAKE_KUBECTL_LOG"] = str(kubectl_log)
+        result = subprocess.run(
+            ["bash", "-e"],
+            input=simulation_script,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        if result.returncode != 0:
+            fail(
+                "post-install readiness daemonset simulation",
+                strip_ansi((result.stdout + "\n" + result.stderr).strip()) or "simulation failed",
+            )
+        expected_calls = (
+            "--request-timeout=30s get ns nginx\n"
+            "--request-timeout=30s -n nginx get deployment/nginx-ingress-nginx-controller\n"
+            "--request-timeout=30s -n nginx get daemonset/nginx-ingress-nginx-controller\n"
+            "--request-timeout=30s -n nginx rollout status --timeout=30s daemonset/nginx-ingress-nginx-controller\n"
+        )
+        if kubectl_log.read_text(encoding="utf-8") != expected_calls:
+            fail(
+                "post-install readiness daemonset simulation",
+                f"unexpected kubectl calls: {kubectl_log.read_text(encoding='utf-8')!r}",
+            )
+        print_pass(
+            "post-install readiness daemonset simulation",
+            "an ingress controller deployed as a DaemonSet satisfies the readiness gate",
+        )
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 def run_post_install_readiness_deadline_simulation(script: str) -> None:
     temp_dir = Path(tempfile.mkdtemp(prefix="kh-render-readiness-deadline-"))
     try:
@@ -2866,6 +2941,7 @@ def main() -> int:
         )
         run_post_install_readiness_deployment_retry_simulation(post_install_readiness_script)
         run_post_install_readiness_deadline_simulation(post_install_readiness_script)
+        run_post_install_readiness_daemonset_simulation(post_install_readiness_script)
         run_cloudinit_checks(scratch)
         assert_health_checker_first_boot_contract()
         assert_static_os_update_service_ordering_contract()
