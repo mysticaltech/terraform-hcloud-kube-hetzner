@@ -488,7 +488,7 @@ locals {
 }
 
 resource "terraform_data" "control_plane_config_rke2" {
-  for_each = local.kubernetes_distribution == "rke2" ? local.control_plane_nodes : {}
+  for_each = { for k, v in local.control_plane_nodes : k => v if local.kubernetes_distribution == "rke2" }
 
   triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
@@ -568,7 +568,7 @@ moved {
 }
 
 resource "terraform_data" "control_plane_config" {
-  for_each = local.kubernetes_distribution == "k3s" ? local.control_plane_nodes : {}
+  for_each = { for k, v in local.control_plane_nodes : k => v if local.kubernetes_distribution == "k3s" }
 
   triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
@@ -699,7 +699,7 @@ moved {
 }
 
 resource "terraform_data" "control_planes_rke2" {
-  for_each = local.kubernetes_distribution == "rke2" ? local.control_plane_nodes : {}
+  for_each = { for k, v in local.control_plane_nodes : k => v if local.kubernetes_distribution == "rke2" }
 
   triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
@@ -757,7 +757,7 @@ moved {
 }
 
 resource "terraform_data" "control_planes" {
-  for_each = local.kubernetes_distribution == "k3s" ? local.control_plane_nodes : {}
+  for_each = { for k, v in local.control_plane_nodes : k => v if local.kubernetes_distribution == "k3s" }
 
   triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
