@@ -1,5 +1,5 @@
 resource "terraform_data" "tailscale_control_planes" {
-  for_each = local.tailscale_remote_exec_bootstrap_enabled ? local.control_plane_nodes : {}
+  for_each = { for k, v in local.control_plane_nodes : k => v if local.tailscale_remote_exec_bootstrap_enabled }
 
   triggers_replace = {
     control_plane_id = module.control_planes[each.key].id
@@ -32,7 +32,7 @@ resource "terraform_data" "tailscale_control_planes" {
 }
 
 resource "terraform_data" "tailscale_agents" {
-  for_each = local.tailscale_remote_exec_bootstrap_enabled ? local.agent_nodes : {}
+  for_each = { for k, v in local.agent_nodes : k => v if local.tailscale_remote_exec_bootstrap_enabled }
 
   triggers_replace = {
     agent_id       = module.agents[each.key].id
