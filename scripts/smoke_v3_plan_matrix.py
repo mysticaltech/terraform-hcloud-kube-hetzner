@@ -239,6 +239,33 @@ def scenarios(external_network_id: str | None) -> list[Scenario]:
             """,
         ),
         Scenario(
+            name="agent-mixed-count-and-map-valid",
+            extra_module_hcl="",
+            expect_success=True,
+            agent_nodepools_hcl="""
+            agent_nodepools = [
+              {
+                name        = "agent"
+                server_type = "cx23"
+                location    = "nbg1"
+                labels      = []
+                taints      = []
+                count       = 1
+              },
+              {
+                name        = "egress"
+                server_type = "cx23"
+                location    = "nbg1"
+                labels      = []
+                taints      = []
+                nodes = {
+                  "0" = { append_index_to_node_name = true }
+                }
+              }
+            ]
+            """,
+        ),
+        Scenario(
             name="private-agent-extra-firewall-budget-ignored-valid",
             extra_module_hcl="",
             expect_success=True,

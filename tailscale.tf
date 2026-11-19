@@ -32,7 +32,9 @@ resource "terraform_data" "tailscale_control_planes" {
 }
 
 resource "terraform_data" "tailscale_agents" {
-  for_each = local.tailscale_remote_exec_bootstrap_enabled ? local.agent_nodes : {}
+  # A filtered for instead of `cond ? local.agent_nodes : {}`: with count-based and map-based
+  # agent nodepools mixed, agent_nodes is an object and the conditional has no common type.
+  for_each = { for k, v in local.agent_nodes : k => v if local.tailscale_remote_exec_bootstrap_enabled }
 
   triggers_replace = {
     agent_id       = module.agents[each.key].id

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Fix planning with both count-based and map-based agent nodepools. `tailscale_agents` failed with "Inconsistent conditional result types" even with Tailscale disabled.
+
 ## [3.2.1] - 2026-09-09
 
 ### ⚠️ Upgrade Notes
